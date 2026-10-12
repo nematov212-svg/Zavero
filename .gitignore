@@ -1,0 +1,78 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+build/
+/coverage/
+
+# Android
+.gradle/
+**/android/.gradle/
+**/android/captures/
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# iOS / macOS
+**/ios/Flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+**/ios/**/Pods/
+**/macos/**/Pods/
+**/ios/**/.symlinks/
+**/macos/**/.symlinks/
+**/ios/**/flutter_export_environment.sh
+**/macos/**/flutter_export_environment.sh
+**/ios/**/Generated.xcconfig
+**/macos/**/Generated.xcconfig
+**/ios/**/Flutter.framework
+**/ios/**/Flutter.podspec
+
+# Linux / Windows ephemeral
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Widget Preview related
+.widget_preview/
+
+# Sensitive / Secret files
+.env
+.env.*
+*.env
+*.key
+*.keystore
+*.jks
+*.p12
+*.mobileprovision

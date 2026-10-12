@@ -1,0 +1,67 @@
+[
+  {
+    "id": 1,
+    "name": "Shaurma",
+    "iconCodePoint": 61925
+  },
+  {
+    "id": 2,
+    "name": "Lavash",
+    "iconCodePoint": 58746
+  },
+  {
+    "id": 3,
+    "name": "Pita",
+    "iconCodePoint": 61589
+  },
+  {
+    "id": 4,
+    "name": "Super Donar",
+    "iconCodePoint": 61853
+  },
+  {
+    "id": 5,
+    "name": "Hot-dog",
+    "iconCodePoint": 58710
+  },
+  {
+    "id": 6,
+    "name": "Pizza",
+    "iconCodePoint": 58717
+  },
+  {
+    "id": 7,
+    "name": "Ichimliklar",
+    "iconCodePoint": 58688
+  },
+  {
+    "id": 8,
+    "name": "Choy",
+    "iconCodePoint": 60000
+  },
+  {
+    "id": 10,
+    "name": "Simichka",
+    "iconCodePoint": 59283
+  },
+  {
+    "id": 11,
+    "name": "Marojni",
+    "iconCodePoint": 58724
+  },
+  {
+    "id": 12,
+    "name": "Desertlar",
+    "iconCodePoint": 59369
+  },
+  {
+    "id": 13,
+    "name": "Tostik",
+    "iconCodePoint": 58306
+  },
+  {
+    "id": 14,
+    "name": "Dastafka",
+    "iconCodePoint": 58256
+  }
+]
