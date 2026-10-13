@@ -1,0 +1,13 @@
+const express = require('express');
+const router = express.Router();
+const c = require('../controllers/reportController');
+const auth = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/roleMiddleware');
+router.use(auth);
+router.use(requireAdmin);
+router.get('/', c.list);
+router.delete('/month/:yearMonth', c.clearMonth);
+router.delete('/all', c.clearAll);
+router.get('/:dateId', c.getOne);
+router.delete('/:dateId', c.clearDay);
+module.exports = router;

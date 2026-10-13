@@ -1,0 +1,18 @@
+node_modules/
+.env
+.env.*
+*.env
+!.env.example
+*.log
+uploads/
+
+# Secrets
+.env
+**/.env
+
+# Build and cache files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+android/.gradle/
+ios/Pods/

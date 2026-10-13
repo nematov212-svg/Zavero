@@ -1,0 +1,134 @@
+const db = require('../config/db');
+const { mapReceipt, mapReport } = require('../utils/mappers');
+const { notifyCafe } = require('../socket/socketHandler');
+
+const dateIdFrom = (d) => new Date(d).toISOString().substring(0, 10);
+
+const list = async (req, res) => {
+  const result = await db.query(
+    'SELECT * FROM receipts WHERE cafe_id = $1 ORDER BY date DESC LIMIT 200',
+    [req.user.cafeId]
+  );
+  res.json({ success: true, receipts: result.rows.map(mapReceipt) });
+};
+
+// POST /api/receipts/checkout — finalize payment: save receipt, decrement stock,
+// update the day's report, free the table. Mirrors CloudService.completeCheckout.
+const checkout = async (req, res) => {
+  const cafeId = req.user.cafeId;
+  const { receipt, tableId, items } = req.body;
+
+  if (!receipt || !items) {
+    return res.status(400).json({ success: false, message: 'receipt va items kiritilishi shart.' });
+  }
+
+  try {
+    const { receiptRow, reportRow } = await db.withTransaction(async (client) => {
+      const date = receipt.date ? new Date(receipt.date) : new Date();
+      const dateId = dateIdFrom(date);
+
+      const receiptResult = await client.query(
+        `INSERT INTO receipts (cafe_id, date, items, total, method, cashier_name, table_number, hall_name, cash_paid, card_paid)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [
+          cafeId, date, JSON.stringify(items), receipt.total || 0, receipt.method || 'cash',
+          receipt.cashierName || '', receipt.tableNumber ?? null, receipt.hallName ?? null,
+          receipt.cashPaid || 0, receipt.cardPaid || 0,
+        ]
+      );
+      const receiptRow = receiptResult.rows[0];
+
+      for (const item of items) {
+        await client.query(
+          'UPDATE products SET stock = GREATEST(stock - $1, 0) WHERE id = $2 AND cafe_id = $3',
+          [item.qty, item.product.id, cafeId]
+        );
+      }
+
+      const reportRes = await client.query(
+        'SELECT * FROM reports WHERE cafe_id = $1 AND date_id = $2',
+        [cafeId, dateId]
+      );
+
+      let qty = {}, rev = {}, tableRev = {}, totalRev = 0, orderCount = 0, topProduct = '';
+      if (reportRes.rows.length > 0) {
+        const existing = reportRes.rows[0];
+        qty = existing.product_quantities || {};
+        rev = existing.product_revenue || {};
+        tableRev = existing.table_revenue || {};
+        totalRev = parseFloat(existing.total_revenue);
+        orderCount = existing.order_count;
+        topProduct = existing.top_product || '';
+      }
+
+      totalRev += receipt.total || 0;
+      orderCount += 1;
+
+      for (const item of items) {
+        const name = item.product.name;
+        qty[name] = (qty[name] || 0) + item.qty;
+        rev[name] = (rev[name] || 0) + item.product.price * item.qty;
+      }
+      if (receipt.tableNumber) {
+        const key = `Stol ${receipt.tableNumber}`;
+        tableRev[key] = (tableRev[key] || 0) + (receipt.total || 0);
+      }
+      let topQty = 0;
+      for (const [name, q] of Object.entries(qty)) {
+        if (q > topQty) { topQty = q; topProduct = name; }
+      }
+
+      const reportResult = await client.query(
+        `INSERT INTO reports (cafe_id, date_id, total_revenue, order_count, product_quantities, product_revenue, top_product, table_revenue, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CURRENT_TIMESTAMP)
+         ON CONFLICT (cafe_id, date_id) DO UPDATE SET
+           total_revenue=$3, order_count=$4, product_quantities=$5, product_revenue=$6, top_product=$7, table_revenue=$8, updated_at=CURRENT_TIMESTAMP
+         RETURNING *`,
+        [cafeId, dateId, totalRev, orderCount, JSON.stringify(qty), JSON.stringify(rev), topProduct, JSON.stringify(tableRev)]
+      );
+
+      let effectiveTableId = tableId;
+      if (!effectiveTableId && receipt.tableNumber) {
+        const tCheck = await client.query('SELECT id FROM restaurant_tables WHERE cafe_id = $1 AND number = $2 LIMIT 1', [cafeId, parseInt(receipt.tableNumber, 10)]);
+        if (tCheck.rows.length > 0) {
+          effectiveTableId = tCheck.rows[0].id;
+        }
+      }
+
+      if (effectiveTableId) {
+        await client.query(
+          `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL, updated_at=CURRENT_TIMESTAMP
+           WHERE id=$1 AND cafe_id=$2`,
+          [effectiveTableId, cafeId]
+        );
+        await client.query('DELETE FROM table_orders WHERE table_id = $1', [effectiveTableId]);
+      }
+
+      await client.query(
+        'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+        [
+          cafeId, 'checkout_completed',
+          `Chek #${receiptRow.id} yaratildi. Jami: ${receipt.total} so'm. Kassir: ${receipt.cashierName || ''}`,
+          receipt.cashierName || '',
+        ]
+      );
+
+      return { receiptRow, reportRow: reportResult.rows[0], effectiveTableId };
+    });
+
+    notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
+    notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow) });
+    if (effectiveTableId) {
+      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, status: 'free' });
+      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, items: [], note: '' });
+    }
+
+    return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow) });
+  } catch (error) {
+    console.error('checkout error:', error);
+    return res.status(500).json({ success: false, message: "To'lovni yakunlashda xatolik: " + error.message });
+  }
+};
+
+module.exports = { list, checkout };

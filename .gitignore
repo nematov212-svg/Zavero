@@ -76,3 +76,11 @@ app.*.map.json
 *.jks
 *.p12
 *.mobileprovision
+
+# Backend specific
+node_modules/
+backend/node_modules/
+backend/.env
+backend/.env.*
+backend/*.log
+backend/uploads/

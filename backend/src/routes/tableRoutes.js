@@ -1,0 +1,21 @@
+const express = require('express');
+const router = express.Router();
+const c = require('../controllers/tableController');
+const auth = require('../middleware/authMiddleware');
+router.use(auth);
+router.get('/', c.list);
+router.post('/', c.createTable);
+router.delete('/clear-all', c.clearAllTables);
+router.post('/clear-all', c.clearAllTables);
+router.delete('/clear-hall/:hallId', c.clearHallTables);
+router.post('/clear-hall/:hallId', c.clearHallTables);
+router.put('/:id', c.updateTable);
+router.delete('/:id', c.removeTable);
+router.post('/:id/delete', c.removeTable);
+router.delete('/', c.removeTable);
+router.post('/delete', c.removeTable);
+router.post('/:id/order', c.saveOrder);
+router.post('/:id/release', c.release);
+router.put('/:id/status', c.updateStatus);
+module.exports = router;
+

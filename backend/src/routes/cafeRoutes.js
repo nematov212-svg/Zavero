@@ -1,0 +1,14 @@
+const express = require('express');
+const router = express.Router();
+const c = require('../controllers/cafeController');
+const auth = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/roleMiddleware');
+router.use(auth);
+router.get('/full', c.getFullCafeData);
+router.post('/restore-menu', requireAdmin, c.restoreMenu);
+router.get('/settings', c.getSettings);
+router.put('/settings', requireAdmin, c.saveSettings);
+router.put('/receipt-name', requireAdmin, c.updateReceiptName);
+router.post('/report-issue', c.reportIssue);
+router.get('/maintenance-status', c.getMaintenanceStatus);
+module.exports = router;
