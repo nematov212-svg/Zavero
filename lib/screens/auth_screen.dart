@@ -440,41 +440,47 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Brand Badge: [☕] ZAVERO Cafe Automation System
+        // Brand Badge: [ZAVERO FAST Logo] ZAVERO Cafe Automation System
         Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2A2010), Color(0xFF1A1308)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.7), width: 1.5),
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFFF4D4D), width: 1.5),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFFFB300).withValues(alpha: 0.3),
+                    color: const Color(0xFFFF4D4D).withValues(alpha: 0.35),
                     blurRadius: 14,
                   ),
                 ],
               ),
-              child: const Center(
-                child: Icon(Icons.coffee_rounded, color: Color(0xFFFFB300), size: 22),
+              child: ClipOval(
+                child: Padding(
+                  padding: const EdgeInsets.all(4.0),
+                  child: Image.asset(
+                    'assets/logo/logo_transparent.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (c, e, s) => Image.asset(
+                      'assets/images/logo.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'ZAVERO',
+                  'ZAVERO FAST',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
-                    fontSize: 18,
+                    fontSize: 19,
                     letterSpacing: 2.0,
                   ),
                 ),
@@ -1131,38 +1137,45 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
     return Column(
       children: [
         Container(
-          width: 54,
-          height: 54,
+          width: 76,
+          height: 76,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF2A2010), Color(0xFF1A1308)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            border: Border.all(color: const Color(0xFFFFB300), width: 1.5),
+            shape: BoxShape.circle,
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFFFF4D4D), width: 2.0),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFFFB300).withValues(alpha: 0.35),
-                blurRadius: 16,
+                color: const Color(0xFFFF4D4D).withValues(alpha: 0.4),
+                blurRadius: 18,
+                spreadRadius: 2,
               ),
             ],
           ),
-          child: const Center(
-            child: Icon(Icons.coffee_rounded, color: Color(0xFFFFB300), size: 28),
+          child: ClipOval(
+            child: Padding(
+              padding: const EdgeInsets.all(6.0),
+              child: Image.asset(
+                'assets/logo/logo_transparent.png',
+                fit: BoxFit.contain,
+                errorBuilder: (c, e, s) => Image.asset(
+                  'assets/images/logo.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         const Text(
           'ZAVERO',
           style: TextStyle(
-            fontSize: 24,
+            fontSize: 25,
             fontWeight: FontWeight.w900,
             letterSpacing: 2.5,
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 4),
         Text(
           'Restoran va Kafe Savdo Tizimi',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade400),

@@ -32,7 +32,6 @@ import 'services/localization_service.dart';
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
 import 'widgets/receipt_widget.dart';
-import 'widgets/zavero_brand_logo.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -4034,12 +4033,16 @@ class CafeLogo extends StatelessWidget {
   const CafeLogo({super.key, this.size = 90, this.isWhite = false});
 
   Widget _buildFallback(BuildContext context) {
-    return ZaveroBrandLogo(
-      size: size,
-      showSubtitle: false,
-      darkText: false,
-      isWhite: isWhite,
-      animatedSparks: true,
+    return Padding(
+      padding: EdgeInsets.all(size * 0.10),
+      child: Image.asset(
+        'assets/logo/logo_transparent.png',
+        fit: BoxFit.contain,
+        errorBuilder: (c, e, s) => Image.asset(
+          'assets/images/logo.png',
+          fit: BoxFit.contain,
+        ),
+      ),
     );
   }
 
@@ -6030,6 +6033,220 @@ void _showReportIssueDialog(BuildContext context) {
   );
 }
 
+// ============================================================
+// IMAGE 3 & 4: ANIMATED HEADER LOGO BADGE & GREETING PILL BADGE
+// ============================================================
+class _AnimatedHeaderLogoBadge extends StatefulWidget {
+  final double size;
+  const _AnimatedHeaderLogoBadge({this.size = 36});
+
+  @override
+  State<_AnimatedHeaderLogoBadge> createState() => _AnimatedHeaderLogoBadgeState();
+}
+
+class _AnimatedHeaderLogoBadgeState extends State<_AnimatedHeaderLogoBadge>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        final scale = 0.96 + 0.08 * _ctrl.value;
+        final glowRadius = 4.0 + 8.0 * _ctrl.value;
+        return Transform.scale(
+          scale: scale,
+          child: Container(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(
+                color: Color.lerp(
+                  const Color(0xFFFF4D4D),
+                  const Color(0xFFFFB300),
+                  _ctrl.value,
+                )!,
+                width: 1.8,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFF4D4D).withValues(alpha: 0.35 * _ctrl.value + 0.15),
+                  blurRadius: glowRadius,
+                  spreadRadius: 1.0,
+                ),
+              ],
+            ),
+            child: ClipOval(
+              child: Padding(
+                padding: const EdgeInsets.all(3.0),
+                child: Image.asset(
+                  'assets/logo/logo_transparent.png',
+                  fit: BoxFit.contain,
+                  errorBuilder: (c, e, s) => Image.asset(
+                    'assets/images/logo.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+Widget _buildGreetingPillBadge(
+  BuildContext context,
+  AppUser? user,
+  bool isAdmin,
+  bool isWaiter,
+  bool isCourier,
+  bool isMobile,
+) {
+  final roleColor = isAdmin
+      ? const Color(0xFFFFB300)
+      : isWaiter
+          ? const Color(0xFF10B981)
+          : isCourier
+              ? const Color(0xFFEC4899)
+              : const Color(0xFF3B82F6);
+
+  final roleIcon = isAdmin
+      ? Icons.shield_rounded
+      : isWaiter
+          ? Icons.room_service_rounded
+          : isCourier
+              ? Icons.delivery_dining_rounded
+              : Icons.point_of_sale_rounded;
+
+  final roleLabel = isAdmin
+      ? tr('role_admin')
+      : isWaiter
+          ? tr('role_waiter')
+          : isCourier
+              ? tr('role_courier')
+              : tr('role_cashier');
+
+  return Container(
+    padding: EdgeInsets.symmetric(
+      horizontal: isMobile ? 10 : 14,
+      vertical: isMobile ? 4 : 6,
+    ),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.08),
+          Colors.white.withValues(alpha: 0.03),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(24),
+      border: Border.all(
+        color: Colors.white.withValues(alpha: 0.12),
+        width: 1.0,
+      ),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Pulsing Online Green Indicator
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: const Color(0xFF10B981),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF10B981).withValues(alpha: 0.6),
+                blurRadius: 6,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Greeting & Name
+        Flexible(
+          child: RichText(
+            overflow: TextOverflow.ellipsis,
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: isMobile ? 12.5 : 14.5,
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
+              children: [
+                if (!isMobile)
+                  TextSpan(
+                    text: '${tr('welcome_user')}, ',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.75)),
+                  ),
+                TextSpan(
+                  text: user?.name ?? "Mehmon",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Role Badge Chip
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: roleColor.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: roleColor.withValues(alpha: 0.5),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(roleIcon, size: 12, color: roleColor),
+              const SizedBox(width: 4),
+              Text(
+                roleLabel,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  color: roleColor,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
@@ -6361,23 +6578,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           appBar: AppBar(
             elevation: 0,
             backgroundColor: const Color(0xFF0F172A),
-            leadingWidth: isMobile ? 140 : 210,
+            leadingWidth: isMobile ? 165 : 230,
             leading: Padding(
               padding: const EdgeInsets.only(left: 14),
               child: Row(
                 children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFFFB300).withValues(alpha: 0.3),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    ),
-                    child: const CafeLogo(size: 32),
-                  ),
+                  const _AnimatedHeaderLogoBadge(size: 38),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -6385,16 +6591,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'ZAVERO POS',
+                          'ZAVERO FAST',
                           style: TextStyle(
-                            fontSize: 12.5,
+                            fontSize: 13,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 1.2,
-                            color: Color(0xFFFFB300),
+                            color: Color(0xFFFF4D4D),
                           ),
                         ),
                         Text(
-                          appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero',
+                          appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Family Cafe',
                           style: TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.w600,
@@ -6409,59 +6615,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${tr('welcome_user')}, ${user?.name ?? "Mehmon"}',
-                  style: TextStyle(
-                    fontSize: isMobile ? 14 : 17,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-                if (!isMobile) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: isAdmin
-                          ? const Color(0xFFFFB300).withValues(alpha: 0.2)
-                          : isWaiter
-                              ? const Color(0xFF10B981).withValues(alpha: 0.2)
-                              : const Color(0xFF3B82F6).withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isAdmin
-                            ? const Color(0xFFFFB300)
-                            : isWaiter
-                                ? const Color(0xFF10B981)
-                                : const Color(0xFF3B82F6),
-                        width: 1,
-                      ),
-                    ),
-                    child: Text(
-                      isAdmin
-                          ? tr('role_admin')
-                          : isWaiter
-                              ? tr('role_waiter')
-                              : isCourier
-                                  ? tr('role_courier')
-                                  : tr('role_cashier'),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: isAdmin
-                            ? const Color(0xFFFFB300)
-                            : isWaiter
-                                ? const Color(0xFF34D399)
-                                : const Color(0xFF60A5FA),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
+            title: _buildGreetingPillBadge(context, user, isAdmin, isWaiter, isCourier, isMobile),
             actions: [
               // Language Switcher Dropdown in Top Bar
               Padding(
@@ -15484,12 +15638,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final isAdmin = appState.currentUser?.role == UserRole.admin;
     return Scaffold(
-      appBar: AppBar(title: const Text('Sozlamalar')),
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: const Color(0xFF0F172A),
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Row(
+          children: [
+            Icon(Icons.tune_rounded, color: Color(0xFFFFB300), size: 22),
+            SizedBox(width: 10),
+            Text(
+              'Tizim Sozlamalari',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 540),
+            constraints: const BoxConstraints(maxWidth: 560),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -15507,40 +15681,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 if (isAdmin) ...[
                   Card(
-                    elevation: 2,
+                    elevation: 3,
+                    shadowColor: Colors.black.withValues(alpha: 0.08),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(20),
+                      side: BorderSide(color: Colors.grey.withValues(alpha: 0.15)),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.image_outlined, color: kDarkYellow),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Ilova logotipi',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF4D4D).withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.fastfood_rounded, color: Color(0xFFFF4D4D), size: 22),
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Brend va Ilova Logotipi',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0F172A),
+                                      ),
+                                    ),
+                                    Text(
+                                      'Barcha qurilmalar, cheklar va APK uchun rasmiy logotip',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          const Center(
-                            child: CafeLogo(size: 84),
+                          const SizedBox(height: 18),
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white,
+                                border: Border.all(color: const Color(0xFFFF4D4D).withValues(alpha: 0.4), width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFFF4D4D).withValues(alpha: 0.18),
+                                    blurRadius: 20,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: const CafeLogo(size: 88),
+                            ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: kDarkYellow,
+                                  backgroundColor: const Color(0xFF0F172A),
                                   foregroundColor: Colors.white,
+                                  elevation: 2,
+                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                 ),
                                 onPressed: () async {
                                   final path = await pickAndSaveImageFromGallery();
@@ -15550,25 +15763,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(
                                           content: Text('Ilova logotipi muvaffaqiyatli yangilandi!'),
+                                          backgroundColor: Color(0xFF10B981),
                                         ),
                                       );
                                     }
                                   }
                                 },
-                                icon: const Icon(Icons.upload_file, size: 18),
-                                label: const Text('Rasm yuklash / almashtirish'),
+                                icon: const Icon(Icons.upload_file_rounded, size: 18, color: Color(0xFFFFB300)),
+                                label: const Text('Maxsus rasm yuklash', style: TextStyle(fontWeight: FontWeight.bold)),
                               ),
                               if (appState.appLogoUrl != null &&
                                   appState.appLogoUrl!.isNotEmpty) ...[
                                 const SizedBox(width: 8),
                                 IconButton(
-                                  tooltip: 'Logotipni o\'chirish (default)',
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                  tooltip: 'Logotipni standart ko\'rinishga qaytarish',
+                                  icon: const Icon(Icons.refresh_rounded, color: Colors.redAccent),
                                   onPressed: () {
                                     appState.setAppLogoUrl(null);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text('Logotip standart ko\'rinishga qaytarildi'),
+                                        content: Text('Logotip rasmiy ZAVERO FAST ko\'rinishiga qaytarildi'),
                                       ),
                                     );
                                   },
