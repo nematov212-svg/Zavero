@@ -32,12 +32,12 @@ class ApiClient {
   static const _tokenKey = 'zavero_auth_token';
   static const _userKey = 'zavero_current_user';
 
-  /// Backend serverless / cloud manzili (Render: https://zavero.onrender.com/api).
+  /// Backend serverless / cloud manzili (Render: https://zavero-jrna.onrender.com/api).
   /// --dart-define=API_BASE_URL=... orqali o'zgartirish mumkin.
   static String _defaultBaseUrl() {
     const fromEnv = String.fromEnvironment('API_BASE_URL');
     if (fromEnv.isNotEmpty) return fromEnv;
-    return 'https://zavero.onrender.com/api';
+    return 'https://zavero-jrna.onrender.com/api';
   }
 
   late Dio _dio;
