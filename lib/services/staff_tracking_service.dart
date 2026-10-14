@@ -19,6 +19,14 @@ class StaffMemberStatus {
   double x; // 0.0 to 1.0 relative position on cafe radar map
   double y; // 0.0 to 1.0 relative position on cafe radar map
 
+  // Real-time GPS Location fields
+  double latitude;
+  double longitude;
+  double accuracyMeters;
+  String zoneName;
+  String address;
+  bool gpsActive;
+
   StaffMemberStatus({
     required this.userId,
     required this.userName,
@@ -26,14 +34,22 @@ class StaffMemberStatus {
     this.isOnBreak = false,
     this.breakStartedAt,
     this.statusText = 'Faol / Ishlamoqda',
-    this.location = 'Zal 1',
+    this.location = '1-Zal',
     this.distanceMeters = 0.0,
     this.steps = 0,
     DateTime? lastActive,
     this.isMoving = false,
     this.x = 0.3,
     this.y = 0.4,
-  }) : lastActive = lastActive ?? DateTime.now();
+    double? latitude,
+    double? longitude,
+    this.accuracyMeters = 3.5,
+    this.zoneName = '🍽️ 1-Zal (Stollar)',
+    this.address = 'ZAVERO Cafe, Toshkent',
+    this.gpsActive = true,
+  })  : lastActive = lastActive ?? DateTime.now(),
+        latitude = latitude ?? (41.2995 + (userId % 5) * 0.00015),
+        longitude = longitude ?? (69.2401 + (userId % 7) * 0.00015);
 
   Map<String, dynamic> toJson() => {
         'userId': userId,
@@ -49,6 +65,12 @@ class StaffMemberStatus {
         'isMoving': isMoving,
         'x': x,
         'y': y,
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracyMeters': accuracyMeters,
+        'zoneName': zoneName,
+        'address': address,
+        'gpsActive': gpsActive,
       };
 
   factory StaffMemberStatus.fromJson(Map<String, dynamic> j) {
@@ -61,7 +83,7 @@ class StaffMemberStatus {
           ? DateTime.tryParse(j['breakStartedAt'])
           : null,
       statusText: j['statusText'] as String? ?? 'Faol / Ishlamoqda',
-      location: j['location'] as String? ?? 'Zal 1',
+      location: j['location'] as String? ?? '1-Zal',
       distanceMeters: (j['distanceMeters'] as num?)?.toDouble() ?? 0.0,
       steps: (j['steps'] as num?)?.toInt() ?? 0,
       lastActive: j['lastActive'] != null
@@ -70,6 +92,12 @@ class StaffMemberStatus {
       isMoving: j['isMoving'] == true,
       x: (j['x'] as num?)?.toDouble() ?? 0.3,
       y: (j['y'] as num?)?.toDouble() ?? 0.4,
+      latitude: (j['latitude'] as num?)?.toDouble() ?? 41.2995,
+      longitude: (j['longitude'] as num?)?.toDouble() ?? 69.2401,
+      accuracyMeters: (j['accuracyMeters'] as num?)?.toDouble() ?? 3.5,
+      zoneName: j['zoneName'] as String? ?? '🍽️ 1-Zal (Stollar)',
+      address: j['address'] as String? ?? 'ZAVERO Cafe, Toshkent',
+      gpsActive: j['gpsActive'] != false,
     );
   }
 }
@@ -125,7 +153,7 @@ class StaffTrackingService extends ChangeNotifier {
               ? DateTime.tryParse(breakStartedStr)
               : (isOnBreak ? DateTime.now() : null),
           statusText: statusText,
-          location: data['location'] as String? ?? 'Zal 1',
+          location: data['location'] as String? ?? '1-Zal',
           distanceMeters: (data['distanceMeters'] as num?)?.toDouble() ?? 0.0,
           steps: (data['steps'] as num?)?.toInt() ?? 0,
         );
@@ -152,6 +180,15 @@ class StaffTrackingService extends ChangeNotifier {
         }
         if (data['x'] != null) existing.x = (data['x'] as num).toDouble();
         if (data['y'] != null) existing.y = (data['y'] as num).toDouble();
+        if (data['latitude'] != null) {
+          existing.latitude = (data['latitude'] as num).toDouble();
+        }
+        if (data['longitude'] != null) {
+          existing.longitude = (data['longitude'] as num).toDouble();
+        }
+        if (data['zoneName'] != null) {
+          existing.zoneName = data['zoneName'] as String;
+        }
         existing.isMoving = data['isMoving'] == true;
         existing.lastActive = DateTime.now();
         notifyListeners();
@@ -159,7 +196,7 @@ class StaffTrackingService extends ChangeNotifier {
     });
   }
 
-  /// Xodimlar ro'yxatini yuklash va boshlang'ich holatni sozlash
+  /// Xodimlar ro'yxatini yuklash va boshlang'ich lokatsiya & holatni sozlash
   void syncStaffList(List<AppUser> users) {
     for (final user in users) {
       if (!_staffStatuses.containsKey(user.id)) {
@@ -170,15 +207,43 @@ class StaffTrackingService extends ChangeNotifier {
           role: user.role.name,
           isOnBreak: false,
           statusText: isWait ? 'Faol / Ishlamoqda' : 'Kassada faol',
-          location: isWait ? 'Zal 1 · Stollar' : 'Asosiy Kassa',
+          location: isWait ? '1-Zal · Stollar' : 'Asosiy Kassa',
+          zoneName: isWait ? '🍽️ 1-Zal (Stollar 1-6)' : '💳 Kassa & Bar',
           distanceMeters: 45.0 + (_random.nextInt(60)),
           steps: 90 + (_random.nextInt(120)),
           x: 0.2 + (_random.nextDouble() * 0.6),
           y: 0.2 + (_random.nextDouble() * 0.6),
+          latitude: 41.2995 + (_random.nextDouble() * 0.0004 - 0.0002),
+          longitude: 69.2401 + (_random.nextDouble() * 0.0004 - 0.0002),
+          accuracyMeters: 2.5 + (_random.nextDouble() * 2.0),
+          address: 'ZAVERO Cafe binosi, Toshkent',
+          gpsActive: true,
         );
       }
     }
     notifyListeners();
+  }
+
+  /// Xodim GPS lokatsiyasini to'g'ridan-to'g'ri yangilash
+  void updateStaffLocation(
+    int userId, {
+    required double lat,
+    required double lng,
+    String? zone,
+    String? addr,
+    double? accuracy,
+  }) {
+    final status = _staffStatuses[userId];
+    if (status != null) {
+      status.latitude = lat;
+      status.longitude = lng;
+      if (zone != null) status.zoneName = zone;
+      if (addr != null) status.address = addr;
+      if (accuracy != null) status.accuracyMeters = accuracy;
+      status.gpsActive = true;
+      status.lastActive = DateTime.now();
+      notifyListeners();
+    }
   }
 
   /// Dam olish rejimini yoqish / o'chirish ("Dam olmoqda" toggle)
@@ -200,6 +265,10 @@ class StaffTrackingService extends ChangeNotifier {
     status.breakStartedAt = isOnBreak ? DateTime.now() : null;
     status.statusText = isOnBreak ? 'Dam olmoqda' : 'Faol / Ishlamoqda';
     status.lastActive = DateTime.now();
+    if (isOnBreak) {
+      status.zoneName = '☕ Dam olish xonasi';
+      status.location = 'Dam olish xonasi';
+    }
 
     final payload = {
       'cafeId': cafeId,
@@ -209,11 +278,14 @@ class StaffTrackingService extends ChangeNotifier {
       'isOnBreak': isOnBreak,
       'breakStartedAt': status.breakStartedAt?.toIso8601String(),
       'statusText': status.statusText,
-      'location': isOnBreak ? 'Dam olish xonasi' : status.location,
+      'location': status.location,
+      'zoneName': status.zoneName,
       'distanceMeters': status.distanceMeters,
       'steps': status.steps,
       'x': status.x,
       'y': status.y,
+      'latitude': status.latitude,
+      'longitude': status.longitude,
     };
 
     SocketService().emitStaffStatus(payload);
@@ -245,6 +317,21 @@ class StaffTrackingService extends ChangeNotifier {
     if (location != null) status.location = location;
     if (x != null) status.x = x.clamp(0.05, 0.95);
     if (y != null) status.y = y.clamp(0.05, 0.95);
+
+    // Update GPS coords based on offset
+    status.latitude = 41.2995 + (status.y - 0.5) * 0.0006;
+    status.longitude = 69.2401 + (status.x - 0.5) * 0.0006;
+
+    if (status.x < 0.5 && status.y < 0.5) {
+      status.zoneName = '🍽️ 1-Zal (Stollar 1-6)';
+    } else if (status.x >= 0.5 && status.y < 0.5) {
+      status.zoneName = '🍷 2-Zal (Stollar 7-12)';
+    } else if (status.x < 0.5 && status.y >= 0.5) {
+      status.zoneName = '💳 Kassa & Bar';
+    } else {
+      status.zoneName = '👨‍🍳 Oshxona';
+    }
+
     status.lastActive = DateTime.now();
     status.isMoving = true;
 
@@ -256,8 +343,11 @@ class StaffTrackingService extends ChangeNotifier {
       'distanceMeters': status.distanceMeters,
       'steps': status.steps,
       'location': status.location,
+      'zoneName': status.zoneName,
       'x': status.x,
       'y': status.y,
+      'latitude': status.latitude,
+      'longitude': status.longitude,
       'isMoving': true,
     };
 
@@ -271,7 +361,7 @@ class StaffTrackingService extends ChangeNotifier {
     });
   }
 
-  /// Real-time live fon harakati simulyatori
+  /// Real-time live fon harakati va GPS lokatsiya simulyatori
   void startMovementSimulation(String cafeId) {
     _movementSimulationTimer?.cancel();
     _movementSimulationTimer =
@@ -283,6 +373,25 @@ class StaffTrackingService extends ChangeNotifier {
           s.steps += (delta * 2).round();
           s.x = (s.x + (_random.nextDouble() * 0.08 - 0.04)).clamp(0.1, 0.85);
           s.y = (s.y + (_random.nextDouble() * 0.08 - 0.04)).clamp(0.15, 0.85);
+
+          // Real GPS koordinatalari o'zgarishi
+          s.latitude = 41.2995 + (s.y - 0.5) * 0.0006;
+          s.longitude = 69.2401 + (s.x - 0.5) * 0.0006;
+
+          if (s.x < 0.5 && s.y < 0.5) {
+            s.zoneName = '🍽️ 1-Zal (Stollar 1-6)';
+            s.location = '1-Zal';
+          } else if (s.x >= 0.5 && s.y < 0.5) {
+            s.zoneName = '🍷 2-Zal (Stollar 7-12)';
+            s.location = '2-Zal';
+          } else if (s.x < 0.5 && s.y >= 0.5) {
+            s.zoneName = '💳 Kassa & Bar';
+            s.location = 'Kassa';
+          } else {
+            s.zoneName = '👨‍🍳 Oshxona';
+            s.location = 'Oshxona';
+          }
+
           s.lastActive = DateTime.now();
           s.isMoving = true;
         }

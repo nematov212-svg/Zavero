@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/models.dart';
@@ -4048,48 +4049,51 @@ class ZaveroApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([appState, LocalizationService()]),
-      builder: (context, _) {
-        return MaterialApp(
-          navigatorKey: appNavigatorKey,
-          scaffoldMessengerKey: appMessengerKey,
-          title: 'ZAVERO',
-          debugShowCheckedModeBanner: false,
-          theme: buildLightTheme(),
-          darkTheme: buildDarkTheme(),
-          themeMode: appState.darkMode ? ThemeMode.dark : ThemeMode.light,
-          onGenerateRoute: (settings) {
-            final rawName = settings.name ?? '';
-            final uri = Uri.tryParse(rawName);
-            if (rawName.contains('/menu') || rawName.contains('menu') || (uri != null && uri.path.contains('menu'))) {
-              final queryMap = <String, String>{};
-              if (uri != null) queryMap.addAll(uri.queryParameters);
-              if (Uri.base.queryParameters.isNotEmpty) queryMap.addAll(Uri.base.queryParameters);
-              if (Uri.base.hasFragment && Uri.base.fragment.contains('?')) {
-                final fragQuery = Uri.splitQueryString(Uri.base.fragment.split('?').last);
-                queryMap.addAll(fragQuery);
-              }
+    return ChangeNotifierProvider<AppState>.value(
+      value: appState,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([appState, LocalizationService()]),
+        builder: (context, _) {
+          return MaterialApp(
+            navigatorKey: appNavigatorKey,
+            scaffoldMessengerKey: appMessengerKey,
+            title: 'ZAVERO',
+            debugShowCheckedModeBanner: false,
+            theme: buildLightTheme(),
+            darkTheme: buildDarkTheme(),
+            themeMode: appState.darkMode ? ThemeMode.dark : ThemeMode.light,
+            onGenerateRoute: (settings) {
+              final rawName = settings.name ?? '';
+              final uri = Uri.tryParse(rawName);
+              if (rawName.contains('/menu') || rawName.contains('menu') || (uri != null && uri.path.contains('menu'))) {
+                final queryMap = <String, String>{};
+                if (uri != null) queryMap.addAll(uri.queryParameters);
+                if (Uri.base.queryParameters.isNotEmpty) queryMap.addAll(Uri.base.queryParameters);
+                if (Uri.base.hasFragment && Uri.base.fragment.contains('?')) {
+                  final fragQuery = Uri.splitQueryString(Uri.base.fragment.split('?').last);
+                  queryMap.addAll(fragQuery);
+                }
 
-              final cafeId = queryMap['cafeId'] ?? queryMap['cafe_id'] ?? 'cafe1';
-              final tableNumber = queryMap['tableNumber'] ?? queryMap['table_number'] ?? queryMap['table'];
-              final tableName = queryMap['tableName'] ?? queryMap['table_name'];
-              final hallId = queryMap['hallId'] ?? queryMap['hall_id'];
-              return MaterialPageRoute(
-                settings: settings,
-                builder: (_) => QRMenuScreen(
-                  cafeId: cafeId,
-                  tableNumber: tableNumber,
-                  tableName: tableName,
-                  hallId: hallId,
-                ),
-              );
-            }
-            return null;
-          },
-          home: const SplashScreen(),
-        );
-      },
+                final cafeId = queryMap['cafeId'] ?? queryMap['cafe_id'] ?? 'cafe1';
+                final tableNumber = queryMap['tableNumber'] ?? queryMap['table_number'] ?? queryMap['table'];
+                final tableName = queryMap['tableName'] ?? queryMap['table_name'];
+                final hallId = queryMap['hallId'] ?? queryMap['hall_id'];
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (_) => QRMenuScreen(
+                    cafeId: cafeId,
+                    tableNumber: tableNumber,
+                    tableName: tableName,
+                    hallId: hallId,
+                  ),
+                );
+              }
+              return null;
+            },
+            home: const SplashScreen(),
+          );
+        },
+      ),
     );
   }
 }
