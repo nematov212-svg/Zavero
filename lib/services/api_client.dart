@@ -24,6 +24,8 @@ class ApiException implements Exception {
 /// - Base URL konfiguratsiya qilinadi (dev: 10.0.2.2:3000, prod: Vercel yoki serverless domen)
 /// - Har bir so'rovga avtomatik `Authorization: Bearer <token>` qo'shadi
 /// - Tokenni flutter_secure_storage'da saqlaydi
+
+
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
   factory ApiClient() => _instance;
@@ -34,6 +36,7 @@ class ApiClient {
 
   /// Backend serverless / cloud manzili (Render: https://zavero-jrna.onrender.com/api).
   /// --dart-define=API_BASE_URL=... orqali o'zgartirish mumkin.
+  
   static String _defaultBaseUrl() {
     const fromEnv = String.fromEnvironment('API_BASE_URL');
     if (fromEnv.isNotEmpty) return fromEnv;

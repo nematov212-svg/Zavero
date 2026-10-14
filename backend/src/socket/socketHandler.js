@@ -67,6 +67,21 @@ const initSocket = (io) => {
 
     socket.on('PING', () => socket.emit('PONG', { time: new Date().toISOString() }));
 
+    socket.on('STAFF_STATUS_UPDATE', (payload = {}) => {
+      const targetCafeId = socket.user?.cafeId || payload.cafeId;
+      if (targetCafeId) {
+        notifyCafe(targetCafeId, 'STAFF_STATUS_UPDATED', payload);
+        console.log(`☕ [Socket.IO] STAFF_STATUS_UPDATED for cafe ${targetCafeId}:`, payload.staffName, payload.statusText);
+      }
+    });
+
+    socket.on('STAFF_MOVEMENT_UPDATE', (payload = {}) => {
+      const targetCafeId = socket.user?.cafeId || payload.cafeId;
+      if (targetCafeId) {
+        notifyCafe(targetCafeId, 'STAFF_MOVEMENT_UPDATED', payload);
+      }
+    });
+
     socket.on('disconnect', (reason) => {
       console.log(`❌ [Socket.IO] Disconnected: ${socket.id} (${reason})`);
     });

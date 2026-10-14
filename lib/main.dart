@@ -19,7 +19,9 @@ import 'screens/pin_lock_screen.dart';
 import 'screens/tables_management_screen.dart';
 import 'screens/qr_menu_screen.dart';
 import 'screens/customer_orders_screen.dart';
+import 'screens/staff_tracking_screen.dart';
 import 'services/in_app_notification_service.dart';
+import 'services/staff_tracking_service.dart';
 import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/cloud_service.dart';
@@ -246,6 +248,10 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _customersSub;
   StreamSubscription? _employeesSub;
   StreamSubscription? _maintenanceSub;
+  StreamSubscription? _socketTableStatusSub;
+  StreamSubscription? _socketTableOrderSub;
+  StreamSubscription? _socketTableReleasedSub;
+  StreamSubscription? _socketNewCustomerOrderSub;
   bool isUnderMaintenance = false;
   Timer? _cartSaveTimer;
   bool isCloudSynced = false;
@@ -944,6 +950,71 @@ class AppState extends ChangeNotifier {
         ..addAll(newReports);
       notifyListeners();
     });
+
+    // ============================================================
+    // REAL-TIME STOLLAR VA OFITSIANT/KAFE SINXRONIZATSIYASI (0-MS)
+    // ============================================================
+    _socketTableStatusSub?.cancel();
+    _socketTableStatusSub = SocketService().on(CafeSocketEvent.tableStatusUpdated).listen((data) {
+      final tId = (data['tableId'] as num?)?.toInt();
+      final st = data['status'] as String?;
+      if (tId != null) {
+        final idx = tables.indexWhere((t) => t.id == tId);
+        if (idx != -1) {
+          tables[idx].status = (st == 'occupied') ? TableStatus.occupied : TableStatus.free;
+          notifyListeners();
+        }
+      }
+    });
+
+    _socketTableOrderSub?.cancel();
+    _socketTableOrderSub = SocketService().on(CafeSocketEvent.tableOrderUpdated).listen((data) {
+      final tId = (data['tableId'] as num?)?.toInt();
+      if (tId != null) {
+        final rawItems = data['items'];
+        if (rawItems is List && rawItems.isNotEmpty) {
+          final items = rawItems
+              .whereType<Map>()
+              .map((m) => CartItem.fromJson(Map<String, dynamic>.from(m)))
+              .toList();
+          tableOrders[tId] = items;
+          final idx = tables.indexWhere((t) => t.id == tId);
+          if (idx != -1) tables[idx].status = TableStatus.occupied;
+        } else {
+          tableOrders.remove(tId);
+          final idx = tables.indexWhere((t) => t.id == tId);
+          if (idx != -1) tables[idx].status = TableStatus.free;
+        }
+        notifyListeners();
+      }
+    });
+
+    _socketTableReleasedSub?.cancel();
+    _socketTableReleasedSub = SocketService().on(CafeSocketEvent.tableReleased).listen((data) {
+      final tId = (data['tableId'] as num?)?.toInt();
+      if (tId != null) {
+        tableOrders.remove(tId);
+        final idx = tables.indexWhere((t) => t.id == tId);
+        if (idx != -1) tables[idx].status = TableStatus.free;
+        notifyListeners();
+      }
+    });
+
+    // QR menyudan zakaz kelsa (stol skaner qilinganda) stol darhol band bo'ladi
+    _socketNewCustomerOrderSub?.cancel();
+    _socketNewCustomerOrderSub = SocketService().on(CafeSocketEvent.newCustomerOrder).listen((data) {
+      final tNum = (data['tableNumber'] as num?)?.toInt();
+      if (tNum != null) {
+        final idx = tables.indexWhere((t) => t.number == tNum);
+        if (idx != -1) {
+          tables[idx].status = TableStatus.occupied;
+          notifyListeners();
+        }
+      }
+    });
+
+    // Xodimlar ro'yxatini kuzatuv xizmatiga sinxronlash
+    StaffTrackingService().syncStaffList(users);
   }
 
   DailyReport? reportForDate(DateTime date) {
@@ -6537,6 +6608,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
 
+          // 8.5. Xodimlarni kuzatish (Live monitoring & Radar)
+          if (isAdmin)
+            _DashTile(
+              'Xodimlarni kuzatish',
+              Icons.radar_rounded,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const StaffTrackingScreen()),
+              ),
+            ),
+
           // 9. Mijozlar
           if (isAdmin)
             _DashTile(
@@ -6786,6 +6868,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         );
                       }),
+                      const SizedBox(width: 10),
+                      _buildBreakModeButton(context, user, appState),
                     ],
                   ],
                 ),
@@ -6817,6 +6901,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
     );
   }
+
+  Widget _buildBreakModeButton(BuildContext context, AppUser? user, AppState appState) {
+    if (user == null) return const SizedBox.shrink();
+    final tracking = StaffTrackingService();
+
+    return AnimatedBuilder(
+      animation: tracking,
+      builder: (context, _) {
+        final currentStatus = tracking.getStatus(user.id);
+        final currentOnBreak = currentStatus?.isOnBreak ?? false;
+
+        return InkWell(
+          onTap: () {
+            final willBreak = !currentOnBreak;
+            tracking.setBreakMode(
+              user: user,
+              cafeId: appState.currentCafeId,
+              isOnBreak: willBreak,
+            );
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  willBreak
+                      ? '☕ Dam olish rejimi yoqildi. Kafe panelida "Dam olmoqda" deb ko\'rinadi.'
+                      : '🟢 Dam olish yakunlandi. Ishingizni davom ettirishingiz mumkin!',
+                ),
+                backgroundColor: willBreak ? const Color(0xFFD97706) : const Color(0xFF10B981),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(14),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+            decoration: BoxDecoration(
+              color: currentOnBreak ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: currentOnBreak ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (currentOnBreak ? Colors.red : Colors.orange).withValues(alpha: 0.15),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  currentOnBreak ? Icons.coffee_rounded : Icons.pause_circle_outline_rounded,
+                  size: 15,
+                  color: currentOnBreak ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  currentOnBreak ? 'Dam olmoqda (Ishga qaytish ▶)' : 'Dam olish',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: currentOnBreak ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _DashTile extends StatelessWidget {
@@ -6830,6 +6987,8 @@ class _DashTile extends StatelessWidget {
   List<Color> _resolveGradient() {
     if (icon == Icons.point_of_sale_rounded || icon == Icons.restaurant_menu_rounded) {
       return [const Color(0xFFFF9800), const Color(0xFFFF5722)];
+    } else if (icon == Icons.radar_rounded) {
+      return [const Color(0xFF10B981), const Color(0xFF0D9488)];
     } else if (icon == Icons.receipt_long_rounded || icon == Icons.list_alt_rounded) {
       return [const Color(0xFF00C2A8), const Color(0xFF0284C7)];
     } else if (icon == Icons.delivery_dining_rounded) {
@@ -7956,139 +8115,1232 @@ class _ProductCard extends StatelessWidget {
 // PRESET FOOD IMAGES LIBRARY & PRODUCT EDIT DIALOG
 // ============================================================
 
+class _PresetFoodItem {
+  final String title;
+  final String url;
+  final String? subtitle;
+
+  const _PresetFoodItem({
+    required this.title,
+    required this.url,
+    this.subtitle,
+  });
+}
+
 class _PresetFoodCategory {
   final String title;
   final IconData icon;
-  final List<String> images;
+  final List<_PresetFoodItem> items;
 
   const _PresetFoodCategory({
     required this.title,
     required this.icon,
-    required this.images,
+    required this.items,
   });
+
+  List<String> get images => items.map((e) => e.url).toList();
 }
 
 const List<_PresetFoodCategory> _presetFoodLibraries = [
+  // 1. Shaurma (Alohida - 18 ta turli xil)
   _PresetFoodCategory(
-    title: 'Shaurma & Lavash',
-    icon: Icons.lunch_dining,
-    images: [
-      'https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1561651823-34feb02250e4?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1633337474565-12c449339028?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
+    title: 'Shaurma',
+    icon: Icons.lunch_dining_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Klassik Shaurma',
+        subtitle: 'Go\'shtli va qarsildoq',
+        url: 'https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Katta Shaurma (Max)',
+        subtitle: 'Katta porsiya',
+        url: 'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tovuqli Shaurma',
+        subtitle: 'Mayin tovuq go\'shti',
+        url: 'https://images.unsplash.com/photo-1561651823-34feb02250e4?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pishloqli Shaurma',
+        subtitle: 'Eritilgan mozzarella',
+        url: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tandir Shaurma',
+        subtitle: 'Tandirda qizargan',
+        url: 'https://images.unsplash.com/photo-1633337474565-12c449339028?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Achchiq Shaurma (Hot)',
+        subtitle: 'Jalapeno & sous',
+        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mini Shaurma',
+        subtitle: 'Kichik porsiya',
+        url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Arabcha Shaurma',
+        subtitle: 'Maxsus arab ziravorlari',
+        url: 'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Doner Shaurma',
+        subtitle: 'Baton nonida go\'shtli',
+        url: 'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shaurma Pita',
+        subtitle: 'Yumshoq pita nonida',
+        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shaurma Porsiya',
+        subtitle: 'Likopchada fri bilan',
+        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Assorti Shaurma',
+        subtitle: 'Mol va tovuq go\'shti',
+        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Zavero Special Shaurma',
+        subtitle: 'Mualliflik retsepti',
+        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shaurma Box',
+        subtitle: 'Maxsus qutida set',
+        url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qo\'ziqorinli Shaurma',
+        subtitle: 'Shampinyon qo\'ziqorinli',
+        url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Double Shaurma',
+        subtitle: 'Ikki hissa go\'sht',
+        url: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fitter Shaurma',
+        subtitle: 'Dietik sabzavotli',
+        url: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qazili Shaurma',
+        subtitle: 'Qazi bo\'laklari bilan',
+        url: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 2. Lavash (Alohida - 18 ta turli xil)
+  _PresetFoodCategory(
+    title: 'Lavash',
+    icon: Icons.bakery_dining_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Klassik Lavash',
+        subtitle: 'Mol go\'shti va pomidor',
+        url: 'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Katta Go\'shtli Lavash',
+        subtitle: 'Katta porsiya',
+        url: 'https://images.unsplash.com/photo-1561651823-34feb02250e4?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tovuqli Lavash',
+        subtitle: 'Tovuq filesi va sous',
+        url: 'https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pishloqli Lavash',
+        subtitle: 'Mozzarella va chedder',
+        url: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tandir Lavash',
+        subtitle: 'Haqiqiy tandirda pishgan',
+        url: 'https://images.unsplash.com/photo-1633337474565-12c449339028?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Achchiq Lavash',
+        subtitle: 'Achchiq sous bilan',
+        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mini Lavash',
+        subtitle: 'Bolalar va yengil tamaddi',
+        url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qazili Lavash',
+        subtitle: 'Milliy qazi bilan',
+        url: 'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fitter Lavash',
+        subtitle: 'Kam yog\'li kuritsa bilan',
+        url: 'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Lavash Box',
+        subtitle: 'Fri va sous bilan set',
+        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Go\'sht & Pishloq Lavash',
+        subtitle: 'Ko\'p go\'sht va erigan pishloq',
+        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qo\'ziqorinli Lavash',
+        subtitle: 'Qovurilgan qo\'ziqorinli',
+        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Double Go\'sht Lavash',
+        subtitle: '2 barobar ko\'p go\'sht',
+        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Lavash Porsiya',
+        subtitle: 'Likopcha va garnirlar',
+        url: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Zavero Special Lavash',
+        subtitle: 'Zavero maxsus ta\'mi',
+        url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mol Go\'shtli Tandir',
+        subtitle: 'Shirador mol go\'shti',
+        url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Kichik Tovuq Lavash',
+        subtitle: 'Standart tovuqli',
+        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Lavash Roll',
+        subtitle: 'Kesilgan mini bo\'laklar',
+        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
+      ),
+    ],
+  ),
+
+  // 3. Burger & Fast Food (18 ta turli xil)
   _PresetFoodCategory(
     title: 'Burger & Fast Food',
-    icon: Icons.fastfood,
-    images: [
-      'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1607013251379-e6eecfffe234?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1619881589775-96101c51950e?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1521305916504-4a1121188589?w=600&auto=format&fit=crop&q=80',
+    icon: Icons.fastfood_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Cheeseburger',
+        subtitle: 'Klassik pishloqli kotlet',
+        url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Hamburger',
+        subtitle: 'Shirador kotlet va bodring',
+        url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Double Cheeseburger',
+        subtitle: '2 ta kotlet va erigan pishloq',
+        url: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Big Burger',
+        subtitle: 'Katta o\'lchamli maxsus burger',
+        url: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Chiken Burger',
+        subtitle: 'Qarsildoq tovuq kotleti',
+        url: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Barbecue Burger',
+        subtitle: 'Tutuqli BBQ sous bilan',
+        url: 'https://images.unsplash.com/photo-1607013251379-e6eecfffe234?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qora Burger (Black)',
+        subtitle: 'Qora nonda maxsus burger',
+        url: 'https://images.unsplash.com/photo-1619881589775-96101c51950e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mini Burger',
+        subtitle: 'Bolalar uchun porsiya',
+        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Zavero Max Burger',
+        subtitle: 'Barcha qo\'shimchalar bilan',
+        url: 'https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fri Kartoshkasi',
+        subtitle: 'Qarsildoq oltin fri',
+        url: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Nagets (6 dona)',
+        subtitle: 'Tovuqli oltin nagets',
+        url: 'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tovuq Stripsilari',
+        subtitle: 'Qarsildoq tovuq filesi',
+        url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qarsildoq Qanotchalar',
+        subtitle: 'Achchiq-shirin qanotlar',
+        url: 'https://images.unsplash.com/photo-1527477321005-4d01d75bc660?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pishloqli Halqalar',
+        subtitle: 'Mozzarella halqalari',
+        url: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qishloqcha Fri',
+        subtitle: 'Po-derevenski kartoshka',
+        url: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Jalapeno Burger',
+        subtitle: 'Achchiq qalampirli',
+        url: 'https://images.unsplash.com/photo-1551782450-a2132b4ba21d?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Smokey Bacon Burger',
+        subtitle: 'Tutuqli bekoni bilan',
+        url: 'https://images.unsplash.com/photo-1582196016295-f8c8bd4b3e99?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Kombo Burger Set',
+        subtitle: 'Burger, fri va ichimlik',
+        url: 'https://images.unsplash.com/photo-1521305916504-4a1121188589?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 4. Hot-dog & Sendvich (16 ta turli xil)
+  _PresetFoodCategory(
+    title: 'Hot-dog & Sendvich',
+    icon: Icons.breakfast_dining_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Klassik Hot-dog',
+        subtitle: 'Sosiska, xantal va sous',
+        url: 'https://images.unsplash.com/photo-1619740455993-9e612b1af08a?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Katta Hot-dog (Max)',
+        subtitle: 'Katta dudlangan sosiska',
+        url: 'https://images.unsplash.com/photo-1627059173003-8898198947f6?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Ovchi Hot-dog (Hunter)',
+        subtitle: 'Ovchi sosiskasi bilan',
+        url: 'https://images.unsplash.com/photo-1612528443702-f6741f74a04b?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pishloqli Hot-dog',
+        subtitle: 'Erigan mozzarella va chedder',
+        url: 'https://images.unsplash.com/photo-1541214113241-21578d2d9b62?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Achchiq Jalapeno Hot-dog',
+        subtitle: 'Olovli achchiq qalampir',
+        url: 'https://images.unsplash.com/photo-1585238342024-78d387f4a707?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Frantsuzcha Hot-dog',
+        subtitle: 'Baqat nonda sosiskali',
+        url: 'https://images.unsplash.com/photo-1592415486689-125cbbfcbee2?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Klabb Sendvich',
+        subtitle: 'Uch burchakli toster non',
+        url: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Toster Sendvich',
+        subtitle: 'Pishloq va vetchina',
+        url: 'https://images.unsplash.com/photo-1554433607-66b5efe9d304?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tovuqli Sendvich',
+        subtitle: 'Gril tovuq filesi',
+        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mol Go\'shtli Baget Sendvich',
+        subtitle: 'Qarsildoq baget non',
+        url: 'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tunetsli Sendvich',
+        subtitle: 'Dengiz balig\'i va tuxum',
+        url: 'https://images.unsplash.com/photo-1521390188846-e2a39b7ef4a8?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pishloqli Panini',
+        subtitle: 'Grilda pishirilgan panini',
+        url: 'https://images.unsplash.com/photo-1539252554453-80ab65ce3586?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Ham & Cheese Sendvich',
+        subtitle: 'Klassik uyg\'unlik',
+        url: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Gril Sendvich',
+        subtitle: 'Tosterda qizargan non',
+        url: 'https://images.unsplash.com/photo-1567234669003-dce7a7a88821?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mini Sendvichlar Assorti',
+        subtitle: 'Bir nechta ta\'mlar to\'plami',
+        url: 'https://images.unsplash.com/photo-1481070414801-51fd732d7184?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Max Sousli Hot-dog',
+        subtitle: 'Ko\'p sousli va piyozli',
+        url: 'https://images.unsplash.com/photo-1585238341267-1cfbc2046a55?w=600&auto=format&fit=crop&q=80',
+      ),
+    ],
+  ),
+
+  // 5. Pitsa & Piroglar (18 ta turli xil)
   _PresetFoodCategory(
     title: 'Pitsa & Piroglar',
-    icon: Icons.local_pizza,
-    images: [
-      'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1594007654729-407eedc4be65?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1534308983496-4fabb1a015ee?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1604382355076-af4b0eb60143?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1571407970349-bc81e7e96d47?w=600&auto=format&fit=crop&q=80',
+    icon: Icons.local_pizza_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Margarita Pitsa',
+        subtitle: 'Pomidor va mozzarella',
+        url: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepperoni Pitsa',
+        subtitle: 'Dudlangan kolbasa bilan',
+        url: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: '4 Pishloqli Pitsa',
+        subtitle: 'To\'rt xil nozik pishloq',
+        url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qo\'ziqorinli Pitsa',
+        subtitle: 'Shampinyon va oq sous',
+        url: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Go\'shtli Pitsa (Meat)',
+        subtitle: 'Mol go\'shti va qazi',
+        url: 'https://images.unsplash.com/photo-1594007654729-407eedc4be65?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Zavero Assorti Pitsa',
+        subtitle: 'Barcha masalliqlar jamlanmasi',
+        url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tovuqli Pitsa (Chicken)',
+        subtitle: 'Tovuq go\'shti va zaytun',
+        url: 'https://images.unsplash.com/photo-1534308983496-4fabb1a015ee?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Barbekyu Pitsa (BBQ)',
+        subtitle: 'BBQ sous va tovuq',
+        url: 'https://images.unsplash.com/photo-1604382355076-af4b0eb60143?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Dengiz Mahsulotli Pitsa',
+        subtitle: 'Krevyetka va kalmar',
+        url: 'https://images.unsplash.com/photo-1571407970349-bc81e7e96d47?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Achchiq Diavola',
+        subtitle: 'Achchiq qalampir va go\'sht',
+        url: 'https://images.unsplash.com/photo-1588315029754-2dd089d39a1a?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Gavaya Pitsasi',
+        subtitle: 'Ananas va tovuq',
+        url: 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Kalzone (Yopiq pitsa)',
+        subtitle: 'Shirador yopiq pitsa',
+        url: 'https://images.unsplash.com/photo-1541745537411-b8046dc6d66c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Go\'shtli Pirog',
+        subtitle: 'Qatlama xamirdan pirog',
+        url: 'https://images.unsplash.com/photo-1608039829572-78524f79c4c7?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pishloqli Xachapuri',
+        subtitle: 'Gruzincha erigan pishloq',
+        url: 'https://images.unsplash.com/photo-1608897013039-887f21d8c804?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Go\'shtli Lahmajun',
+        subtitle: 'Yupqa turkcha lahmajun',
+        url: 'https://images.unsplash.com/photo-1626074353765-517a681e40be?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pide Go\'shtli',
+        subtitle: 'Qayiqcha shaklidagi pide',
+        url: 'https://images.unsplash.com/photo-1579751626657-72bc17010498?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mini Pitsachalar',
+        subtitle: 'Bolalar uchun ixcham',
+        url: 'https://images.unsplash.com/photo-1595854341625-f33ee10dbf94?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Zavero Mega Pitsa 40cm',
+        subtitle: 'Katta oilaviy pitsa',
+        url: 'https://images.unsplash.com/photo-1590947132387-155cc02f3212?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 6. Milliy taomlar (22 ta turli xil)
   _PresetFoodCategory(
-    title: 'Milliy & Issiq taomlar',
-    icon: Icons.outdoor_grill,
-    images: [
-      'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
+    title: 'Milliy taomlar',
+    icon: Icons.outdoor_grill_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Choyxona Oshi',
+        subtitle: 'Dumba va noxatli an\'anaviy osh',
+        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'To\'y Oshi (Devzira)',
+        subtitle: 'Qazi, bedana tuxum va mayiz',
+        url: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tandir Somsa',
+        subtitle: 'Qarsildoq xamir va mayin go\'sht',
+        url: 'https://images.unsplash.com/photo-1608039829572-78524f79c4c7?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qatlama Go\'shtli Somsa',
+        subtitle: 'Qavat-qavat mayin xamir',
+        url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shashlik Qiyma',
+        subtitle: 'Mayin qiyma go\'sht kabob',
+        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shashlik Kuskovoy',
+        subtitle: 'Mol va qo\'y go\'shti lo\'la',
+        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Jigar Shashlik',
+        subtitle: 'Dumba bilan o\'ralgan jigar',
+        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tovuq Shashlik',
+        subtitle: 'Shirador qanot va file',
+        url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qozon Kabob',
+        subtitle: 'Qovurilgan kartoshka va go\'sht',
+        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qovurma Lag\'mon',
+        subtitle: 'Qo\'lda cho\'zilgan lag\'mon',
+        url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Cho\'zma Lag\'mon (Sho\'rva)',
+        subtitle: 'Boy sabzavotli qayla bilan',
+        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Go\'shtli Manti',
+        subtitle: 'Qovoqli va go\'shtli manti',
+        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mastava',
+        subtitle: 'Guruchli va qatiqli milliy taom',
+        url: 'https://images.unsplash.com/photo-1547592180-85f173990554?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Sho\'rva (Qo\'y go\'shtli)',
+        subtitle: 'Sergo\'sht qaynatma sho\'rva',
+        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Chuchvara Sho\'rvada',
+        subtitle: 'Mayda qo\'lda tugilgan chuchvara',
+        url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Norin',
+        subtitle: 'Yupqa xamir va ot go\'shti',
+        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Dimlama',
+        subtitle: 'Qozonda bug\'langan sabzavotlar',
+        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Jiz-biz',
+        subtitle: 'Qovurilgan shirador go\'sht',
+        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Go\'shtli Non (Patir)',
+        subtitle: 'Tandirda pishgan go\'shtli patir',
+        url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Issiq Tandir Non',
+        subtitle: 'Kunjutli shirmoy non',
+        url: 'https://images.unsplash.com/photo-1586444248902-2f64eddc13df?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qazi Likopchada',
+        subtitle: 'Qalampir va piyoz bilan',
+        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Milliy Assorti Go\'sht',
+        subtitle: 'Qazi, til va rulet',
+        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 7. Coca-Cola (Alohida o'lchamlar va turlari)
   _PresetFoodCategory(
-    title: 'Shirinliklar & Tortlar',
-    icon: Icons.cake,
-    images: [
-      'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1535141192574-5d4897c13136?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1550617931-e17a7b70dce2?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1587314168485-3236d6710814?w=600&auto=format&fit=crop&q=80',
+    title: 'Coca-Cola',
+    icon: Icons.local_drink_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Coca-Cola 0.5L',
+        subtitle: '0.5 litr plastik idish',
+        url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola 1.0L',
+        subtitle: '1.0 litr plastik idish',
+        url: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola 1.5L',
+        subtitle: '1.5 litr katta idish',
+        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola 2.0L',
+        subtitle: '2.0 litr oilaviy idish',
+        url: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola Banka 0.33L',
+        subtitle: 'Temir banka 330ml',
+        url: 'https://images.unsplash.com/photo-1567103472667-6898f3a79cf2?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola Zero 0.5L',
+        subtitle: 'Shakarsiz 0.5 litr',
+        url: 'https://images.unsplash.com/photo-1596803244618-8dbee441d70b?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola Zero 1.5L',
+        subtitle: 'Shakarsiz 1.5 litr',
+        url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola Shisha 0.25L',
+        subtitle: 'Klassik shisha idish',
+        url: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola Muz Bilan',
+        subtitle: 'Stakanda muzdek kola',
+        url: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Coca-Cola Cherry',
+        subtitle: 'Olchali maxsus ta\'m',
+        url: 'https://images.unsplash.com/photo-1567103472667-6898f3a79cf2?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 8. Fanta (Alohida o'lchamlar va turlari)
   _PresetFoodCategory(
-    title: 'Muzqaymoq & Desertlar',
-    icon: Icons.icecream,
-    images: [
-      'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1562376552-0d160a2f238d?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1580915411954-282cb1b0d780?w=600&auto=format&fit=crop&q=80',
+    title: 'Fanta',
+    icon: Icons.local_drink_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Fanta Apelsin 0.5L',
+        subtitle: '0.5 litr apelsin ta\'mi',
+        url: 'https://images.unsplash.com/photo-1624638760978-7517178385ea?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fanta Apelsin 1.0L',
+        subtitle: '1.0 litr plastik idish',
+        url: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fanta Apelsin 1.5L',
+        subtitle: '1.5 litr katta idish',
+        url: 'https://images.unsplash.com/photo-1579268351234-073f85929562?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fanta Apelsin 2.0L',
+        subtitle: '2.0 litr oilaviy idish',
+        url: 'https://images.unsplash.com/photo-1624638760978-7517178385ea?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fanta Banka 0.33L',
+        subtitle: 'Temir banka 330ml',
+        url: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fanta Shisha 0.25L',
+        subtitle: 'Shisha idish 250ml',
+        url: 'https://images.unsplash.com/photo-1579268351234-073f85929562?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fanta Tropic',
+        subtitle: 'Tropik mevalar ta\'mi',
+        url: 'https://images.unsplash.com/photo-1624638760978-7517178385ea?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fanta Muz Bilan',
+        subtitle: 'Muzli stakanda tetiklantiruvchi',
+        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 9. Pepsi (Alohida o'lchamlar va turlari)
+  _PresetFoodCategory(
+    title: 'Pepsi',
+    icon: Icons.local_drink_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Pepsi 0.5L',
+        subtitle: '0.5 litr plastik idish',
+        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepsi 1.0L',
+        subtitle: '1.0 litr plastik idish',
+        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepsi 1.5L',
+        subtitle: '1.5 litr katta idish',
+        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepsi 2.0L',
+        subtitle: '2.0 litr oilaviy idish',
+        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepsi Banka 0.33L',
+        subtitle: 'Temir banka 330ml',
+        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepsi Max Zero 0.5L',
+        subtitle: 'Shakarsiz 0.5 litr',
+        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepsi Max Zero 1.5L',
+        subtitle: 'Shakarsiz 1.5 litr',
+        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pepsi Shisha 0.25L',
+        subtitle: 'Shisha idish 250ml',
+        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
+      ),
+    ],
+  ),
+
+  // 10. Muzqaymoq & Marojni (Alohida - 18 ta turli xil)
+  _PresetFoodCategory(
+    title: 'Muzqaymoq & Marojni',
+    icon: Icons.icecream_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Plombir Klassik',
+        subtitle: 'Qaymoqli oq plombir',
+        url: 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shokoladli Marojni',
+        subtitle: 'Quyuq shokoladli muzqaymoq',
+        url: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qulupnayli Marojni',
+        subtitle: 'Haqiqiy mevali qulupnay',
+        url: 'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Rojok Vanilli',
+        subtitle: 'Qarsildoq vafli rojogida',
+        url: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Rojok Shokoladli',
+        subtitle: 'Shokolad glazuri bilan',
+        url: 'https://images.unsplash.com/photo-1562376552-0d160a2f238d?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Eskimo Shokoladda',
+        subtitle: 'Qalin shokolad qoplamasi',
+        url: 'https://images.unsplash.com/photo-1580915411954-282cb1b0d780?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Eskimo Yong\'oqli',
+        subtitle: 'Yong\'oq bo\'laklari bilan',
+        url: 'https://images.unsplash.com/photo-1505394033641-40c6ad1178d7?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Sundae Karamelli',
+        subtitle: 'Iliq karamel va yong\'oq',
+        url: 'https://images.unsplash.com/photo-1570197788417-0e82375c9371?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Sundae Qulupnayli',
+        subtitle: 'Qulupnay murabbosi bilan',
+        url: 'https://images.unsplash.com/photo-1560008581-09826d1de69e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Donali Sharik Marojni',
+        subtitle: '3 xil ta\'m shariklari',
+        url: 'https://images.unsplash.com/photo-1516559828984-fb3b99548b21?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Oreo Muzqaymoq',
+        subtitle: 'Oreo pechenyelari bilan',
+        url: 'https://images.unsplash.com/photo-1587314168485-3236d6710814?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mevali Muzqaymoq',
+        subtitle: 'Yangi mevalar assortisi',
+        url: 'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Muzqaymoq Qadahda',
+        subtitle: 'Restoran taqdimotidagi desert',
+        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pista Muzqaymoq (Pistachio)',
+        subtitle: 'Xushbo\'y pista ta\'mi',
+        url: 'https://images.unsplash.com/photo-1579954115545-a95591f28bfc?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Muzqaymoqli Milkshake',
+        subtitle: 'Quyuq shirin sutli kokteyl',
+        url: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Bananli Split',
+        subtitle: 'Banan va 3 sharik marojni',
+        url: 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mango Sorbet',
+        subtitle: '100% tetiklantiruvchi mevali muz',
+        url: 'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Zavero Special Sundae',
+        subtitle: 'Shokolad, meva va qaymoq',
+        url: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=600&auto=format&fit=crop&q=80',
+      ),
+    ],
+  ),
+
+  // 11. Qahva & Choy (16 ta turli xil)
   _PresetFoodCategory(
     title: 'Qahva & Choy',
-    icon: Icons.coffee,
-    images: [
-      'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?w=600&auto=format&fit=crop&q=80',
+    icon: Icons.coffee_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Espresso',
+        subtitle: 'Klassik to\'q qahva',
+        url: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Amerikano',
+        subtitle: 'Issiq va yumshoq qahva',
+        url: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Kapuchino',
+        subtitle: 'Qalin va mayin sutli ko\'pik',
+        url: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Latte',
+        subtitle: 'Sutli mayin qahva',
+        url: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mokkachino',
+        subtitle: 'Shokolad va qahva uyg\'unligi',
+        url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Raf Qahva',
+        subtitle: 'Qaymoq va vanilli qahva',
+        url: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Muzli Kofe (Ice Latte)',
+        subtitle: 'Muzdek va tetiklashtiruvchi',
+        url: 'https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Issiq Shokolad (Kakao)',
+        subtitle: 'Quyuq shokoladli ichimlik',
+        url: 'https://images.unsplash.com/photo-1542990253-0d0f5be5f0ed?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Ko\'k Choy (Choynak)',
+        subtitle: 'Ko\'k 95 choyi',
+        url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qora Choy (Choynak)',
+        subtitle: 'Xushbo\'y qora choy',
+        url: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Limonli Choy',
+        subtitle: 'Yangi limon bo\'laklari',
+        url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tog\' Choyi (Giyohli)',
+        subtitle: 'Kiyiko\'t va yalpizli choy',
+        url: 'https://images.unsplash.com/photo-1597481499750-3e6b22637e12?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mevali Choy',
+        subtitle: 'Olma, qulupnay va apelsin',
+        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Zanjabil Choy (Asalli)',
+        subtitle: 'Imbilli va asal bilan',
+        url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qulupnayli Choy',
+        subtitle: 'Yangi qulupnayli choy',
+        url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Matcha Latte',
+        subtitle: 'Yapon yashil choyi latesi',
+        url: 'https://images.unsplash.com/photo-1536256263959-770b48d82b0a?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 12. Sharbat & Suv (16 ta turli xil)
   _PresetFoodCategory(
-    title: 'Sharbat & Ichimliklar',
-    icon: Icons.local_bar,
-    images: [
-      'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1621263764928-df1444c5e859?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1536935338788-846bb9981813?w=600&auto=format&fit=crop&q=80',
+    title: 'Sharbat & Suv',
+    icon: Icons.local_bar_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Apelsin Sharbati (Fresh)',
+        subtitle: 'Yangi siqilgan tabiiy sharbat',
+        url: 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Olma Sharbati',
+        subtitle: '100% tiniq olma sharbati',
+        url: 'https://images.unsplash.com/photo-1568651316335-e106ea46261c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Anor Sharbati',
+        subtitle: 'Vitaminga boy qizil anor',
+        url: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Olcha Sharbati (Vishnya)',
+        subtitle: 'Shirin-nordon olcha',
+        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Gazsiz Suv 0.5L',
+        subtitle: 'Tog\' buloq suvi',
+        url: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Gazsiz Suv 1.5L',
+        subtitle: 'Katta idishda toza suv',
+        url: 'https://images.unsplash.com/photo-1559839914-ba2a578a05c3?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Gazli Suv 0.5L',
+        subtitle: 'Mineral gazli suv',
+        url: 'https://images.unsplash.com/photo-1550572017-edd951aa8f72?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Borjomi',
+        subtitle: 'Shifobaxsh mineral suv',
+        url: 'https://images.unsplash.com/photo-1527661591475-527312dd65f5?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Red Bull Energetik',
+        subtitle: 'Energiya beruvchi ichimlik',
+        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Flash Energetik',
+        subtitle: 'Meva ta\'mli energetik',
+        url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Klassik Mojito',
+        subtitle: 'Yalpiz, laym va muz',
+        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qulupnayli Mojito',
+        subtitle: 'Qulupnay va yalpiz ta\'mi',
+        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Uy Limonadi',
+        subtitle: 'Tsitrusli salqin ichimlik',
+        url: 'https://images.unsplash.com/photo-1621263764928-df1444c5e859?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tarxun',
+        subtitle: 'Yashil xushbo\'y limonad',
+        url: 'https://images.unsplash.com/photo-1536935338788-846bb9981813?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Dyushes (Nok limonadi)',
+        subtitle: 'Shirin nokli salqin ichimlik',
+        url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Berry Mix Smoothie',
+        subtitle: 'Rezavor mevali smuzi',
+        url: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
+
+  // 13. Shirinliklar & Tortlar (16 ta turli xil)
+  _PresetFoodCategory(
+    title: 'Shirinliklar & Tortlar',
+    icon: Icons.cake_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Medovik (Asalli tort)',
+        subtitle: 'Nozik asal va smetana kremi',
+        url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Napoleon Torti',
+        subtitle: 'Qatlama xamir va vanilli krem',
+        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qizil Baxmal (Red Velvet)',
+        subtitle: 'Mayin krem-chiz qatlami',
+        url: 'https://images.unsplash.com/photo-1586788680434-30d324b2d46f?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Chizkeyk Nyu-York',
+        subtitle: 'Klassik qaymoqli chizkeyk',
+        url: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shokoladli Fondant',
+        subtitle: 'Ichidan oqib chiquvchi issiq shokolad',
+        url: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tiramisu',
+        subtitle: 'Italiyacha kofe va maskarpone',
+        url: 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Shokoladli Brauni',
+        subtitle: 'Yong\'oqli quyuq shokolad',
+        url: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pahlava (Baklava)',
+        subtitle: 'Asal va yong\'oqli sharqona shirinlik',
+        url: 'https://images.unsplash.com/photo-1587314168485-3236d6710814?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Kruassan Shokoladli',
+        subtitle: 'Fransuzcha mayin qatlama',
+        url: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Ponchiklar Assorti',
+        subtitle: 'Rangli shokolad va nachinka',
+        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Ekler (2 dona)',
+        subtitle: 'Qaymoqli nachinka bilan',
+        url: 'https://images.unsplash.com/photo-1612203985729-70726954388c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mevali Tort',
+        subtitle: 'Yangi rezavor mevalar bilan',
+        url: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'San-Sebastyan Chizkeyk',
+        subtitle: 'Kuygan kremli chizkeyk',
+        url: 'https://images.unsplash.com/photo-1535141192574-5d4897c13136?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Kapkeyk (Maffin)',
+        subtitle: 'Chiroyli kremli keks',
+        url: 'https://images.unsplash.com/photo-1587668178277-295251f900ce?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Makaron Shirinligi (3 dona)',
+        subtitle: 'Fransuz bodom pechenyesi',
+        url: 'https://images.unsplash.com/photo-1569864358642-9d1684040f43?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Vafli Shirinligi',
+        subtitle: 'Shokolad va meva bilan vafli',
+        url: 'https://images.unsplash.com/photo-1562376552-0d160a2f238d?w=600&auto=format&fit=crop&q=80',
+      ),
+    ],
+  ),
+
+  // 14. Salat & Gazaklar (16 ta turli xil)
   _PresetFoodCategory(
     title: 'Salat & Gazaklar',
-    icon: Icons.set_meal,
-    images: [
-      'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1576107232684-1279f3908594?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=600&auto=format&fit=crop&q=80',
+    icon: Icons.set_meal_rounded,
+    items: [
+      _PresetFoodItem(
+        title: 'Achchiq-chuchuk',
+        subtitle: 'Oshbop mayda to\'g\'ralgan pomidor',
+        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Sezar Salati',
+        subtitle: 'Gril tovuq va parmezan',
+        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Yunoncha Salat (Greek)',
+        subtitle: 'Feta pishloq va zaytun',
+        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Olivye Salati',
+        subtitle: 'Klassik bayramona salat',
+        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Mujskoy Kapriz',
+        subtitle: 'Qazi, til va pishloqli salat',
+        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Bahor Salati',
+        subtitle: 'Rediska, bodring va ko\'katlar',
+        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Suzma Ko\'katlar Bilan',
+        subtitle: 'Xushbo\'y sarimsoqli suzma',
+        url: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Yangi Bodring-Pomidor',
+        subtitle: 'Ko\'katlar bilan to\'g\'ralgan',
+        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Sabzavotli Assorti',
+        subtitle: 'Taziy pomidor, bodring, bulg\'ori',
+        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Pishloqli Assorti',
+        subtitle: 'Turli elita pishloqlar',
+        url: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tovuqli Salat',
+        subtitle: 'Tovuq filesi va bodring',
+        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qisqichbaqasimon Salat (Krab)',
+        subtitle: 'Krab tayoqchalari va makkajo\'xori',
+        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Fransuzcha Go\'shtli Salat',
+        subtitle: 'Qovurilgan go\'sht va sabzi',
+        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qovurilgan Baqlajon Salati',
+        subtitle: 'Qarsildoq baqlajon va sous',
+        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Qazi va Go\'sht Assorti',
+        subtitle: 'Milliy yaxna go\'shtlar',
+        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
+      ),
+      _PresetFoodItem(
+        title: 'Tuzlamalar Assorti',
+        subtitle: 'Tuzlangan pomidor, bodring, patisson',
+        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
+      ),
     ],
   ),
 ];
@@ -8104,18 +9356,49 @@ class _PresetImagesPickerDialog extends StatefulWidget {
 class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
   int _selectedCategoryIndex = 0;
   String? _selectedImageUrl;
+  String? _selectedItemName;
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _selectAndFinish(_PresetFoodItem item) {
+    Navigator.pop(context, {
+      'url': item.url,
+      'name': item.title,
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final activeCategory = _presetFoodLibraries[_selectedCategoryIndex];
 
+    // Filter items: if search is active, search across ALL categories
+    final isSearching = _searchQuery.trim().isNotEmpty;
+    final List<_PresetFoodItem> displayedItems;
+    if (isSearching) {
+      final q = _searchQuery.trim().toLowerCase();
+      displayedItems = _presetFoodLibraries
+          .expand((c) => c.items)
+          .where((item) =>
+              item.title.toLowerCase().contains(q) ||
+              (item.subtitle?.toLowerCase().contains(q) ?? false))
+          .toList();
+    } else {
+      displayedItems = activeCategory.items;
+    }
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 680, maxHeight: 680),
+        constraints: const BoxConstraints(maxWidth: 780, maxHeight: 760),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -8127,25 +9410,57 @@ class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: kYellow.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFFA000), Color(0xFFFFB300)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFFFA000).withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
                     ),
-                    child: Icon(Icons.collections_rounded, color: kDarkYellow, size: 24),
+                    child: const Icon(Icons.collections_rounded,
+                        color: Colors.white, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Tayyor taom rasmlari',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          children: [
+                            const Text(
+                              'Tayyor taom va ichimlik rasmlari',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: kDarkYellow.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                'Alohida (Adena)',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: kDarkYellow,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 2),
                         Text(
-                          'Kerakli taom rasmini tanlang va «Tanlash» tugmasini bosing',
+                          'Kerakli mahsulotni tanlang yoki qidiring (ikki marta bosib darhol tanlash mumkin)',
                           style: TextStyle(
                             fontSize: 12,
                             color: isDark ? Colors.white60 : Colors.grey.shade600,
@@ -8162,166 +9477,386 @@ class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
               ),
               const SizedBox(height: 14),
 
-              // Categories Horizontal Bar
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: Row(
-                  children: List.generate(_presetFoodLibraries.length, (i) {
-                    final cat = _presetFoodLibraries[i];
-                    final isSel = i == _selectedCategoryIndex;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: InkWell(
-                        onTap: () => setState(() => _selectedCategoryIndex = i),
-                        borderRadius: BorderRadius.circular(20),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: isSel
-                                ? (isDark ? kDarkYellow : const Color(0xFF0F172A))
-                                : (isDark
-                                    ? const Color(0xFF0F172A)
-                                    : const Color(0xFFF1F5F9)),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: isSel
-                                  ? Colors.transparent
-                                  : (isDark ? Colors.white12 : Colors.grey.shade300),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                cat.icon,
-                                size: 16,
-                                color: isSel
-                                    ? Colors.white
-                                    : (isDark ? Colors.white70 : Colors.black87),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                cat.title,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: isSel
-                                      ? Colors.white
-                                      : (isDark ? Colors.white70 : Colors.black87),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
+              // Search Box
+              Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF0F172A)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _searchQuery.isNotEmpty
+                        ? const Color(0xFFFFA000)
+                        : (isDark ? Colors.white12 : Colors.grey.shade300),
+                  ),
+                ),
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                  decoration: InputDecoration(
+                    hintText:
+                        'Taom yoki ichimlik qidirish (masalan: 1.5L, shaurma, lavash, marojni, osh)...',
+                    hintStyle: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.white38 : Colors.grey.shade500,
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: _searchQuery.isNotEmpty
+                          ? const Color(0xFFFFA000)
+                          : Colors.grey,
+                    ),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded, size: 18),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                  ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
 
-              // Images Grid
+              // Categories Horizontal Bar (only when not searching globally)
+              if (!isSearching)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: List.generate(_presetFoodLibraries.length, (i) {
+                      final cat = _presetFoodLibraries[i];
+                      final isSel = i == _selectedCategoryIndex;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: InkWell(
+                          onTap: () =>
+                              setState(() => _selectedCategoryIndex = i),
+                          borderRadius: BorderRadius.circular(20),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSel
+                                  ? (isDark
+                                      ? const Color(0xFFFFA000)
+                                      : const Color(0xFF0F172A))
+                                  : (isDark
+                                      ? const Color(0xFF0F172A)
+                                      : const Color(0xFFF1F5F9)),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: isSel
+                                    ? Colors.transparent
+                                    : (isDark
+                                        ? Colors.white12
+                                        : Colors.grey.shade300),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  cat.icon,
+                                  size: 16,
+                                  color: isSel
+                                      ? Colors.white
+                                      : (isDark
+                                          ? Colors.white70
+                                          : Colors.black87),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  cat.title,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: isSel
+                                        ? Colors.white
+                                        : (isDark
+                                            ? Colors.white70
+                                            : Colors.black87),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isSel
+                                        ? Colors.white.withValues(alpha: 0.25)
+                                        : (isDark
+                                            ? Colors.white12
+                                            : Colors.grey.shade300),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    '${cat.items.length}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isSel
+                                          ? Colors.white
+                                          : (isDark
+                                              ? Colors.white70
+                                              : Colors.black87),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(Icons.filter_list_rounded,
+                          size: 16, color: kDarkYellow),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Qidiruv natijalari: ${displayedItems.length} ta mahsulot topildi',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 12),
+
+              // Items Grid
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    color: isDark
+                        ? const Color(0xFF0F172A)
+                        : const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: isDark ? Colors.white10 : Colors.grey.shade200,
                     ),
                   ),
-                  child: GridView.builder(
-                    itemCount: activeCategory.images.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                      childAspectRatio: 1.1,
-                    ),
-                    itemBuilder: (context, idx) {
-                      final url = activeCategory.images[idx];
-                      final isSelected = _selectedImageUrl == url;
+                  child: displayedItems.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.search_off_rounded,
+                                  size: 48,
+                                  color: isDark
+                                      ? Colors.white30
+                                      : Colors.grey.shade400),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Hech narsa topilmadi',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark
+                                      ? Colors.white70
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Boshqa so\'z yoki o\'lcham (0.5L, 1.5L) bilan qidirib ko\'ring',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? Colors.white38
+                                      : Colors.grey.shade400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : GridView.builder(
+                          itemCount: displayedItems.length,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                            childAspectRatio: 1.15,
+                          ),
+                          itemBuilder: (context, idx) {
+                            final item = displayedItems[idx];
+                            final isSelected = _selectedImageUrl == item.url;
 
-                      return InkWell(
-                        onTap: () => setState(() => _selectedImageUrl = url),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ClipRRect(
+                            return InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _selectedImageUrl = item.url;
+                                  _selectedItemName = item.title;
+                                });
+                              },
+                              onDoubleTap: () => _selectAndFinish(item),
                               borderRadius: BorderRadius.circular(14),
-                              child: Image.network(
-                                url,
-                                fit: BoxFit.cover,
-                                loadingBuilder: (context, child, progress) {
-                                  if (progress == null) return child;
-                                  return Container(
-                                    color: isDark
-                                        ? const Color(0xFF1E293B)
-                                        : Colors.grey.shade200,
-                                    child: const Center(
-                                      child: SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  // Image
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(14),
+                                    child: Image.network(
+                                      item.url,
+                                      fit: BoxFit.cover,
+                                      loadingBuilder:
+                                          (context, child, progress) {
+                                        if (progress == null) return child;
+                                        return Container(
+                                          color: isDark
+                                              ? const Color(0xFF1E293B)
+                                              : Colors.grey.shade200,
+                                          child: const Center(
+                                            child: SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      errorBuilder: (_, __, ___) => Container(
+                                        color: Colors.grey.shade200,
+                                        child: const Icon(Icons.broken_image,
+                                            color: Colors.grey),
                                       ),
                                     ),
-                                  );
-                                },
-                                errorBuilder: (_, __, ___) => Container(
-                                  color: Colors.grey.shade200,
-                                  child: const Icon(Icons.broken_image,
-                                      color: Colors.grey),
-                                ),
-                              ),
-                            ),
-                            // Selection ring / badge
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? const Color(0xFFFFA000)
-                                      : Colors.transparent,
-                                  width: 3,
-                                ),
-                                color: isSelected
-                                    ? Colors.black.withValues(alpha: 0.25)
-                                    : Colors.transparent,
-                              ),
-                            ),
-                            if (isSelected)
-                              Positioned(
-                                top: 8,
-                                right: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFFFA000),
-                                    shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(
-                                    Icons.check_rounded,
-                                    color: Colors.white,
-                                    size: 16,
+
+                                  // Dark Bottom Gradient with Title & Subtitle
+                                  Positioned(
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        borderRadius: const BorderRadius.vertical(
+                                            bottom: Radius.circular(14)),
+                                        gradient: LinearGradient(
+                                          begin: Alignment.bottomCenter,
+                                          end: Alignment.topCenter,
+                                          colors: [
+                                            Colors.black.withValues(alpha: 0.9),
+                                            Colors.black.withValues(alpha: 0.5),
+                                            Colors.transparent,
+                                          ],
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            item.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                              shadows: [
+                                                Shadow(
+                                                  blurRadius: 4,
+                                                  color: Colors.black,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (item.subtitle != null) ...[
+                                            const SizedBox(height: 1),
+                                            Text(
+                                              item.subtitle!,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.8),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w400,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
+
+                                  // Selection ring / badge
+                                  AnimatedContainer(
+                                    duration:
+                                        const Duration(milliseconds: 180),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? const Color(0xFFFFA000)
+                                            : Colors.transparent,
+                                        width: 3,
+                                      ),
+                                      color: isSelected
+                                          ? const Color(0xFFFFA000)
+                                              .withValues(alpha: 0.15)
+                                          : Colors.transparent,
+                                    ),
+                                  ),
+
+                                  // Checkmark badge in corner
+                                  if (isSelected)
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFFA000),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.3),
+                                              blurRadius: 4,
+                                            ),
+                                          ],
+                                        ),
+                                        child: const Icon(
+                                          Icons.check_rounded,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
-                          ],
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
               // Bottom Actions
               Row(
@@ -8340,11 +9875,15 @@ class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
+                    flex: 2,
                     child: FilledButton.icon(
                       icon: const Icon(Icons.check_rounded, size: 20),
-                      label: const Text(
-                        'Rasmni tanlash',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      label: Text(
+                        _selectedItemName != null
+                            ? '«$_selectedItemName» tanlash'
+                            : 'Rasmni tanlash',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
                       ),
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF0F172A),
@@ -8356,7 +9895,12 @@ class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
                       ),
                       onPressed: _selectedImageUrl == null
                           ? null
-                          : () => Navigator.pop(context, _selectedImageUrl),
+                          : () {
+                              Navigator.pop(context, {
+                                'url': _selectedImageUrl,
+                                'name': _selectedItemName,
+                              });
+                            },
                     ),
                   ),
                 ],
@@ -8431,12 +9975,23 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   }
 
   Future<void> _pickFromPresetLibrary() async {
-    final selected = await showDialog<String>(
+    final selected = await showDialog<dynamic>(
       context: context,
       builder: (_) => const _PresetImagesPickerDialog(),
     );
     if (selected != null && mounted) {
-      setState(() => imageCtrl.text = selected);
+      if (selected is Map) {
+        final url = (selected['url'] ?? '').toString();
+        final name = (selected['name'] ?? '').toString();
+        setState(() {
+          if (url.isNotEmpty) imageCtrl.text = url;
+          if (nameCtrl.text.trim().isEmpty && name.isNotEmpty) {
+            nameCtrl.text = name;
+          }
+        });
+      } else if (selected is String) {
+        setState(() => imageCtrl.text = selected);
+      }
     }
   }
 
@@ -9300,22 +10855,40 @@ class CartPanel extends StatelessWidget {
 
   Widget _buildPanel(BuildContext context) {
     return Container(
-      color: Theme.of(context).scaffoldBackgroundColor,
+      color: Colors.white,
       child: Column(
         children: [
+          // Header: Joriy buyurtma + Tozalash
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Joriy buyurtma',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                const Row(
+                  children: [
+                    Icon(Icons.shopping_cart_outlined, color: Color(0xFF0F172A), size: 22),
+                    SizedBox(width: 8),
+                    Text(
+                      'Joriy buyurtma',
+                      style: TextStyle(
+                        fontSize: 17.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ],
                 ),
                 if (appState.cart.isNotEmpty)
                   TextButton(
                     onPressed: () => appState.clearCart(),
-                    child: const Text('Tozalash'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF64748B),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    ),
+                    child: const Text(
+                      'Tozalash',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                    ),
                   ),
               ],
             ),
@@ -9362,124 +10935,186 @@ class CartPanel extends StatelessWidget {
                     ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                     itemCount: appState.cart.length,
                     itemBuilder: (context, i) {
                       final item = appState.cart[i];
-                      return Card(
+                      return Container(
                         margin: const EdgeInsets.symmetric(vertical: 6),
-                        child: Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  CircleAvatar(
-                                    backgroundColor:
-                                        kYellow.withValues(alpha: 0.2),
-                                    child: Icon(
-                                      item.product.icon,
-                                      color: kDarkYellow,
-                                      size: 18,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      item.product.name,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.red,
-                                      size: 20,
-                                    ),
-                                    onPressed: () =>
-                                        appState.removeFromCart(item),
-                                  ),
-                                ],
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFDF5),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0xFFFEF3C7), width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFFB300).withValues(alpha: 0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 1. Food Image (Image 5 style)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: SizedBox(
+                                width: 68,
+                                height: 68,
+                                child: _buildCartItemImage(item.product),
                               ),
-                              if (item.note.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: 44,
-                                    top: 2,
-                                  ),
-                                  child: Text(
-                                    'Izoh: ${item.note}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                                ),
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
+                            ),
+                            const SizedBox(width: 12),
+
+                            // 2. Details (Name, Price, Stepper)
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      _qtyBtn(
-                                        Icons.remove,
-                                        () => appState.changeQty(item, -1),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                        ),
+                                      Expanded(
                                         child: Text(
-                                          '${item.qty}',
+                                          item.product.name,
                                           style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 15.5,
+                                            color: Color(0xFF0F172A),
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      // Soft red circular delete button (Image 5)
+                                      InkWell(
+                                        onTap: () => appState.removeFromCart(item),
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(7),
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFFFEE2E2),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.delete_outline_rounded,
+                                            size: 17,
+                                            color: Color(0xFFEF4444),
                                           ),
                                         ),
                                       ),
-                                      _qtyBtn(
-                                        Icons.add,
-                                        () => appState.changeQty(item, 1),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.note_add_outlined,
-                                          size: 20,
-                                        ),
-                                        onPressed: () =>
-                                            _editNote(context, item),
-                                      ),
                                     ],
                                   ),
+                                  const SizedBox(height: 3),
                                   Text(
-                                    formatSum(item.total),
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: kDarkYellow,
+                                    formatSum(item.product.price),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14.5,
+                                      color: Color(0xFFF59E0B),
                                     ),
+                                  ),
+                                  const SizedBox(height: 8),
+
+                                  // Stepper pill [ -   1   + ] (Image 5)
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(alpha: 0.02),
+                                              blurRadius: 4,
+                                            ),
+                                          ],
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            InkWell(
+                                              onTap: () => appState.changeQty(item, -1),
+                                              borderRadius: BorderRadius.circular(14),
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                child: Icon(Icons.remove_rounded, size: 16, color: Color(0xFF0F172A)),
+                                              ),
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                                              child: Text(
+                                                '${item.qty}',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 14.5,
+                                                  color: Color(0xFF0F172A),
+                                                ),
+                                              ),
+                                            ),
+                                            InkWell(
+                                              onTap: () => appState.changeQty(item, 1),
+                                              borderRadius: BorderRadius.circular(14),
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                child: Icon(Icons.add_rounded, size: 16, color: Color(0xFF0F172A)),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (item.note.isNotEmpty)
+                                        InkWell(
+                                          onTap: () => _editNote(context, item),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F5F9),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              item.note,
+                                              style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFF64748B)),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        IconButton(
+                                          icon: const Icon(Icons.note_add_outlined, size: 18, color: Color(0xFF94A3B8)),
+                                          onPressed: () => _editNote(context, item),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                        ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       );
                     },
                   ),
           ),
+          // Bottom Bar: Jami + To'lovga o'tish (Image 5 style)
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
             decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
+              color: Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, -2),
+                  blurRadius: 10,
+                  offset: const Offset(0, -3),
                 ),
               ],
             ),
@@ -9488,52 +11123,86 @@ class CartPanel extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Jami', style: TextStyle(fontSize: 16)),
+                    const Text(
+                      'Jami',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
                     Text(
                       formatSum(appState.cartTotal),
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: kDarkYellow,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFF59E0B),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed:
-                        appState.cart.isEmpty || appState.proceedingToPayment
-                            ? null
-                            : () async {
-                                final ok = await appState.proceedToPayment();
-                                if (ok && context.mounted) {
-                                  Navigator.pushReplacement(
-                                    context,
-                                    MaterialPageRoute(
-                                      settings:
-                                          const RouteSettings(name: 'payment'),
-                                      builder: (_) => const PaymentScreen(),
-                                    ),
-                                  );
-                                }
-                              },
-                    icon: appState.proceedingToPayment
-                        ? const SizedBox(
+                const SizedBox(height: 14),
+                InkWell(
+                  onTap: appState.cart.isEmpty || appState.proceedingToPayment
+                      ? null
+                      : () async {
+                          final ok = await appState.proceedToPayment();
+                          if (ok && context.mounted) {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                settings: const RouteSettings(name: 'payment'),
+                                builder: (_) => const PaymentScreen(),
+                              ),
+                            );
+                          }
+                        },
+                  borderRadius: BorderRadius.circular(28),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: double.infinity,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: appState.cart.isEmpty
+                            ? [Colors.grey.shade400, Colors.grey.shade500]
+                            : [const Color(0xFFF59E0B), const Color(0xFFD97706)],
+                      ),
+                      borderRadius: BorderRadius.circular(28),
+                      boxShadow: appState.cart.isEmpty
+                          ? []
+                          : [
+                              BoxShadow(
+                                color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
+                                blurRadius: 14,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (appState.proceedingToPayment)
+                          const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        else ...[
+                          const Icon(Icons.credit_card_rounded, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'To\'lovga o\'tish',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
                               color: Colors.white,
                             ),
-                          )
-                        : const Icon(Icons.payment),
-                    label: Text(
-                      appState.proceedingToPayment
-                          ? 'Kutilmoqda...'
-                          : 'To\'lovga o\'tish',
-                      style: const TextStyle(fontSize: 16),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                        ],
+                      ],
                     ),
                   ),
                 ),
@@ -9545,18 +11214,51 @@ class CartPanel extends StatelessWidget {
     );
   }
 
-  Widget _qtyBtn(IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: kYellow.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+  Widget _buildCartItemImage(Product product) {
+    String? resolvedUrl = product.imageUrl;
+    if (resolvedUrl == null || resolvedUrl.trim().isEmpty) {
+      final name = product.name.toLowerCase();
+      if (name.contains('shaurma')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('lavash')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('burger')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('pitsa') || name.contains('pizza')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('cola') || name.contains('coca')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('fanta')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1624517452488-04869289c4ca?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('pepsi')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('marojni') || name.contains('muzqaymoq')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=400&auto=format&fit=crop&q=80';
+      } else if (name.contains('osh') || name.contains('palov')) {
+        resolvedUrl = 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=400&auto=format&fit=crop&q=80';
+      } else {
+        resolvedUrl = 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&auto=format&fit=crop&q=80';
+      }
+    }
+
+    return Image.network(
+      resolvedUrl,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => Container(
+        color: const Color(0xFFFFFBEB),
+        child: Center(
+          child: Icon(product.icon, color: const Color(0xFFF59E0B), size: 30),
         ),
-        child: Icon(icon, size: 16, color: kDarkYellow),
       ),
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          color: const Color(0xFFF1F5F9),
+          child: const Center(
+            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+        );
+      },
     );
   }
 
@@ -11367,6 +13069,10 @@ class _ReportsScreenState extends State<ReportsScreen>
                           ],
                         ),
                       ),
+                      const SizedBox(height: 16),
+
+                      // 1.5. BUGUNGI OFITSIANTLAR VA XODIMLAR NATIJALARI (IMAGE 2)
+                      _buildStaffOverviewSection(context, appState, sortedStaff, staffOrderCount, totalRevenue),
                     ],
                   ),
 
@@ -11725,6 +13431,235 @@ class _ReportsScreenState extends State<ReportsScreen>
           ),
           const SizedBox(height: 6),
           Text(sumStr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStaffOverviewSection(
+    BuildContext context,
+    AppState appState,
+    List<MapEntry<String, double>> sortedStaff,
+    Map<String, int> staffOrderCount,
+    double totalRevenue,
+  ) {
+    final List<Map<String, dynamic>> displayItems = [];
+
+    if (sortedStaff.isNotEmpty) {
+      for (final entry in sortedStaff) {
+        final staffName = entry.key;
+        final rev = entry.value;
+        final ordersCount = staffOrderCount[staffName] ?? 0;
+        final userModel = appState.users.firstWhere(
+          (u) => u.name.toLowerCase() == staffName.toLowerCase() || u.username.toLowerCase() == staffName.toLowerCase(),
+          orElse: () => AppUser(id: 0, name: staffName, username: staffName, password: '', role: UserRole.waiter),
+        );
+        displayItems.add({
+          'name': staffName,
+          'rev': rev,
+          'orders': ordersCount,
+          'user': userModel,
+        });
+      }
+    } else {
+      for (final u in appState.users) {
+        displayItems.add({
+          'name': u.name,
+          'rev': 0.0,
+          'orders': 0,
+          'user': u,
+        });
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.badge_rounded, color: Color(0xFF10B981), size: 18),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Bugungi Ofitsiantlar va Xodimlar Natijalari',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Color(0xFF0F172A)),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${displayItems.length} ta xodim',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (displayItems.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'Xodimlar ro\'yxati bo\'sh',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            )
+          else
+            ...displayItems.map((item) {
+              final String name = item['name'];
+              final double rev = item['rev'];
+              final int orders = item['orders'];
+              final AppUser u = item['user'];
+              final isWaiter = u.role == UserRole.waiter;
+              final avg = orders > 0 ? (rev / orders) : 0.0;
+              final pct = totalRevenue > 0 ? (rev / totalRevenue) : 0.0;
+
+              final staffStatus = StaffTrackingService().getStatus(u.id);
+              final isOnBreak = staffStatus?.isOnBreak ?? false;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isOnBreak ? const Color(0xFFFECACA) : const Color(0xFFE2E8F0),
+                    width: isOnBreak ? 1.4 : 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: isOnBreak
+                              ? [const Color(0xFFEF4444), const Color(0xFFDC2626)]
+                              : (isWaiter
+                                  ? [const Color(0xFF10B981), const Color(0xFF059669)]
+                                  : [const Color(0xFFFFB300), const Color(0xFFFF8F00)]),
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Icon(
+                          isOnBreak
+                              ? Icons.coffee_rounded
+                              : (isWaiter ? Icons.room_service_rounded : Icons.person_rounded),
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14.5,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: isWaiter ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  isWaiter ? 'Ofitsiant' : 'Kassir',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: isWaiter ? const Color(0xFF16A34A) : const Color(0xFFD97706),
+                                  ),
+                                ),
+                              ),
+                              if (isOnBreak) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFEF2F2),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                                  ),
+                                  child: const Text(
+                                    '☕ Dam olmoqda',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFFDC2626),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Bugun: $orders ta mijozga qaradi · O\'rtacha: ${formatSum(avg)}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          formatSum(rev),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                        if (totalRevenue > 0)
+                          Text(
+                            '${(pct * 100).toStringAsFixed(1)}%',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -13400,6 +15335,30 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                             ),
                                           ),
                                         ),
+                                        Builder(builder: (context) {
+                                          final status = StaffTrackingService().getStatus(u.id);
+                                          final isOnBreak = status?.isOnBreak ?? false;
+                                          if (!isOnBreak) return const SizedBox.shrink();
+                                          return Padding(
+                                            padding: const EdgeInsets.only(left: 6),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFFEF2F2),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: const Color(0xFFFCA5A5)),
+                                              ),
+                                              child: Text(
+                                                '☕ ${u.name} dam olmoqda',
+                                                style: const TextStyle(
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFFDC2626),
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }),
                                       ],
                                     ),
                                     const SizedBox(height: 6),

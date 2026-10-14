@@ -21,6 +21,8 @@ enum CafeSocketEvent {
   maintenanceStatus,
   supportIssueReported,
   hallsUpdated,
+  staffStatusUpdated,
+  staffMovementUpdated,
 }
 
 const Map<CafeSocketEvent, String> _eventNames = {
@@ -40,6 +42,8 @@ const Map<CafeSocketEvent, String> _eventNames = {
   CafeSocketEvent.maintenanceStatus: 'CAFE_MAINTENANCE_STATUS',
   CafeSocketEvent.supportIssueReported: 'SUPPORT_ISSUE_REPORTED',
   CafeSocketEvent.hallsUpdated: 'HALLS_UPDATED',
+  CafeSocketEvent.staffStatusUpdated: 'STAFF_STATUS_UPDATED',
+  CafeSocketEvent.staffMovementUpdated: 'STAFF_MOVEMENT_UPDATED',
 };
 
 /// socket_io_client ustidan qatlam: JWT bilan ulanish, JOIN_CAFE,
@@ -166,6 +170,18 @@ class SocketService {
   void leaveAdditionalRoom(String cafeId) {
     if (_socket != null) {
       _socket!.emit('LEAVE_CAFE', {'cafeId': cafeId});
+    }
+  }
+
+  void emitStaffStatus(Map<String, dynamic> data) {
+    if (_socket != null) {
+      _socket!.emit('STAFF_STATUS_UPDATE', data);
+    }
+  }
+
+  void emitStaffMovement(Map<String, dynamic> data) {
+    if (_socket != null) {
+      _socket!.emit('STAFF_MOVEMENT_UPDATE', data);
     }
   }
 
