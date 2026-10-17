@@ -82,6 +82,14 @@ const initSocket = (io) => {
       }
     });
 
+    socket.on('BANNERS_UPDATED', (payload = {}) => {
+      const targetCafeId = socket.user?.cafeId || payload.cafeId;
+      if (targetCafeId) {
+        notifyCafe(targetCafeId, 'BANNERS_UPDATED', payload);
+        console.log(`📢 [Socket.IO] BANNERS_UPDATED forwarded to cafe ${targetCafeId}`);
+      }
+    });
+
     socket.on('disconnect', (reason) => {
       console.log(`❌ [Socket.IO] Disconnected: ${socket.id} (${reason})`);
     });
