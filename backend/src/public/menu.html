@@ -3,11 +3,13 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Family Cafe - QR Menyu</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Zavero - QR Menyu</title>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+  <!-- Telegram Web App SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- Google Fonts & FontAwesome -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -806,9 +808,10 @@
       </div>
 
       <!-- STOL BADGE (TOP RIGHT) -->
-      <div class="stol-badge-card">
+      <div class="stol-badge-card" onclick="promptChangeTable()" style="cursor: pointer;" title="Stol raqamini o'zgartirish">
         <i class="fa-solid fa-chair"></i>
         <span id="tableNumberLabel">1-stol</span>
+        <i class="fa-solid fa-pen-to-square" style="font-size: 11px; opacity: 0.6; margin-left: 2px;"></i>
       </div>
     </header>
 
@@ -873,6 +876,7 @@
     <div class="categories-row" id="categoriesBar"></div>
 
     <!-- 5. FOOD SECTIONS CONTAINER -->
+
     <div id="foodSectionsContainer">
       <div class="state-box">
         <div class="spinner"></div>
@@ -908,27 +912,94 @@
 
       <div class="form-group">
         <label>Ism va familiyangiz</label>
-        <input type="text" id="custNameInput" placeholder="Masalan: Ali Valiyev" onblur="syncCustomerInfo()">
+        <input type="text" id="custNameInput" placeholder="Masalan: Nematov Mirzobek" onblur="syncCustomerInfo()">
       </div>
 
       <div class="form-group">
         <label>Telefon raqam</label>
-        <input type="tel" id="custPhoneInput" placeholder="+998 90 123 45 67" onblur="syncCustomerInfo()">
+        <input type="tel" id="custPhoneInput" placeholder="+998 50 723 04 75" onblur="syncCustomerInfo()">
       </div>
 
       <button class="submit-order-btn" id="submitOrderBtn" onclick="submitOrder()">
-        Oshpazga yuborish 🚀
+        Zakas berish
       </button>
     </div>
   </div>
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
-    const cafeId = urlParams.get('cafeId') || 'cafe1';
+
+    // Telegram Mini App SDK Integration
+    let tgUser = null;
+    let tgStartParam = '';
+    const isTelegramWebApp = typeof window.Telegram !== 'undefined' && !!window.Telegram.WebApp;
+
+    if (isTelegramWebApp) {
+      try {
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+        if (window.Telegram.WebApp.enableClosingConfirmation) {
+          window.Telegram.WebApp.enableClosingConfirmation();
+        }
+        tgUser = window.Telegram.WebApp.initDataUnsafe?.user || null;
+        tgStartParam = window.Telegram.WebApp.initDataUnsafe?.start_param || urlParams.get('tgWebAppStartParam') || '';
+      } catch (tgErr) {
+        console.warn('Telegram WebApp init error:', tgErr);
+      }
+    }
+
+    function haptic(type = 'light') {
+      try {
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+          if (['light', 'medium', 'heavy', 'rigid', 'soft'].includes(type)) {
+            window.Telegram.WebApp.HapticFeedback.impactOccurred(type);
+          } else if (['success', 'warning', 'error'].includes(type)) {
+            window.Telegram.WebApp.HapticFeedback.notificationOccurred(type);
+          }
+        }
+      } catch (_) {}
+    }
+
+    function showNotify(msg) {
+      if (window.Telegram?.WebApp?.showAlert) {
+        window.Telegram.WebApp.showAlert(msg);
+      } else {
+        alert(msg);
+      }
+    }
+
+    // Resolve cafeId & tableNumber from query params or Telegram start param
+    let cafeId = urlParams.get('cafeId') || urlParams.get('cafe') || '';
+    let tableNumber = urlParams.get('tableNumber') || urlParams.get('table') || '';
+
+    if (tgStartParam) {
+      const parts = tgStartParam.split('_');
+      if (parts.length >= 2) {
+        if (!cafeId) cafeId = parts[0];
+        const lastPart = parts[parts.length - 1].replace(/^t(able)?/i, '');
+        if (lastPart && !tableNumber) tableNumber = lastPart;
+      } else if (!cafeId) {
+        cafeId = tgStartParam;
+      }
+    }
+
+    if (!cafeId) cafeId = 'default';
+    if (!tableNumber) tableNumber = '1';
+
+    let tableName = urlParams.get('tableName') || `${tableNumber}-stol`;
     const initCafeName = urlParams.get('cafeName');
-    const tableNumber = urlParams.get('tableNumber') || '1';
-    const tableName = urlParams.get('tableName') || `${tableNumber}-stol`;
     const hallId = urlParams.get('hallId') || '';
+
+    function promptChangeTable() {
+      const current = tableNumber || '1';
+      const entered = prompt("Stol raqamingizni kiriting:", current);
+      if (entered !== null && entered.trim() !== '') {
+        tableNumber = entered.trim();
+        tableName = `${tableNumber}-stol`;
+        document.getElementById('tableNumberLabel').innerText = tableName;
+        haptic('light');
+      }
+    }
 
     // Set Header & Table Label
     if (initCafeName) {
@@ -948,10 +1019,92 @@
     // AUTO-SLIDING PROMO CAROUSEL LOGIC
     // ==========================================
     let currentSlide = 0;
-    const totalSlides = 4;
+    let totalSlides = 4;
     let promoTimer = null;
 
+    const defaultBanners = [
+      {
+        imageUrl: 'https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=1000&auto=format&fit=crop&q=80',
+        tag: 'Zavero Maxsus Taklifi',
+        title: 'Issiq va Mazali Shaurma!',
+        description: "Har kuni yangi tayyorlangan, to'yimli va lazzatli taomlar."
+      },
+      {
+        imageUrl: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=1000&auto=format&fit=crop&q=80',
+        tag: 'Haqiqiy Italyancha Ta\'m',
+        title: 'Qaynoq Pitsa & Fast Food',
+        description: "Pishloqli, qarsildoq va lazzatli pishiriqlar tanlovi."
+      },
+      {
+        imageUrl: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=1000&auto=format&fit=crop&q=80',
+        tag: 'Tezkor Xizmat',
+        title: 'Bir Zumda Buyurtma Bering',
+        description: "Buyurtmangiz to'g'ridan-to'g'ri oshpazga yetkaziladi!"
+      },
+      {
+        imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=1000&auto=format&fit=crop&q=80',
+        tag: 'A\'lo Kayfiyat',
+        title: 'Qahva & Shirinliklar',
+        description: "Kun davomida xushbo'y qahva va nozik desertlardan bahramand bo'ling."
+      }
+    ];
+
+    let lastBannersSnapshot = '';
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function renderPromoBanners(bannersList) {
+      const track = document.getElementById('promoTrack');
+      const dotsContainer = document.getElementById('promoDots');
+      if (!track || !dotsContainer) return;
+
+      const list = (Array.isArray(bannersList) && bannersList.length > 0)
+        ? bannersList
+        : defaultBanners;
+
+      const snapshot = JSON.stringify(list);
+      if (snapshot === lastBannersSnapshot) {
+        return;
+      }
+      lastBannersSnapshot = snapshot;
+
+      totalSlides = list.length;
+      currentSlide = 0;
+
+      track.innerHTML = list.map((b) => {
+        const bg = resolveImg(b.imageUrl || b.image || '');
+        const tag = b.tag || b.badge || 'Zavero Maxsus Taklifi';
+        const title = b.title || '';
+        const desc = b.description || b.desc || '';
+        return `
+          <div class="promo-slide" style="background-image: url('${bg}');">
+            <div class="promo-slide-overlay">
+              ${tag ? `<span class="promo-tag"><i class="fa-solid fa-fire"></i> ${escapeHtml(tag)}</span>` : ''}
+              ${title ? `<h2 class="promo-title">${escapeHtml(title)}</h2>` : ''}
+              ${desc ? `<p class="promo-desc">${escapeHtml(desc)}</p>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      dotsContainer.innerHTML = list.map((_, idx) => `
+        <div class="promo-dot ${idx === 0 ? 'active' : ''}" onclick="goToSlide(${idx})"></div>
+      `).join('');
+
+      track.style.transform = 'translateX(0%)';
+      startAutoSlide();
+    }
+
     function goToSlide(index) {
+      if (totalSlides <= 0) return;
       currentSlide = (index + totalSlides) % totalSlides;
       const track = document.getElementById('promoTrack');
       if (track) {
@@ -965,9 +1118,10 @@
 
     function startAutoSlide() {
       stopAutoSlide();
+      if (totalSlides <= 1) return;
       promoTimer = setInterval(() => {
         goToSlide(currentSlide + 1);
-      }, 3500);
+      }, 2000); // Har 2 soniyada (2s) yangi reklamaga suriladi
     }
 
     function stopAutoSlide() {
@@ -1055,6 +1209,18 @@
       socket.on('CATEGORIES_UPDATED', () => {
         loadMenuData(true);
       });
+
+      socket.on('BANNERS_UPDATED', (payload) => {
+        if (payload && payload.banners) {
+          renderPromoBanners(payload.banners);
+        } else {
+          loadMenuData(true);
+        }
+      });
+
+      socket.on('SETTINGS_UPDATED', () => {
+        loadMenuData(true);
+      });
     } catch (e) {
       console.warn("Socket not available:", e);
     }
@@ -1087,7 +1253,10 @@
         }
 
         if (data.cafe) {
-          const finalCafeName = data.cafe.name || data.cafe.receiptName || data.cafe.cafeName || 'Family Cafe';
+          if (data.cafe.cafeId || data.cafe.id) {
+            cafeId = data.cafe.cafeId || data.cafe.id;
+          }
+          const finalCafeName = data.cafe.name || data.cafe.receiptName || data.cafe.cafeName || 'Zavero Menyu';
           document.getElementById('cafeName').innerText = finalCafeName;
           document.title = finalCafeName + ' - QR Menyu';
 
@@ -1098,6 +1267,10 @@
               logoEl.innerHTML = `<img src="${resolvedLogo}" alt="${finalCafeName}">`;
             }
           }
+        }
+
+        if (data.banners) {
+          renderPromoBanners(data.banners);
         }
 
         const newCats = data.categories || [];
@@ -1310,6 +1483,7 @@
     }
 
     function updateQty(prodId, delta) {
+      haptic('light');
       const current = cart[prodId] || 0;
       const next = current + delta;
       if (next <= 0) {
@@ -1418,19 +1592,22 @@
 
         const data = await res.json();
         if (data.success && data.order) {
+          haptic('success');
           cart = {};
           updateCartBar();
           renderFoodSections();
           closeCheckoutModal();
-          alert('🎉 Buyurtmangiz muvaffaqiyatli qabul qilindi va oshpazga yuborildi!');
+          showNotify('🎉 Buyurtmangiz muvaffaqiyatli qabul qilindi va oshpazga yuborildi!');
         } else {
-          alert(data.message || 'Xatolik yuz berdi.');
+          haptic('error');
+          showNotify(data.message || 'Xatolik yuz berdi.');
         }
       } catch (err) {
-        alert("Server bilan ulanishda xatolik: " + err.message);
+        haptic('error');
+        showNotify("Server bilan ulanishda xatolik: " + err.message);
       } finally {
         submitBtn.disabled = false;
-        submitBtn.innerText = 'Oshpazga yuborish 🚀';
+        submitBtn.innerText = 'Zakas berish';
       }
     }
 
@@ -1450,13 +1627,23 @@
       }
     }
 
-    // Restore saved customer info
+    // Restore saved customer info or auto-fill from Telegram profile
     try {
       const savedName = localStorage.getItem('zavero_cust_name');
       const savedPhone = localStorage.getItem('zavero_cust_phone');
-      if (savedName) document.getElementById('custNameInput').value = savedName;
-      if (savedPhone) document.getElementById('custPhoneInput').value = savedPhone;
-      if (savedName || savedPhone) {
+      const nameInput = document.getElementById('custNameInput');
+      const phoneInput = document.getElementById('custPhoneInput');
+      if (savedName && nameInput) nameInput.value = savedName;
+      if (savedPhone && phoneInput) phoneInput.value = savedPhone;
+
+      if (tgUser && nameInput && !nameInput.value) {
+        const tgFullName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || (tgUser.username ? `@${tgUser.username}` : '');
+        if (tgFullName) {
+          nameInput.value = tgFullName;
+        }
+      }
+
+      if (nameInput.value || phoneInput.value) {
         syncCustomerInfo();
       }
     } catch (_) { }
