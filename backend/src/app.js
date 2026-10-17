@@ -32,7 +32,7 @@ app.use(
     crossOriginResourcePolicy: false,
     contentSecurityPolicy: false,
     dnsPrefetchControl: { allow: false },
-    frameguard: { action: 'deny' },
+    frameguard: false,
     hidePoweredBy: true,
     hsts: { maxAge: 31536000, includeSubDomains: true },
     ieNoOpen: true,
@@ -53,13 +53,16 @@ app.use('/api', generalApiLimiter);
 // Serve uploaded product images
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
-// Serve Public QR Menu Web Application
-app.get('/menu', (req, res) => {
+// Serve Public QR Menu & Telegram Mini App Web Application
+const serveMenuApp = (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   res.sendFile(path.join(__dirname, 'public', 'menu.html'));
-});
+};
+
+app.get('/', serveMenuApp);
+app.get('/menu', serveMenuApp);
 
 app.get('/m/:cafeId/:tableNumber', (req, res) => {
   const { cafeId, tableNumber } = req.params;
