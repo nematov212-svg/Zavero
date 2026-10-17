@@ -180,6 +180,9 @@ const saveSettings = async (req, res) => {
 
     const { notifyCafe } = require('../socket/socketHandler');
     notifyCafe(cafeId, 'SETTINGS_UPDATED', { settings: merged });
+    if (merged.promoBanners) {
+      notifyCafe(cafeId, 'BANNERS_UPDATED', { banners: merged.promoBanners });
+    }
 
     return res.json({ success: true, settings: merged });
   } catch (error) {
@@ -229,6 +232,83 @@ const getMaintenanceStatus = async (req, res) => {
   }
 };
 
+// GET /api/cafe/banners
+const getBanners = async (req, res) => {
+  try {
+    const cafeId = req.headers['x-cafe-id'] || req.user?.cafeId || req.query?.cafeId;
+    const current = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+    const settings = current.rows[0]?.data || {};
+    return res.json({ success: true, banners: settings.promoBanners || [] });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/cafe/banners
+const addBanner = async (req, res) => {
+  try {
+    const cafeId = req.headers['x-cafe-id'] || req.user?.cafeId || req.body?.cafeId || req.query?.cafeId;
+    const { imageUrl, tag, title, description } = req.body;
+    if (!imageUrl && !title) {
+      return res.status(400).json({ success: false, message: 'Rasm yoki sarlavha kiritilishi shart' });
+    }
+    const current = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+    const settings = current.rows[0]?.data || {};
+    const banners = Array.isArray(settings.promoBanners) ? [...settings.promoBanners] : [];
+    const newBanner = {
+      id: 'bnr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      imageUrl: imageUrl || '',
+      tag: tag || 'Zavero Maxsus Taklifi',
+      title: title || '',
+      description: description || '',
+      createdAt: new Date().toISOString(),
+    };
+    banners.unshift(newBanner);
+    const merged = { ...settings, promoBanners: banners };
+
+    await db.query(
+      `INSERT INTO settings (cafe_id, data, updated_at) VALUES ($1,$2,CURRENT_TIMESTAMP)
+       ON CONFLICT (cafe_id) DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP`,
+      [cafeId, JSON.stringify(merged)]
+    );
+
+    const { notifyCafe } = require('../socket/socketHandler');
+    notifyCafe(cafeId, 'BANNERS_UPDATED', { banners });
+    notifyCafe(cafeId, 'SETTINGS_UPDATED', { settings: merged });
+
+    return res.json({ success: true, banner: newBanner, banners });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// DELETE /api/cafe/banners/:id
+const deleteBanner = async (req, res) => {
+  try {
+    const cafeId = req.headers['x-cafe-id'] || req.user?.cafeId || req.query?.cafeId;
+    const { id } = req.params;
+    const current = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+    const settings = current.rows[0]?.data || {};
+    let banners = Array.isArray(settings.promoBanners) ? [...settings.promoBanners] : [];
+    banners = banners.filter(b => b.id !== id);
+    const merged = { ...settings, promoBanners: banners };
+
+    await db.query(
+      `INSERT INTO settings (cafe_id, data, updated_at) VALUES ($1,$2,CURRENT_TIMESTAMP)
+       ON CONFLICT (cafe_id) DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP`,
+      [cafeId, JSON.stringify(merged)]
+    );
+
+    const { notifyCafe } = require('../socket/socketHandler');
+    notifyCafe(cafeId, 'BANNERS_UPDATED', { banners });
+    notifyCafe(cafeId, 'SETTINGS_UPDATED', { settings: merged });
+
+    return res.json({ success: true, banners });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getFullCafeData,
   restoreMenu,
@@ -237,6 +317,10 @@ module.exports = {
   updateReceiptName,
   reportIssue,
   getMaintenanceStatus,
+  getBanners,
+  addBanner,
+  deleteBanner,
 };
+
 
 
