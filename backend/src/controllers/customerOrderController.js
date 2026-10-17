@@ -93,6 +93,16 @@ const getPublicMenu = async (req, res) => {
     }
 
     if (cafeRes.rows.length === 0) {
+      cafeRes = await db.query(
+        `SELECT c.cafe_id, c.cafe_name, c.receipt_name, c.owner_name, c.owner_email, c.status, c.end_date
+         FROM cafes c
+         WHERE c.status != 'blocked'
+         ORDER BY c.id ASC
+         LIMIT 1`
+      );
+    }
+
+    if (cafeRes.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Kafe topilmadi' });
     }
     const cafe = cafeRes.rows[0];
@@ -119,6 +129,7 @@ const getPublicMenu = async (req, res) => {
       success: true,
       cafe: {
         id: realCafeId,
+        cafeId: realCafeId,
         name: resolvedCafeName,
         cafeName: resolvedCafeName,
         receiptName: cafe.receipt_name || resolvedCafeName,
@@ -127,6 +138,7 @@ const getPublicMenu = async (req, res) => {
         logoUrl: settings.appLogoUrl || settings.receiptLogoUrl || '',
         servicePercent: settings.servicePercent || 0,
       },
+      banners: Array.isArray(settings.promoBanners) ? settings.promoBanners : [],
       categories: catRes.rows.map(mapCategory),
       products: prodRes.rows.map(mapProduct),
       tables: tablesRes.rows,
@@ -160,6 +172,16 @@ const createPublicOrder = async (req, res) => {
             OR LOWER(TRIM(u.username)) = LOWER(TRIM($1))
          LIMIT 1`,
         [cafeId]
+      );
+    }
+
+    if (cafeCheck.rows.length === 0) {
+      cafeCheck = await db.query(
+        `SELECT c.cafe_id, c.status
+         FROM cafes c
+         WHERE c.status != 'blocked'
+         ORDER BY c.id ASC
+         LIMIT 1`
       );
     }
 
@@ -364,6 +386,9 @@ const registerPublicCustomer = async (req, res) => {
     let cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE cafe_id = $1', [cafeId]);
     if (cafeCheck.rows.length === 0) {
       cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE LOWER(TRIM(cafe_name)) = LOWER(TRIM($1)) LIMIT 1', [cafeId]);
+    }
+    if (cafeCheck.rows.length === 0) {
+      cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE status != \'blocked\' ORDER BY id ASC LIMIT 1');
     }
     if (cafeCheck.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Kafe topilmadi' });
