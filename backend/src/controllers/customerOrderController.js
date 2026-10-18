@@ -97,7 +97,7 @@ const getPublicMenu = async (req, res) => {
         `SELECT c.cafe_id, c.cafe_name, c.receipt_name, c.owner_name, c.owner_email, c.status, c.end_date
          FROM cafes c
          WHERE c.status != 'blocked'
-         ORDER BY c.id ASC
+         ORDER BY c.created_at ASC, c.cafe_id ASC
          LIMIT 1`
       );
     }
@@ -180,7 +180,7 @@ const createPublicOrder = async (req, res) => {
         `SELECT c.cafe_id, c.status
          FROM cafes c
          WHERE c.status != 'blocked'
-         ORDER BY c.id ASC
+         ORDER BY c.created_at ASC, c.cafe_id ASC
          LIMIT 1`
       );
     }
@@ -388,7 +388,7 @@ const registerPublicCustomer = async (req, res) => {
       cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE LOWER(TRIM(cafe_name)) = LOWER(TRIM($1)) LIMIT 1', [cafeId]);
     }
     if (cafeCheck.rows.length === 0) {
-      cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE status != \'blocked\' ORDER BY id ASC LIMIT 1');
+      cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE status != \'blocked\' ORDER BY created_at ASC, cafe_id ASC LIMIT 1');
     }
     if (cafeCheck.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Kafe topilmadi' });
