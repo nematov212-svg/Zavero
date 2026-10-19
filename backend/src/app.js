@@ -21,6 +21,8 @@ const directorRoutes = require('./routes/directorRoutes');
 const deviceRoutes = require('./routes/deviceRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const appRoutes = require('./routes/appRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const { getBotInstance } = require('./bot/telegramBot');
 const { generalApiLimiter } = require('./middleware/rateLimitMiddleware');
 
 const app = express();
@@ -132,6 +134,16 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/app', appRoutes);
+app.use('/api/payments', paymentRoutes);
+
+// Telegram Bot Webhook endpoint (if using webhooks)
+app.post('/api/bot/webhook', (req, res) => {
+  const bot = getBotInstance();
+  if (bot) {
+    return bot.webhookCallback('/api/bot/webhook')(req, res);
+  }
+  return res.sendStatus(200);
+});
 
 // 404 for unhandled API routes
 app.use('/api', (req, res) => {

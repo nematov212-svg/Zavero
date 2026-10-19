@@ -386,11 +386,44 @@ const telegramVerify = async (req, res) => {
     const userStr = params.get('user');
     const tgUser = userStr ? JSON.parse(userStr) : null;
 
+    let hasActiveSubscription = false;
+    let subscriptionInfo = null;
+
+    if (tgUser && tgUser.id) {
+      try {
+        const subRes = await db.query(
+          `SELECT * FROM subscriptions 
+           WHERE telegram_id = $1 AND status = 'active' AND end_date > NOW() 
+           ORDER BY end_date DESC LIMIT 1`,
+          [tgUser.id]
+        );
+
+        if (subRes.rows.length > 0) {
+          const sub = subRes.rows[0];
+          const daysRemaining = Math.max(0, Math.ceil((new Date(sub.end_date) - new Date()) / (1000 * 60 * 60 * 24)));
+          hasActiveSubscription = true;
+          subscriptionInfo = {
+            id: sub.id,
+            plan_name: sub.plan_name,
+            start_date: sub.start_date,
+            end_date: sub.end_date,
+            daysRemaining,
+          };
+        }
+      } catch (dbErr) {
+        console.warn('⚠️ [telegramVerify] Subscriptions tekshirish xatosi:', dbErr.message);
+      }
+    }
+
     return res.json({
       success: true,
       verified: true,
       telegramUser: tgUser,
-      message: 'Telegram WebApp maʼlumotlari xavfsiz tasdiqlandi',
+      hasActiveSubscription,
+      subscription: subscriptionInfo,
+      message: hasActiveSubscription
+        ? 'Telegram WebApp maʼlumotlari va faol obuna tasdiqlandi'
+        : 'Obuna faol emas yoki muddati tugagan. Iltimos, Telegram botimiz orqali to‘lovni amalga oshiring.',
     });
   } catch (error) {
     console.error('telegramVerify error:', error);

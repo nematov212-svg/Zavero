@@ -8,6 +8,7 @@ const db = require('./config/db');
 const { initSocket } = require('./socket/socketHandler');
 const { runMigrations } = require('./migrations/migrate');
 const { ensureCafeSeeded } = require('./utils/seedCafe');
+const { initTelegramBot } = require('./bot/telegramBot');
 
 const PORT = process.env.PORT || 3000;
 
@@ -42,6 +43,7 @@ const start = async () => {
   if (connected) {
     await runMigrations();
     await ensureCafeSeeded('cafe1');
+    initTelegramBot();
   } else {
     console.warn('⚠️  Server ishga tushmoqda, lekin PostgreSQL ulanmagan. .env faylini tekshiring.');
   }

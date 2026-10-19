@@ -375,5 +375,74 @@ BEGIN
   END IF;
 END $$;
 
+-- 21. BOT SETTINGS (Telegram Bot & Subscription Configuration)
+CREATE TABLE IF NOT EXISTS bot_settings (
+    key VARCHAR(64) PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 22. TELEGRAM USERS
+CREATE TABLE IF NOT EXISTS telegram_users (
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE NOT NULL,
+    username VARCHAR(120),
+    first_name VARCHAR(150),
+    last_name VARCHAR(150),
+    phone VARCHAR(40),
+    cafe_id VARCHAR(64),
+    is_subscribed_channels BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_tg_users_tid ON telegram_users(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_tg_users_cafe ON telegram_users(cafe_id);
+
+-- 23. SUBSCRIPTIONS (Telegram User & Cafe Subscriptions)
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT,
+    cafe_id VARCHAR(64),
+    plan_name VARCHAR(60) NOT NULL DEFAULT '1 oy (Monthly)',
+    amount NUMERIC(15,2) NOT NULL DEFAULT 250000,
+    start_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    end_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'active', -- active, expired, cancelled
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS telegram_id BIGINT;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_name VARCHAR(60) DEFAULT '1 oy (Monthly)';
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS amount NUMERIC(15,2) DEFAULT 250000;
+ALTER TABLE subscriptions ALTER COLUMN cafe_id DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_subs_tid ON subscriptions(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_subs_status ON subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_subs_end ON subscriptions(end_date);
+
+-- 24. PAYMENTS (Click, Payme, etc.)
+CREATE TABLE IF NOT EXISTS payments (
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT NOT NULL,
+    transaction_id VARCHAR(120) UNIQUE NOT NULL,
+    provider VARCHAR(30) NOT NULL, -- click, payme, manual, test
+    amount NUMERIC(15,2) NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'pending', -- pending, completed, failed, cancelled
+    raw_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_payments_tid ON payments(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_payments_tx ON payments(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+
+-- Seed default bot settings
+INSERT INTO bot_settings (key, value) VALUES
+  ('required_channel_1', '@zavero_official'),
+  ('required_channel_2', '@zavero_pos'),
+  ('subscription_price', '250000'),
+  ('subscription_days', '30')
+ON CONFLICT (key) DO NOTHING;
+
+
 
 
