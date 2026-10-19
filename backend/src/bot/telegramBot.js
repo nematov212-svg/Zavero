@@ -184,9 +184,17 @@ const verifyChannelMembership = async (ctx, telegramId, channels) => {
     } catch (err) {
       console.warn(`⚠️ [Channel Check] ${channelUsername} tekshirishda xatolik:`, err.message);
       // Agar bot kanalda admin bo'lmasa yoki kanal topilmasa:
-      // Dev/Test muhitida yoki bot admin qilinmagan holatda bot to'xtab qolmasligi uchun
-      if (err.description && err.description.includes('chat not found')) {
-        results.push({ channel: channelUsername, isMember: false, error: 'Kanal topilmadi yoki bot kanalga a‘zo emas' });
+      const isBotPermissionIssue =
+        err.message.includes('chat not found') ||
+        err.message.includes('bot is not a member') ||
+        err.message.includes('chat_admin_required') ||
+        err.message.includes('member list is inaccessible');
+
+      if (isBotPermissionIssue) {
+        console.warn(`⚠️ [Telegram Bot] Bot ${channelUsername} kanaliga admin qilib qo‘shilmagan! Kanal tekshiruvi chetlab o‘tiladi.`);
+        // Agar STRICT_CHANNEL_CHECK=true bo'lmasa, bot admin qilinmaguncha foydalanuvchi tiqilib qolmasligi uchun ruxsat beriladi
+        const bypass = process.env.STRICT_CHANNEL_CHECK !== 'true';
+        results.push({ channel: channelUsername, isMember: bypass, error: 'bot_not_admin', bypass });
       } else {
         results.push({ channel: channelUsername, isMember: false, error: err.message });
       }
@@ -703,6 +711,34 @@ const initTelegramBot = () => {
       }
     });
 
+    // Global error handler for Telegraf (prevents unhandled exceptions from crashing process)
+    bot.catch((err, ctx) => {
+      console.error(`⚠️ [Telegram Bot Error] Update ${ctx.update.update_id}:`, err.message);
+    });
+
+    // Fallback handler for random messages
+    bot.on('text', async (ctx) => {
+      if (ctx.message.text.startsWith('/')) return; // ignore unknown commands
+      const telegramId = ctx.from.id;
+      const activeSub = await getUserSubscription(telegramId);
+      const webAppUrl = getWebAppUrl();
+
+      if (activeSub) {
+        return ctx.replyWithHTML(
+          `Assalomu alaykum, <b>${ctx.from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
+          `Sizning ZAVERO POS obunangiz faol (${activeSub.daysRemaining} kun qoldi).\n` +
+          `Ilovaga kirish uchun quyidagi tugmani bosing:`,
+          Markup.inlineKeyboard([
+            [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
+          ])
+        );
+      } else {
+        return ctx.replyWithHTML(
+          `Assalomu alaykum! ZAVERO POS xizmatidan foydalanish uchun <b>/start</b> buyrug‘ini yuboring.`
+        );
+      }
+    });
+
     // Launch polling if in standalone/dev, or webhook will handle it in Express
     const webhookDomain = process.env.RENDER_EXTERNAL_URL || process.env.WEBHOOK_URL;
     if (webhookDomain && process.env.USE_BOT_WEBHOOK === 'true') {
@@ -721,6 +757,9 @@ const initTelegramBot = () => {
         console.warn('⚠️ [Telegram Bot] Bot launch xatosi:', err.message);
       });
     }
+
+    process.once('SIGINT', () => { if (bot) bot.stop('SIGINT'); });
+    process.once('SIGTERM', () => { if (bot) bot.stop('SIGTERM'); });
 
     return bot;
   } catch (err) {
