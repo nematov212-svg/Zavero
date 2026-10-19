@@ -103,24 +103,52 @@
   </style>
 </head>
 <body>
-  <!-- Telegram Web App Integration & Auto-expansion -->
+  <!-- Telegram Web App Integration & Subscription Lock -->
   <script>
     (function() {
       if (window.Telegram && window.Telegram.WebApp) {
         try {
-          window.Telegram.WebApp.ready();
-          window.Telegram.WebApp.expand();
-          if (window.Telegram.WebApp.disableVerticalSwipes) {
-            window.Telegram.WebApp.disableVerticalSwipes();
-          }
-          if (window.Telegram.WebApp.enableClosingConfirmation) {
-            window.Telegram.WebApp.enableClosingConfirmation();
-          }
-          if (window.Telegram.WebApp.setHeaderColor) {
-            window.Telegram.WebApp.setHeaderColor('#0F172A');
-          }
-          if (window.Telegram.WebApp.setBackgroundColor) {
-            window.Telegram.WebApp.setBackgroundColor('#0F172A');
+          var tg = window.Telegram.WebApp;
+          tg.ready();
+          tg.expand();
+          if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+          if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+          if (tg.setHeaderColor) tg.setHeaderColor('#0F172A');
+          if (tg.setBackgroundColor) tg.setBackgroundColor('#0F172A');
+
+          // Strict Telegram WebApp Subscription Verification
+          if (tg.initData) {
+            fetch('/api/auth/telegram-verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ initData: tg.initData })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+              if (data && data.verified && !data.hasActiveSubscription) {
+                // Subscription is NOT active! Block app access!
+                var loader = document.getElementById('app-loading-container');
+                if (loader) loader.style.display = 'none';
+
+                var lockScreen = document.createElement('div');
+                lockScreen.id = 'zavero-subscription-lock';
+                lockScreen.innerHTML = 
+                  '<div style="position:fixed;top:0;left:0;width:100%;height:100%;background:#0F172A;z-index:9999999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#fff;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">' +
+                    '<div style="width:76px;height:76px;border-radius:22px;background:rgba(239,68,68,0.15);display:flex;align-items:center;justify-content:center;margin-bottom:20px;border:1px solid rgba(239,68,68,0.3);font-size:34px;">🔒</div>' +
+                    '<h2 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#F8FAFC;letter-spacing:0.5px;">Obuna faol emas</h2>' +
+                    '<p style="margin:0 0 24px;font-size:14px;color:#94A3B8;line-height:1.6;max-width:320px;">' +
+                      'ZAVERO POS tizimidan foydalanish uchun 30 kunlik litsenziyani faollashtiring. Agar to‘lov chekini yuborgan bo‘lsangiz, administrator tasdiqlashini kuting.' +
+                    '</p>' +
+                    '<button onclick="Telegram.WebApp.close()" style="background:#FFA000;color:#0F172A;border:none;border-radius:14px;padding:14px 28px;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 6px 20px rgba(255,160,0,0.35);transition:all 0.2s;">' +
+                      'Botga qaytish' +
+                    '</button>' +
+                  '</div>';
+                document.body.appendChild(lockScreen);
+              }
+            })
+            .catch(function(err) {
+              console.warn('Subscription check error:', err);
+            });
           }
         } catch (e) {
           console.warn('Telegram WebApp setup error:', e);

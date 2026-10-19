@@ -4,6 +4,9 @@ const db = require('../config/db');
 // Telegram Bot instance
 let bot = null;
 
+// Temporary state for admin actions (e.g. waiting for ID input)
+const adminState = new Map();
+
 // Helper: Format uzbek sum
 const formatSum = (amount) => {
   return Number(amount || 0).toLocaleString('uz-UZ').replace(/,/g, ' ');
@@ -38,6 +41,9 @@ const getBotSettings = async () => {
     required_channel_2: process.env.REQUIRED_CHANNEL_2 || '@zavero_uz',
     subscription_price: parseInt(process.env.SUBSCRIPTION_PRICE || '250000', 10),
     subscription_days: parseInt(process.env.SUBSCRIPTION_DAYS || '30', 10),
+    card_number: process.env.CARD_NUMBER || '9860 3501 2345 6789',
+    card_holder: process.env.CARD_HOLDER || 'ZAVERO POS',
+    admin_contact: process.env.ADMIN_CONTACT || '@mirzobekn',
   };
 
   try {
@@ -52,18 +58,90 @@ const getBotSettings = async () => {
     }
     return settings;
   } catch (err) {
-    console.warn('⚠️ [Telegram Bot] bot_settings o‘qishda xatolik, default ishlatilmoqda:', err.message);
+    console.warn('⚠️ [Telegram Bot] bot_settings o‘qishda xatolik:', err.message);
     return defaultSettings;
   }
 };
 
-// Helper: Check if telegram user is admin
-const isAdminUser = (telegramId) => {
+// Helper: Check if telegram user is admin (by username @mirzobekn, by env ID, or by DB)
+const isAdminUser = async (from) => {
+  if (!from) return false;
+  const telegramId = String(from.id || from);
+  const username = (from.username || '').toLowerCase().replace('@', '');
+
+  // 1. Direct username check (@mirzobekn)
+  const adminUsernames = (process.env.ADMIN_USERNAMES || 'mirzobekn')
+    .toLowerCase()
+    .split(',')
+    .map((u) => u.trim().replace('@', ''))
+    .filter(Boolean);
+
+  if (username && adminUsernames.includes(username)) {
+    return true;
+  }
+
+  // 2. Environment variable IDs
   const adminIds = (process.env.ADMIN_TELEGRAM_IDS || '')
     .split(',')
     .map((id) => id.trim())
     .filter(Boolean);
-  return adminIds.includes(String(telegramId));
+  if (adminIds.includes(telegramId)) {
+    return true;
+  }
+
+  // 3. Database stored admin IDs
+  try {
+    const res = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_telegram_ids'");
+    if (res.rows.length > 0) {
+      const dbIds = res.rows[0].value.split(',').map((id) => id.trim());
+      if (dbIds.includes(telegramId)) return true;
+    }
+  } catch (e) {}
+
+  return false;
+};
+
+// Helper: Save a new admin ID to database
+const addAdminId = async (telegramId) => {
+  try {
+    const res = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_telegram_ids'");
+    let ids = [];
+    if (res.rows.length > 0 && res.rows[0].value) {
+      ids = res.rows[0].value.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    if (!ids.includes(String(telegramId))) {
+      ids.push(String(telegramId));
+      await db.query(
+        `INSERT INTO bot_settings (key, value, updated_at)
+         VALUES ('admin_telegram_ids', $1, CURRENT_TIMESTAMP)
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+        [ids.join(',')]
+      );
+    }
+    return true;
+  } catch (e) {
+    console.warn('addAdminId error:', e.message);
+    return false;
+  }
+};
+
+// Helper: Get list of all admin telegram IDs
+const getAllAdminIds = async () => {
+  const ids = new Set();
+  (process.env.ADMIN_TELEGRAM_IDS || '').split(',').forEach((id) => {
+    if (id.trim()) ids.add(id.trim());
+  });
+
+  try {
+    const res = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_telegram_ids'");
+    if (res.rows.length > 0 && res.rows[0].value) {
+      res.rows[0].value.split(',').forEach((id) => {
+        if (id.trim()) ids.add(id.trim());
+      });
+    }
+  } catch (e) {}
+
+  return Array.from(ids);
 };
 
 // Helper: Fetch user's active subscription
@@ -95,19 +173,17 @@ const getUserSubscription = async (telegramId) => {
 };
 
 // Helper: Activate or Extend Subscription
-const activateSubscription = async (telegramId, { days = 30, amount = 250000, provider = 'click', transactionId = null, notifyUser = true }) => {
+const activateSubscription = async (telegramId, { days = 30, amount = 250000, provider = 'admin_manual', transactionId = null, notifyUser = true }) => {
   try {
     const currentSub = await getUserSubscription(telegramId);
     let newStartDate = new Date();
     let newEndDate;
 
     if (currentSub && new Date(currentSub.end_date) > new Date()) {
-      // Mavjud obunani uzaytirish
       newStartDate = new Date(currentSub.start_date);
       newEndDate = new Date(currentSub.end_date);
       newEndDate.setDate(newEndDate.getDate() + days);
     } else {
-      // Yangi obuna boshlash
       newEndDate = new Date();
       newEndDate.setDate(newEndDate.getDate() + days);
     }
@@ -131,19 +207,18 @@ const activateSubscription = async (telegramId, { days = 30, amount = 250000, pr
       [telegramId, txId, provider, amount, JSON.stringify({ days, activated_at: new Date().toISOString() })]
     );
 
-    // 3. Agar foydalanuvchiga Telegram orqali xabar yuborish kerak bo'lsa
+    // 3. Foydalanuvchiga tasdiqlash SMS / Xabari yuborish
     if (notifyUser && bot) {
       try {
         const webAppUrl = getWebAppUrl();
         const messageText = 
-          `🎉 <b>TABRIKLAYMIZ! TO‘LOV QABUL QILINDI</b>\n` +
+          `🎉 <b>TO‘LOVINGIZ TASDIQLANDI!</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `✅ <b>ZAVERO POS</b> premium obunangiz muvaffaqiyatli faollashtirildi!\n\n` +
-          `⏳ <b>Muddati:</b> ${days} kun\n` +
-          `📅 <b>Amal qilish vaqti:</b> ${formatDate(newEndDate)}\n` +
-          `💰 <b>To‘langan summa:</b> ${formatSum(amount)} so‘m\n` +
+          `✅ Administrator to‘lov chekingizni tasdiqladi.\n\n` +
+          `⏳ <b>Foydalanish muddati:</b> ${days} kun\n` +
+          `📅 <b>Amal qilish vaqti:</b> <b>${formatDate(newEndDate)}</b> gacha\n` +
           `━━━━━━━━━━━━━━━━━━━\n\n` +
-          `Tizimga kirish uchun quyidagi tugmani bosing:`;
+          `ZAVERO POS tizimidan to‘liq foydalanishingiz mumkin:`;
 
         await bot.telegram.sendMessage(telegramId, messageText, {
           parse_mode: 'HTML',
@@ -183,7 +258,7 @@ const verifyChannelMembership = async (ctx, telegramId, channels) => {
       results.push({ channel: channelUsername, isMember, error: null });
     } catch (err) {
       console.warn(`⚠️ [Channel Check] ${channelUsername} tekshirishda xatolik:`, err.message);
-      // Agar bot kanalda admin bo'lmasa yoki kanal topilmasa:
+      // Agar bot kanalda admin bo'lmasa:
       const isBotPermissionIssue =
         err.message.includes('chat not found') ||
         err.message.includes('bot is not a member') ||
@@ -191,10 +266,8 @@ const verifyChannelMembership = async (ctx, telegramId, channels) => {
         err.message.includes('member list is inaccessible');
 
       if (isBotPermissionIssue) {
-        console.warn(`⚠️ [Telegram Bot] Bot ${channelUsername} kanaliga admin qilib qo‘shilmagan! Kanal tekshiruvi chetlab o‘tiladi.`);
-        // Agar STRICT_CHANNEL_CHECK=true bo'lmasa, bot admin qilinmaguncha foydalanuvchi tiqilib qolmasligi uchun ruxsat beriladi
-        const bypass = process.env.STRICT_CHANNEL_CHECK !== 'true';
-        results.push({ channel: channelUsername, isMember: bypass, error: 'bot_not_admin', bypass });
+        console.warn(`⚠️ [Telegram Bot] Bot ${channelUsername} kanaliga admin qilib qo‘shilmagan!`);
+        results.push({ channel: channelUsername, isMember: false, error: 'bot_not_admin' });
       } else {
         results.push({ channel: channelUsername, isMember: false, error: err.message });
       }
@@ -206,52 +279,112 @@ const verifyChannelMembership = async (ctx, telegramId, channels) => {
 };
 
 // Build channel subscription keyboard
-const buildChannelKeyboard = (settings) => {
+const buildChannelKeyboard = (settings, isAdmin = false) => {
   const ch1 = settings.required_channel_1.replace('@', '');
   const ch2 = settings.required_channel_2.replace('@', '');
 
-  return Markup.inlineKeyboard([
+  const buttons = [
     [Markup.button.url(`📢 1-Kanal: ${settings.required_channel_1}`, `https://t.me/${ch1}`)],
     [Markup.button.url(`📢 2-Kanal: ${settings.required_channel_2}`, `https://t.me/${ch2}`)],
     [Markup.button.callback('🔄 Obunani tekshirish', 'check_channels')],
-  ]);
+  ];
+
+  if (isAdmin) {
+    buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
+  }
+
+  return Markup.inlineKeyboard(buttons);
 };
 
 // Build subscription tariff message and keyboard
 const sendTariffCard = async (ctx, settings, telegramId) => {
   const price = settings.subscription_price || 250000;
   const days = settings.subscription_days || 30;
-  const formattedPrice = formatSum(price);
+  const cardNumber = settings.card_number || '9860 3501 2345 6789';
+  const cardHolder = settings.card_holder || 'ZAVERO POS';
+  const adminContact = settings.admin_contact || '@mirzobekn';
+  const cleanAdmin = adminContact.replace('@', '');
 
   const text =
     `✅ <b>Kanallarga obuna tasdiqlandi!</b>\n\n` +
-    `🚀 <b>ZAVERO POS PREMIUM TARIFI</b>\n` +
+    `🚀 <b>ZAVERO POS PREMIUM OBUNA</b>\n` +
     `━━━━━━━━━━━━━━━━━━━\n` +
-    `📦 <b>Tarif:</b> 1 oylik obuna (${days} kun)\n` +
-    `💰 <b>Narxi:</b> <b>${formattedPrice} so‘m</b>\n\n` +
-    `⚡️ <b>Imkoniyatlar:</b>\n` +
-    `• To‘liq restoran va kafe POS kassa tizimi\n` +
-    `• QR Menyular va har bir stol uchun avtomatik QR kodlar\n` +
-    `• Ofitsiant va oshxona buyurtmalari monitoringi\n` +
-    `• Real-vaqtli kassa hisobotlari va tushumlar tahlili\n` +
-    `• Cheksiz xodimlar va stollar boshqaruvi\n` +
+    `📦 <b>Tarif:</b> 1 oylik litsenziya (${days} kun)\n` +
+    `💰 <b>Narxi:</b> <b>${formatSum(price)} so‘m</b>\n` +
+    `👤 <b>Sizning ID raqamingiz:</b> <code>${telegramId}</code>\n` +
     `━━━━━━━━━━━━━━━━━━━\n\n` +
-    `<i>Ilovani faollashtirish uchun to‘lov turini tanlang:</i>`;
+    `💳 <b>To‘lov uchun karta:</b>\n` +
+    `<code>${cardNumber}</code>\n` +
+    `Egasi: <b>${cardHolder}</b>\n\n` +
+    `📌 <b>TO‘LOV VA TASDIQLASH TARTIBI:</b>\n` +
+    `1. Yuqoridagi kartaga <b>${formatSum(price)} so‘m</b> to‘lov qiling.\n` +
+    `2. To‘lov chekini skrinshot qilib oling.\n` +
+    `3. Chek rasmini va o‘z ID raqamingizni (<code>${telegramId}</code>) administratorimiz @${cleanAdmin} ga yuboring yoki quyidagi <b>«📤 Chekni yuborish»</b> tugmasi orqali to‘g‘ridan-to‘g‘ri shu botga tashlang!\n\n` +
+    `<i>Administrator to‘lovingizni tekshirib tasdiqlashi bilan ilovaga kirish darhol ochiladi.</i>`;
 
   const buttons = [
+    [
+      Markup.button.callback('📤 Chekni botga yuborish', 'prompt_send_cheque'),
+      Markup.button.url(`💬 Adminga yozish (${adminContact})`, `https://t.me/${cleanAdmin}`),
+    ],
     [
       Markup.button.callback('💳 Click orqali to‘lash', 'pay_click'),
       Markup.button.callback('💳 Payme orqali to‘lash', 'pay_payme'),
     ],
-    [Markup.button.callback('🔄 To‘lovni tekshirish', 'verify_payment')],
+    [Markup.button.callback('🔄 To‘lov holatini tekshirish', 'verify_payment')],
   ];
 
-  // Agar admin bo'lsa yoki test to'lov ruxsat berilgan bo'lsa, tezkor sinov tugmasi
-  if (isAdminUser(telegramId) || process.env.ALLOW_TEST_PAYMENTS === 'true' || process.env.NODE_ENV !== 'production') {
-    buttons.push([Markup.button.callback('⚡️ Sinov uchun faollashtirish (Demo)', 'pay_test_instant')]);
+  const isAdmin = await isAdminUser(ctx.from);
+  if (isAdmin) {
+    buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
   }
 
   await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+};
+
+// Build Admin Dashboard
+const sendAdminDashboard = async (ctx) => {
+  const settings = await getBotSettings();
+
+  const usersCountRes = await db.query('SELECT COUNT(*) FROM telegram_users');
+  const activeSubsRes = await db.query("SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND end_date > NOW()");
+  const pendingChequesRes = await db.query("SELECT COUNT(*) FROM payments WHERE status = 'pending'");
+  const totalRevenueRes = await db.query("SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'completed'");
+
+  const totalUsers = usersCountRes.rows[0].count;
+  const activeSubs = activeSubsRes.rows[0].count;
+  const pendingCheques = pendingChequesRes.rows[0].count;
+  const totalRevenue = totalRevenueRes.rows[0].total;
+
+  const text =
+    `👑 <b>ZAVERO POS — ADMIN BOSHQARUV PANELI</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `👥 <b>Jami mijozlar:</b> ${totalUsers} ta\n` +
+    `🟢 <b>Faol litsenziyalar:</b> ${activeSubs} ta\n` +
+    `⏳ <b>Kutilayotgan cheklar:</b> ${pendingCheques} ta\n` +
+    `💰 <b>Jami tushum:</b> ${formatSum(totalRevenue)} so‘m\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `📢 1-Kanal: <code>${settings.required_channel_1}</code>\n` +
+    `📢 2-Kanal: <code>${settings.required_channel_2}</code>\n` +
+    `💳 Karta: <code>${settings.card_number}</code>\n` +
+    `💵 Narx: <b>${formatSum(settings.subscription_price)} so‘m</b> (${settings.subscription_days} kun)\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `<i>Kerakli amalni tanlang:</i>`;
+
+  const buttons = [
+    [
+      Markup.button.callback('👥 Mijozlar ro‘yxati', 'admin_view_clients_1'),
+      Markup.button.callback(`⏳ Kutilayotgan cheklar (${pendingCheques})`, 'admin_pending_cheques'),
+    ],
+    [
+      Markup.button.callback('🔍 ID orqali 30 kun berish', 'admin_grant_prompt'),
+    ],
+    [
+      Markup.button.callback('⚙️ Narx va Kanal sozlamalari', 'admin_settings_view'),
+    ],
+  ];
+
+  return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
 };
 
 // Initialize Bot logic
@@ -266,11 +399,22 @@ const initTelegramBot = () => {
   try {
     bot = new Telegraf(token);
 
+    // Global error handler
+    bot.catch((err, ctx) => {
+      console.error(`⚠️ [Telegram Bot Error] Update ${ctx?.update?.update_id}:`, err.message);
+    });
+
     // 1. /start command
     bot.start(async (ctx) => {
       try {
         const from = ctx.from;
         const telegramId = from.id;
+        const isAdmin = await isAdminUser(from);
+
+        // If admin, auto-register numeric ID
+        if (isAdmin) {
+          await addAdminId(telegramId);
+        }
 
         // Upsert user in telegram_users table
         await db.query(
@@ -288,28 +432,30 @@ const initTelegramBot = () => {
         if (activeSub) {
           const welcomeBack =
             `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
-            `✅ <b>Sizning ZAVERO POS obunangiz faol!</b>\n` +
-            `📅 Amal qilish muddati: <b>${formatDate(activeSub.end_date)}</b>\n` +
-            `⏳ Qolgan vaqt: <b>${activeSub.daysRemaining} kun</b>\n\n` +
+            `✅ <b>Sizning ZAVERO POS litsenziyangiz faol!</b>\n` +
+            `📅 Amal qilish muddati: <b>${formatDate(activeSub.end_date)}</b> gacha\n` +
+            `⏳ Qolgan vaqt: <b>${activeSub.daysRemaining} kun</b>\n` +
+            `👤 Sizning ID: <code>${telegramId}</code>\n\n` +
             `Tizimga kirish uchun quyidagi tugmani bosing:`;
 
-          return await ctx.replyWithHTML(
-            welcomeBack,
-            Markup.inlineKeyboard([
-              [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
-              [Markup.button.callback('🔄 Obunani uzaytirish', 'show_tariff')],
-            ])
-          );
+          const buttons = [
+            [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
+          ];
+          if (isAdmin) {
+            buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
+          }
+
+          return await ctx.replyWithHTML(welcomeBack, Markup.inlineKeyboard(buttons));
         }
 
         // New or expired user: check channel subscription
         const settings = await getBotSettings();
         const greeting =
           `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
-          `ZAVERO POS tizimiga xush kelibsiz. Ilovadan foydalanish uchun quyidagi kanallarga obuna bo‘ling va oylik tarifni faollashtiring.\n\n` +
-          `Ikkala kanalga a‘zo bo‘lgach, <b>«🔄 Obunani tekshirish»</b> tugmasini bosing:`;
+          `<b>ZAVERO POS</b> professional savdo va kassa tizimiga xush kelibsiz.\n\n` +
+          `Ilovadan foydalanish uchun quyidagi kanallarga a‘zo bo‘ling va <b>«🔄 Obunani tekshirish»</b> tugmasini bosing:`;
 
-        return await ctx.replyWithHTML(greeting, buildChannelKeyboard(settings));
+        return await ctx.replyWithHTML(greeting, buildChannelKeyboard(settings, isAdmin));
       } catch (err) {
         console.error('❌ [Telegram Bot] /start xatosi:', err);
         return ctx.reply('Tizimda xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.');
@@ -319,10 +465,11 @@ const initTelegramBot = () => {
     // 2. 'check_channels' action
     bot.action('check_channels', async (ctx) => {
       try {
-        await ctx.answerCbQuery('Obunalar tekshirilmoqda...');
+        await ctx.answerCbQuery('Kanallar tekshirilmoqda...');
         const telegramId = ctx.from.id;
         const settings = await getBotSettings();
         const channels = [settings.required_channel_1, settings.required_channel_2].filter(Boolean);
+        const isAdmin = await isAdminUser(ctx.from);
 
         const { allSubscribed, results } = await verifyChannelMembership(ctx, telegramId, channels);
 
@@ -332,13 +479,13 @@ const initTelegramBot = () => {
             [telegramId]
           );
 
-          let unSubbedText = '⚠️ <b>Iltimos, avval barcha kanallarga a‘zo bo‘ling!</b>\n\n';
+          let unSubbedText = '⚠️ <b>Iltimos, avval har ikkala kanalga a‘zo bo‘ling:</b>\n\n';
           for (const res of results) {
             unSubbedText += `${res.isMember ? '✅' : '❌'} ${res.channel}\n`;
           }
-          unSubbedText += '\nHar ikkala kanalga obuna bo‘lib, qayta «🔄 Obunani tekshirish» tugmasini bosing.';
+          unSubbedText += '\nIkkala kanalga a‘zo bo‘lgach, qayta «🔄 Obunani tekshirish» tugmasini bosing.';
 
-          return await ctx.replyWithHTML(unSubbedText, buildChannelKeyboard(settings));
+          return await ctx.replyWithHTML(unSubbedText, buildChannelKeyboard(settings, isAdmin));
         }
 
         // Channels verified successfully!
@@ -353,7 +500,7 @@ const initTelegramBot = () => {
           const webAppUrl = getWebAppUrl();
           return await ctx.replyWithHTML(
             `✅ <b>Kanallarga obuna tasdiqlandi!</b>\n` +
-            `Sizning obunangiz faol (${activeSub.daysRemaining} kun qoldi).\n\n` +
+            `Sizning litsenziyangiz faol (${activeSub.daysRemaining} kun qoldi).\n\n` +
             `Ilovani ochish uchun quyidagi tugmani bosing:`,
             Markup.inlineKeyboard([
               [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
@@ -361,7 +508,7 @@ const initTelegramBot = () => {
           );
         }
 
-        // Show Tariff Card
+        // Show Tariff & Payment Card
         return await sendTariffCard(ctx, settings, telegramId);
       } catch (err) {
         console.error('❌ [Telegram Bot] check_channels xatosi:', err);
@@ -369,18 +516,99 @@ const initTelegramBot = () => {
       }
     });
 
-    // 3. 'show_tariff' action
-    bot.action('show_tariff', async (ctx) => {
+    // 3. Prompt user to send cheque photo
+    bot.action('prompt_send_cheque', async (ctx) => {
       try {
         await ctx.answerCbQuery();
-        const settings = await getBotSettings();
-        await sendTariffCard(ctx, settings, ctx.from.id);
+        const telegramId = ctx.from.id;
+        adminState.set(telegramId, { waitingFor: 'cheque_photo' });
+
+        return await ctx.replyWithHTML(
+          `📤 <b>TO‘LOV CHEKINI YUBORISH</b>\n\n` +
+          `Iltimos, to‘lov chekining skrinshotini (rasmini) shu yerga yuboring.\n\n` +
+          `👤 Sizning ID raqamingiz: <code>${telegramId}</code>\n\n` +
+          `Chekni yuborishingiz bilan u administratorga (@mirzobekn) yetib boradi va tasdiqlanadi.`
+        );
+      } catch (e) {}
+    });
+
+    // 4. PHOTO HANDLER (User sends cheque photo!)
+    bot.on('photo', async (ctx) => {
+      try {
+        const from = ctx.from;
+        const telegramId = from.id;
+        const isAdmin = await isAdminUser(from);
+
+        // Get the highest resolution photo
+        const photos = ctx.message.photo;
+        const bestPhoto = photos[photos.length - 1];
+        const fileId = bestPhoto.file_id;
+
+        // Check if user already has active subscription
+        const activeSub = await getUserSubscription(telegramId);
+        if (activeSub && !isAdmin) {
+          return ctx.replyWithHTML(
+            `✅ Sizning ZAVERO POS litsenziyangiz allaqachon faol (${activeSub.daysRemaining} kun qoldi).\n` +
+            `Ilovani ochish uchun /start buyrug‘ini bosing.`
+          );
+        }
+
+        // Record pending payment in database
+        const txId = `cheque_${Date.now()}_${telegramId}`;
+        await db.query(
+          `INSERT INTO payments (telegram_id, transaction_id, provider, amount, status, raw_data)
+           VALUES ($1, $2, 'cheque_manual', 250000, 'pending', $3)
+           ON CONFLICT (transaction_id) DO NOTHING`,
+          [telegramId, txId, JSON.stringify({ file_id: fileId, caption: ctx.message.caption || '' })]
+        );
+
+        // 1. Reply to user
+        await ctx.replyWithHTML(
+          `📥 <b>TO‘LOV CHEKINGIZ QABUL QILINDI!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 Sizning ID raqamingiz: <code>${telegramId}</code>\n` +
+          `💰 Summa: <b>250 000 so‘m (1 oylik)</b>\n\n` +
+          `Administratorimiz (@mirzobekn) chekni tekshirib tasdiqlashi bilan sizga SMS/xabar keladi va ZAVERO POS ilovasi ochiladi.\n\n` +
+          `Iltimos, tasdiqlanishini kuting... ⏳`
+        );
+
+        // 2. Notify all Admins with the photo and direct approve buttons
+        const adminIds = await getAllAdminIds();
+        const adminCaption =
+          `🔔 <b>YANGI TO‘LOV CHEKI KELDI!</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 Mijoz: <b>${from.first_name || ''} ${from.last_name || ''}</b>\n` +
+          `Username: @${from.username || 'mavjud emas'}\n` +
+          `🆔 Mijoz ID: <code>${telegramId}</code>\n` +
+          `💰 Summa: <b>250 000 so‘m</b>\n` +
+          `📅 Vaqt: <b>${formatDate(new Date())}</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Mijozga 30 kunlik ruxsat berasizmi?`;
+
+        const adminButtons = [
+          [
+            Markup.button.callback('✅ 30 kunlik ruxsat berish', `admin_approve_${telegramId}_30`),
+            Markup.button.callback('❌ Rad etish', `admin_reject_${telegramId}`),
+          ],
+        ];
+
+        for (const adminId of adminIds) {
+          try {
+            await bot.telegram.sendPhoto(adminId, fileId, {
+              caption: adminCaption,
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard(adminButtons),
+            });
+          } catch (sendErr) {
+            console.warn(`Admin ${adminId} ga chek yuborishda xatolik:`, sendErr.message);
+          }
+        }
       } catch (err) {
-        console.error('show_tariff xatosi:', err);
+        console.error('Photo handler xatosi:', err);
       }
     });
 
-    // 4. Click Payment Action
+    // 5. Click Payment Action
     bot.action('pay_click', async (ctx) => {
       try {
         await ctx.answerCbQuery();
@@ -400,17 +628,17 @@ const initTelegramBot = () => {
         if (clickUrl) {
           buttons.push([Markup.button.url('💳 Click orqali to‘lash', clickUrl)]);
         }
+        buttons.push([Markup.button.callback('📤 Chekni botga yuborish', 'prompt_send_cheque')]);
         buttons.push([Markup.button.callback('🔄 To‘lovni tekshirish', 'verify_payment')]);
-        buttons.push([Markup.button.callback('⬅️ Orqaga', 'show_tariff')]);
 
         const text =
           `💳 <b>CLICK TO‘LOV TIZIMI</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `To‘lov summasi: <b>${formatSum(price)} so‘m</b>\n` +
-          `Foydalanuvchi ID (Hisob): <code>${telegramId}</code>\n\n` +
+          `Hisob kodi (Sizning ID): <code>${telegramId}</code>\n\n` +
           (clickUrl
-            ? `Quyidagi tugma orqali Click ilovasi yoki veb-saytida to‘lovni amalga oshiring. To‘lov amalga oshirilgach, tizim avtomatik faollashadi.`
-            : `Click to‘lov havolasi sozlanmoqda. To‘lovni amalga oshirib bo‘lgach «🔄 To‘lovni tekshirish» tugmasini bosing yoki adminga murojaat qiling.`);
+            ? `Quyidagi havola orqali to‘lang yoki to‘lov chekini administrator @mirzobekn ga yuboring.`
+            : `Click to‘lovini amalga oshirib, chekni administrator @mirzobekn ga yuboring yoki shu botga rasm sifatida tashlang.`);
 
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) {
@@ -418,7 +646,7 @@ const initTelegramBot = () => {
       }
     });
 
-    // 5. Payme Payment Action
+    // 6. Payme Payment Action
     bot.action('pay_payme', async (ctx) => {
       try {
         await ctx.answerCbQuery();
@@ -438,55 +666,21 @@ const initTelegramBot = () => {
         if (paymeUrl) {
           buttons.push([Markup.button.url('💳 Payme orqali to‘lash', paymeUrl)]);
         }
+        buttons.push([Markup.button.callback('📤 Chekni botga yuborish', 'prompt_send_cheque')]);
         buttons.push([Markup.button.callback('🔄 To‘lovni tekshirish', 'verify_payment')]);
-        buttons.push([Markup.button.callback('⬅️ Orqaga', 'show_tariff')]);
 
         const text =
           `💳 <b>PAYME TO‘LOV TIZIMI</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `To‘lov summasi: <b>${formatSum(price)} so‘m</b>\n` +
-          `Foydalanuvchi ID (Hisob): <code>${telegramId}</code>\n\n` +
+          `Hisob kodi (Sizning ID): <code>${telegramId}</code>\n\n` +
           (paymeUrl
-            ? `Quyidagi tugma orqali Payme ilovasi yoki veb-saytida to‘lovni amalga oshiring. To‘lov o‘tgach, ilovaga kirish darhol ochiladi.`
-            : `Payme to‘lov havolasi sozlanmoqda. To‘lov qilingach «🔄 To‘lovni tekshirish» tugmasini bosing.`);
+            ? `Quyidagi havola orqali to‘lang yoki to‘lov chekini administrator @mirzobekn ga yuboring.`
+            : `Payme to‘lovini amalga oshirib, chekni administrator @mirzobekn ga yuboring yoki shu botga rasm sifatida tashlang.`);
 
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) {
         console.error('pay_payme xatosi:', err);
-      }
-    });
-
-    // 6. Instant test activation (for admin or demo testing)
-    bot.action('pay_test_instant', async (ctx) => {
-      try {
-        await ctx.answerCbQuery('Sinov obunasi faollashtirilmoqda...');
-        const telegramId = ctx.from.id;
-        const settings = await getBotSettings();
-
-        await activateSubscription(telegramId, {
-          days: settings.subscription_days || 30,
-          amount: settings.subscription_price || 250000,
-          provider: 'demo_test',
-          transactionId: `test_${Date.now()}_${telegramId}`,
-          notifyUser: false,
-        });
-
-        const activeSub = await getUserSubscription(telegramId);
-        const webAppUrl = getWebAppUrl();
-
-        return await ctx.replyWithHTML(
-          `🎉 <b>SINOV OBUNASI FAOLLASHTIRILDI!</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `✅ Sizning ZAVERO POS obunangiz muvaffaqiyatli ishga tushdi.\n` +
-          `📅 Amal qilish muddati: <b>${formatDate(activeSub.end_date)}</b> (${activeSub.daysRemaining} kun)\n\n` +
-          `Ilovani ochish uchun quyidagi tugmani bosing:`,
-          Markup.inlineKeyboard([
-            [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
-          ])
-        );
-      } catch (err) {
-        console.error('pay_test_instant xatosi:', err);
-        return ctx.reply('Sinov obunasini faollashtirishda xatolik yuz berdi: ' + err.message);
       }
     });
 
@@ -497,11 +691,11 @@ const initTelegramBot = () => {
         const activeSub = await getUserSubscription(telegramId);
 
         if (activeSub) {
-          await ctx.answerCbQuery('✅ Obuna faol!');
+          await ctx.answerCbQuery('✅ Litsenziya faol!');
           const webAppUrl = getWebAppUrl();
           return await ctx.replyWithHTML(
-            `🎉 <b>OBUNANGIZ FAOL!</b>\n\n` +
-            `📅 Amal qilish muddati: <b>${formatDate(activeSub.end_date)}</b>\n` +
+            `🎉 <b>LITSENZIYANGIZ FAOL!</b>\n\n` +
+            `📅 Amal qilish muddati: <b>${formatDate(activeSub.end_date)}</b> gacha\n` +
             `⏳ Qolgan vaqt: <b>${activeSub.daysRemaining} kun</b>\n\n` +
             `ZAVERO POS tizimiga kirish:`,
             Markup.inlineKeyboard([
@@ -509,10 +703,10 @@ const initTelegramBot = () => {
             ])
           );
         } else {
-          await ctx.answerCbQuery('To‘lov hali aniqlanmadi');
+          await ctx.answerCbQuery('To‘lov hali tasdiqlanmadi');
           return await ctx.replyWithHTML(
             `⏳ <b>To‘lovingiz hali tasdiqlanmadi.</b>\n\n` +
-            `Agar siz to‘lov qilgan bo‘lsangiz, bir necha daqiqadan so‘ng qayta tekshiring yoki to‘lov chekini administratorga yuboring.`
+            `Agar to‘lov qilgan bo‘lsangiz, chek rasmini va ID raqamingizni (<code>${telegramId}</code>) administratorimiz @mirzobekn ga yuboring.`
           );
         }
       } catch (err) {
@@ -521,60 +715,334 @@ const initTelegramBot = () => {
     });
 
     // ==========================================
-    // 8. ADMIN COMMANDS & MANAGEMENT
+    // 8. ADMIN ACTIONS & BUTTON HANDLERS
     // ==========================================
 
-    // /admin - Dashboard
-    bot.command('admin', async (ctx) => {
+    // Action: Open Admin Panel
+    bot.action('open_admin_panel', async (ctx) => {
       try {
-        const telegramId = ctx.from.id;
-        if (!isAdminUser(telegramId)) {
-          return ctx.reply('⛔️ Kechirasiz, siz ushbu buyruqdan foydalana olmaysiz.');
-        }
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return ctx.reply('⛔️ Ruxsat berilmagan.');
+        return await sendAdminDashboard(ctx);
+      } catch (e) {}
+    });
 
-        const settings = await getBotSettings();
+    // Action: Admin approves subscription from Cheque or User Card
+    bot.action(/^admin_approve_(\d+)_(\d+)$/, async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) return ctx.answerCbQuery('⛔️ Ruxsat yo‘q');
+        await ctx.answerCbQuery('Faollashtirilmoqda...');
 
-        // Query Stats
-        const usersCountRes = await db.query('SELECT COUNT(*) FROM telegram_users');
-        const activeSubsRes = await db.query("SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND end_date > NOW()");
-        const expiredSubsRes = await db.query("SELECT COUNT(*) FROM subscriptions WHERE end_date <= NOW() OR status != 'active'");
-        const totalRevenueRes = await db.query("SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'completed'");
+        const targetId = parseInt(ctx.match[1], 10);
+        const days = parseInt(ctx.match[2], 10) || 30;
 
-        const totalUsers = usersCountRes.rows[0].count;
-        const activeSubs = activeSubsRes.rows[0].count;
-        const expiredSubs = expiredSubsRes.rows[0].count;
-        const totalRevenue = totalRevenueRes.rows[0].total;
+        const result = await activateSubscription(targetId, {
+          days,
+          amount: 250000,
+          provider: 'admin_panel',
+          transactionId: `admin_${Date.now()}_${targetId}`,
+          notifyUser: true,
+        });
 
-        const text =
-          `👑 <b>ZAVERO POS ADMIN BOSHQARUV PANELI</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `👥 <b>Jami foydalanuvchilar:</b> ${totalUsers} ta\n` +
-          `🟢 <b>Faol obunalar:</b> ${activeSubs} ta\n` +
-          `🔴 <b>Muddati tugaganlar:</b> ${expiredSubs} ta\n` +
-          `💰 <b>Jami tushum:</b> ${formatSum(totalRevenue)} so‘m\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `📢 <b>1-Kanal:</b> <code>${settings.required_channel_1}</code>\n` +
-          `📢 <b>2-Kanal:</b> <code>${settings.required_channel_2}</code>\n` +
-          `💵 <b>Tarif narxi:</b> ${formatSum(settings.subscription_price)} so‘m (${settings.subscription_days} kun)\n` +
-          `━━━━━━━━━━━━━━━━━━━\n\n` +
-          `<b>Mavjud buyruqlar:</b>\n` +
-          `• <code>/grant_sub &lt;telegram_id&gt; [kunlar]</code> — Foydalanuvchiga obuna berish\n` +
-          `• <code>/check_user &lt;telegram_id&gt;</code> — Foydalanuvchi ma‘lumotlari\n` +
-          `• <code>/set_price &lt;summa&gt;</code> — Oylik tarif narxini o‘zgartirish\n` +
-          `• <code>/set_channel1 &lt;@kanal&gt;</code> — 1-kanalni o‘zgartirish\n` +
-          `• <code>/set_channel2 &lt;@kanal&gt;</code> — 2-kanalni o‘zgartirish`;
+        // Update admin message
+        const confirmText =
+          `✅ <b>Mijozga muvaffaqiyatli ruxsat berildi!</b>\n\n` +
+          `👤 Mijoz ID: <code>${targetId}</code>\n` +
+          `⏳ Berilgan muddat: <b>${days} kun</b>\n` +
+          `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
+          `<i>Mijozga avtomatik tarzda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`;
 
-        return await ctx.replyWithHTML(text);
+        return await ctx.replyWithHTML(
+          confirmText,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Admin Panelga qaytish', 'open_admin_panel')]])
+        );
       } catch (err) {
-        console.error('/admin xatosi:', err);
-        return ctx.reply('Admin panelda xatolik yuz berdi: ' + err.message);
+        console.error('admin_approve xatosi:', err);
+        return ctx.reply('Xatolik yuz berdi: ' + err.message);
       }
     });
 
-    // /grant_sub <telegram_id> [days]
+    // Action: Admin rejects cheque
+    bot.action(/^admin_reject_(\d+)$/, async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) return ctx.answerCbQuery('⛔️ Ruxsat yo‘q');
+        await ctx.answerCbQuery('Rad etildi');
+
+        const targetId = parseInt(ctx.match[1], 10);
+        await db.query("UPDATE payments SET status = 'cancelled' WHERE telegram_id = $1 AND status = 'pending'", [targetId]);
+
+        try {
+          await bot.telegram.sendMessage(
+            targetId,
+            '❌ <b>To‘lov chekingiz tasdiqlanmadi.</b>\nIltimos, aniq maʼlumot olish uchun administratorimiz @mirzobekn ga murojaat qiling.',
+            { parse_mode: 'HTML' }
+          );
+        } catch (e) {}
+
+        return ctx.replyWithHTML(`❌ Mijoz <code>${targetId}</code> cheki rad etildi va unga xabar berildi.`);
+      } catch (e) {}
+    });
+
+    // Action: Admin revoke subscription
+    bot.action(/^admin_revoke_(\d+)$/, async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) return ctx.answerCbQuery('⛔️ Ruxsat yo‘q');
+        await ctx.answerCbQuery('Bekor qilinmoqda');
+
+        const targetId = parseInt(ctx.match[1], 10);
+        await db.query("UPDATE subscriptions SET status = 'cancelled', end_date = NOW() WHERE telegram_id = $1", [targetId]);
+
+        try {
+          await bot.telegram.sendMessage(
+            targetId,
+            '⚠️ Sizning ZAVERO POS litsenziyangiz administrator tomonidan to‘xtatildi.',
+            { parse_mode: 'HTML' }
+          );
+        } catch (e) {}
+
+        return ctx.replyWithHTML(`🚫 Mijoz <code>${targetId}</code> litsenziyasi to‘xtatildi.`);
+      } catch (e) {}
+    });
+
+    // Action: Admin Clients List (Pagination)
+    bot.action(/^admin_view_clients_(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+
+        const page = parseInt(ctx.match[1], 10) || 1;
+        const limit = 8;
+        const offset = (page - 1) * limit;
+
+        const usersRes = await db.query(
+          `SELECT u.telegram_id, u.first_name, u.last_name, u.username,
+                  s.status as sub_status, s.end_date
+           FROM telegram_users u
+           LEFT JOIN LATERAL (
+             SELECT status, end_date FROM subscriptions 
+             WHERE telegram_id = u.telegram_id 
+             ORDER BY end_date DESC LIMIT 1
+           ) s ON true
+           ORDER BY u.created_at DESC
+           LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+
+        if (usersRes.rows.length === 0) {
+          return ctx.replyWithHTML(
+            '👥 Hozircha birorta mijoz ro‘yxatdan o‘tmagan.',
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Orqaga', 'open_admin_panel')]])
+          );
+        }
+
+        let text = `👥 <b>MIJOZLAR RO‘YXATI (Sahifa ${page})</b>\n━━━━━━━━━━━━━━━━━━━\n\n`;
+        const buttons = [];
+
+        for (const u of usersRes.rows) {
+          const isAct = u.sub_status === 'active' && new Date(u.end_date) > new Date();
+          const badge = isAct ? '🟢' : '🔴';
+          const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'Foydalanuvchi';
+          text += `${badge} <b>${name}</b> (@${u.username || 'yo‘q'})\n🆔 ID: <code>${u.telegram_id}</code> | ${isAct ? 'Faol' : 'Faol emas'}\n\n`;
+
+          buttons.push([
+            Markup.button.callback(`👤 ${name} (ID: ${u.telegram_id})`, `admin_inspect_${u.telegram_id}`),
+          ]);
+        }
+
+        const navRow = [];
+        if (page > 1) {
+          navRow.push(Markup.button.callback('⬅️ Oldingi', `admin_view_clients_${page - 1}`));
+        }
+        if (usersRes.rows.length === limit) {
+          navRow.push(Markup.button.callback('Keyingi ➡️', `admin_view_clients_${page + 1}`));
+        }
+        if (navRow.length > 0) buttons.push(navRow);
+        buttons.push([Markup.button.callback('⬅️ Asosiy panelga qaytish', 'open_admin_panel')]);
+
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+      } catch (err) {
+        console.error('admin_view_clients xatosi:', err);
+      }
+    });
+
+    // Action: Inspect specific customer
+    bot.action(/^admin_inspect_(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+
+        const targetId = parseInt(ctx.match[1], 10);
+        const userRes = await db.query('SELECT * FROM telegram_users WHERE telegram_id = $1', [targetId]);
+        if (userRes.rows.length === 0) return ctx.reply('Mijoz topilmadi.');
+
+        const u = userRes.rows[0];
+        const sub = await getUserSubscription(targetId);
+
+        const text =
+          `👤 <b>MIJOZ MA‘LUMOTLARI</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Ism: <b>${u.first_name || ''} ${u.last_name || ''}</b>\n` +
+          `Username: @${u.username || 'mavjud emas'}\n` +
+          `Telegram ID: <code>${u.telegram_id}</code>\n` +
+          `Kanallarga obuna: ${u.is_subscribed_channels ? '✅ Tasdiqlangan' : '❌ Yo‘q'}\n` +
+          `Ro‘yxatdan o‘tgan: ${formatDate(u.created_at)}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `<b>Litsenziya holati:</b>\n` +
+          (sub
+            ? `🟢 <b>Faol</b> (${sub.daysRemaining} kun qoldi)\n📅 Tugash vaqti: <b>${formatDate(sub.end_date)}</b>`
+            : `🔴 <b>Faol emas / To‘lanmagan</b>`);
+
+        const buttons = [
+          [
+            Markup.button.callback('➕ 30 kun berish', `admin_approve_${targetId}_30`),
+            Markup.button.callback('➕ 60 kun berish', `admin_approve_${targetId}_60`),
+          ],
+          [
+            Markup.button.callback('➕ 365 kun (1 yil)', `admin_approve_${targetId}_365`),
+            Markup.button.callback('🚫 Obunani to‘xtatish', `admin_revoke_${targetId}`),
+          ],
+          [Markup.button.callback('⬅️ Mijozlar ro‘yxatiga qaytish', 'admin_view_clients_1')],
+        ];
+
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+      } catch (e) {
+        console.error('admin_inspect xatosi:', e);
+      }
+    });
+
+    // Action: Prompt admin to input Telegram ID to grant
+    bot.action('admin_grant_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+
+        adminState.set(ctx.from.id, { waitingFor: 'user_id_grant' });
+
+        return await ctx.replyWithHTML(
+          `🔍 <b>MIJOZGA OBUNA BERISH (ID ORQALI)</b>\n\n` +
+          `Mijoz sizga yuborgan <b>Telegram ID</b> raqamini yozib yuboring (masalan: <code>123456789</code>):\n\n` +
+          `<i>Yoki to‘g‘ridan-to‘g‘ri buyruqdan foydalanishingiz mumkin:</i>\n` +
+          `<code>/grant_sub 123456789 30</code>`
+        );
+      } catch (e) {}
+    });
+
+    // Action: Admin pending cheques
+    bot.action('admin_pending_cheques', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+
+        const res = await db.query(
+          `SELECT p.*, u.first_name, u.last_name, u.username
+           FROM payments p
+           LEFT JOIN telegram_users u ON u.telegram_id = p.telegram_id
+           WHERE p.status = 'pending'
+           ORDER BY p.created_at DESC LIMIT 5`
+        );
+
+        if (res.rows.length === 0) {
+          return ctx.replyWithHTML(
+            '✅ Hozirda kutilayotgan tasdiqlanmagan cheklar yo‘q.',
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Admin Panelga qaytish', 'open_admin_panel')]])
+          );
+        }
+
+        let text = `⏳ <b>KUTILAYOTGAN CHEKLAR (${res.rows.length} ta)</b>\n━━━━━━━━━━━━━━━━━━━\n\n`;
+        const buttons = [];
+
+        for (const item of res.rows) {
+          text += `👤 <b>${item.first_name || ''}</b> (@${item.username || 'yo‘q'})\n🆔 ID: <code>${item.telegram_id}</code> | Summa: ${formatSum(item.amount)} so‘m\n📅 Vaqt: ${formatDate(item.created_at)}\n\n`;
+          buttons.push([
+            Markup.button.callback(`✅ 30 kun berish (ID: ${item.telegram_id})`, `admin_approve_${item.telegram_id}_30`),
+            Markup.button.callback(`❌ Rad etish`, `admin_reject_${item.telegram_id}`),
+          ]);
+        }
+
+        buttons.push([Markup.button.callback('⬅️ Admin Panelga qaytish', 'open_admin_panel')]);
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+      } catch (e) {}
+    });
+
+    // Action: Admin Settings
+    bot.action('admin_settings_view', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        const settings = await getBotSettings();
+
+        const text =
+          `⚙️ <b>BOT VA TARIF SOZLAMALARI</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `📢 <b>1-Kanal:</b> <code>${settings.required_channel_1}</code>\n` +
+          `📢 <b>2-Kanal:</b> <code>${settings.required_channel_2}</code>\n` +
+          `💳 <b>Karta:</b> <code>${settings.card_number}</code>\n` +
+          `💵 <b>Oylik narx:</b> <code>${formatSum(settings.subscription_price)} so‘m</code>\n` +
+          `👤 <b>Admin lichka:</b> <code>${settings.admin_contact}</code>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n\n` +
+          `<i>O‘zgartirish uchun buyruqlar:</i>\n` +
+          `• <code>/set_card 9860 3501 2345 6789</code>\n` +
+          `• <code>/set_price 250000</code>\n` +
+          `• <code>/set_channel1 @mirzobekdev</code>\n` +
+          `• <code>/set_channel2 @zavero_uz</code>`;
+
+        return await ctx.replyWithHTML(
+          text,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Orqaga', 'open_admin_panel')]])
+        );
+      } catch (e) {}
+    });
+
+    // ==========================================
+    // 9. COMMANDS (/admin, /admin_login, /grant_sub, etc.)
+    // ==========================================
+
+    // Command: /admin_login <password>
+    bot.command('admin_login', async (ctx) => {
+      try {
+        const parts = ctx.message.text.split(' ').filter(Boolean);
+        const pass = parts[1] || '';
+
+        // If username is mirzobekn or password matches zavero2026 or JWT_SECRET
+        const isOwner = (ctx.from.username || '').toLowerCase() === 'mirzobekn';
+        const isPassMatch = pass === 'zavero2026' || pass === process.env.JWT_SECRET;
+
+        if (isOwner || isPassMatch) {
+          await addAdminId(ctx.from.id);
+          await ctx.replyWithHTML(
+            `👑 <b>Tabriklaymiz, siz admin sifatida muvaffaqiyatli ro‘yxatga olindingiz!</b>\n\n` +
+            `Sizning Telegram ID: <code>${ctx.from.id}</code>\n` +
+            `Admin paneliga kirish uchun <b>/admin</b> buyrug‘ini bosing.`
+          );
+          return await sendAdminDashboard(ctx);
+        } else {
+          return ctx.reply('Parol noto‘g‘ri. Foydalanish: /admin_login zavero2026');
+        }
+      } catch (e) {
+        return ctx.reply('Xatolik: ' + e.message);
+      }
+    });
+
+    // Command: /admin
+    bot.command('admin', async (ctx) => {
+      try {
+        const isAdmin = await isAdminUser(ctx.from);
+        if (!isAdmin) {
+          return ctx.replyWithHTML(
+            '⛔️ <b>Siz admin emassiz!</b>\n\nAgar siz loyiha egasi bo‘lsangiz, quyidagi buyruq orqali adminlikni faollashtiring:\n<code>/admin_login zavero2026</code>'
+          );
+        }
+        await addAdminId(ctx.from.id);
+        return await sendAdminDashboard(ctx);
+      } catch (e) {
+        console.error('/admin error:', e);
+      }
+    });
+
+    // Command: /grant_sub <telegram_id> [days]
     bot.command('grant_sub', async (ctx) => {
       try {
-        if (!isAdminUser(ctx.from.id)) return;
+        if (!(await isAdminUser(ctx.from))) return ctx.reply('⛔️ Ruxsat berilmagan.');
         const parts = ctx.message.text.split(' ').filter(Boolean);
         if (parts.length < 2) {
           return ctx.replyWithHTML('Foydalanish: <code>/grant_sub &lt;telegram_id&gt; [kunlar]</code>\nMasalan: <code>/grant_sub 123456789 30</code>');
@@ -584,72 +1052,52 @@ const initTelegramBot = () => {
         const days = parts[2] ? parseInt(parts[2], 10) : 30;
 
         if (isNaN(targetId) || isNaN(days)) {
-          return ctx.reply('Noto‘g‘ri parametrlar.');
+          return ctx.reply('Noto‘g‘ri ID yoki kun kiritildi.');
         }
 
         const result = await activateSubscription(targetId, {
           days,
-          amount: 0,
-          provider: 'admin_manual',
+          amount: 250000,
+          provider: 'admin_command',
           transactionId: `admin_${Date.now()}_${targetId}`,
           notifyUser: true,
         });
 
         return ctx.replyWithHTML(
-          `✅ <b>Obuna muvaffaqiyatli berildi!</b>\n` +
-          `👤 Telegram ID: <code>${targetId}</code>\n` +
-          `📅 Amal qilish vaqti: <b>${formatDate(result.endDate)}</b> (${days} kun)`
+          `✅ <b>Mijozga muvaffaqiyatli ruxsat berildi!</b>\n\n` +
+          `👤 Mijoz ID: <code>${targetId}</code>\n` +
+          `⏳ Muddat: <b>${days} kun</b>\n` +
+          `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
+          `<i>Mijozga avtomatik ravishda tasdiqlash xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`
         );
       } catch (err) {
-        console.error('/grant_sub xatosi:', err);
-        return ctx.reply('Obuna berishda xatolik: ' + err.message);
-      }
-    });
-
-    // /check_user <telegram_id>
-    bot.command('check_user', async (ctx) => {
-      try {
-        if (!isAdminUser(ctx.from.id)) return;
-        const parts = ctx.message.text.split(' ').filter(Boolean);
-        if (parts.length < 2) {
-          return ctx.replyWithHTML('Foydalanish: <code>/check_user &lt;telegram_id&gt;</code>');
-        }
-
-        const targetId = parseInt(parts[1], 10);
-        const userRes = await db.query('SELECT * FROM telegram_users WHERE telegram_id = $1', [targetId]);
-
-        if (userRes.rows.length === 0) {
-          return ctx.reply(`Foydalanuvchi topilmadi (ID: ${targetId}).`);
-        }
-
-        const user = userRes.rows[0];
-        const sub = await getUserSubscription(targetId);
-
-        const info =
-          `👤 <b>FOYDALANUVCHI MA‘LUMOTLARI</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `ID: <code>${user.telegram_id}</code>\n` +
-          `Ism: <b>${user.first_name || ''} ${user.last_name || ''}</b>\n` +
-          `Username: @${user.username || 'mavjud emas'}\n` +
-          `Kanal obunasi: ${user.is_subscribed_channels ? '✅ Tasdiqlangan' : '❌ Yo‘q'}\n` +
-          `Ro‘yxatdan o‘tgan: ${formatDate(user.created_at)}\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `<b>Obuna holati:</b>\n` +
-          (sub
-            ? `🟢 Faol (${sub.daysRemaining} kun qoldi)\n📅 Tugash vaqti: ${formatDate(sub.end_date)}`
-            : `🔴 Faol obunasi yo‘q`);
-
-        return ctx.replyWithHTML(info);
-      } catch (err) {
-        console.error('/check_user xatosi:', err);
         return ctx.reply('Xatolik: ' + err.message);
       }
     });
 
-    // /set_price <summa>
+    // Command: /set_card <card_number>
+    bot.command('set_card', async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) return;
+        const text = ctx.message.text.replace('/set_card', '').trim();
+        if (!text) return ctx.reply('Foydalanish: /set_card 9860 3501 2345 6789');
+
+        await db.query(
+          `INSERT INTO bot_settings (key, value, updated_at)
+           VALUES ('card_number', $1, CURRENT_TIMESTAMP)
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+          [text]
+        );
+        return ctx.reply(`✅ To‘lov kartasi yangilandi: ${text}`);
+      } catch (e) {
+        return ctx.reply('Xatolik: ' + e.message);
+      }
+    });
+
+    // Command: /set_price <summa>
     bot.command('set_price', async (ctx) => {
       try {
-        if (!isAdminUser(ctx.from.id)) return;
+        if (!(await isAdminUser(ctx.from))) return;
         const parts = ctx.message.text.split(' ').filter(Boolean);
         if (parts.length < 2) return ctx.reply('Foydalanish: /set_price 250000');
 
@@ -663,79 +1111,122 @@ const initTelegramBot = () => {
           [String(newPrice)]
         );
 
-        return ctx.reply(`✅ Oylik obuna narxi ${formatSum(newPrice)} so‘mga o‘zgartirildi.`);
-      } catch (err) {
-        return ctx.reply('Xatolik: ' + err.message);
+        return ctx.reply(`✅ Oylik narx ${formatSum(newPrice)} so‘mga o‘zgartirildi.`);
+      } catch (e) {
+        return ctx.reply('Xatolik: ' + e.message);
       }
     });
 
-    // /set_channel1 <@username>
+    // Command: /set_channel1 <@channel>
     bot.command('set_channel1', async (ctx) => {
       try {
-        if (!isAdminUser(ctx.from.id)) return;
+        if (!(await isAdminUser(ctx.from))) return;
         const parts = ctx.message.text.split(' ').filter(Boolean);
-        if (parts.length < 2) return ctx.reply('Foydalanish: /set_channel1 @kanal_nomi');
-
+        if (parts.length < 2) return ctx.reply('Foydalanish: /set_channel1 @kanal');
         const ch = parts[1].trim();
+
         await db.query(
           `INSERT INTO bot_settings (key, value, updated_at)
            VALUES ('required_channel_1', $1, CURRENT_TIMESTAMP)
            ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
           [ch]
         );
-
         return ctx.reply(`✅ 1-kanal ${ch} ga o‘zgartirildi.`);
-      } catch (err) {
-        return ctx.reply('Xatolik: ' + err.message);
+      } catch (e) {
+        return ctx.reply('Xatolik: ' + e.message);
       }
     });
 
-    // /set_channel2 <@username>
+    // Command: /set_channel2 <@channel>
     bot.command('set_channel2', async (ctx) => {
       try {
-        if (!isAdminUser(ctx.from.id)) return;
+        if (!(await isAdminUser(ctx.from))) return;
         const parts = ctx.message.text.split(' ').filter(Boolean);
-        if (parts.length < 2) return ctx.reply('Foydalanish: /set_channel2 @kanal_nomi');
-
+        if (parts.length < 2) return ctx.reply('Foydalanish: /set_channel2 @kanal');
         const ch = parts[1].trim();
+
         await db.query(
           `INSERT INTO bot_settings (key, value, updated_at)
            VALUES ('required_channel_2', $1, CURRENT_TIMESTAMP)
            ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
           [ch]
         );
-
         return ctx.reply(`✅ 2-kanal ${ch} ga o‘zgartirildi.`);
-      } catch (err) {
-        return ctx.reply('Xatolik: ' + err.message);
+      } catch (e) {
+        return ctx.reply('Xatolik: ' + e.message);
       }
     });
 
-    // Global error handler for Telegraf (prevents unhandled exceptions from crashing process)
-    bot.catch((err, ctx) => {
-      console.error(`⚠️ [Telegram Bot Error] Update ${ctx.update.update_id}:`, err.message);
-    });
-
-    // Fallback handler for random messages
+    // 10. TEXT HANDLER (Handles admin entering user ID or regular fallback)
     bot.on('text', async (ctx) => {
-      if (ctx.message.text.startsWith('/')) return; // ignore unknown commands
-      const telegramId = ctx.from.id;
-      const activeSub = await getUserSubscription(telegramId);
-      const webAppUrl = getWebAppUrl();
+      try {
+        const text = ctx.message.text.trim();
+        if (text.startsWith('/')) return; // ignore commands
 
-      if (activeSub) {
-        return ctx.replyWithHTML(
-          `Assalomu alaykum, <b>${ctx.from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
-          `Sizning ZAVERO POS obunangiz faol (${activeSub.daysRemaining} kun qoldi).\n` +
-          `Ilovaga kirish uchun quyidagi tugmani bosing:`,
-          Markup.inlineKeyboard([
+        const from = ctx.from;
+        const telegramId = from.id;
+        const isAdmin = await isAdminUser(from);
+
+        // Check if admin is currently entering an ID to grant subscription
+        const userState = adminState.get(telegramId);
+        if (isAdmin && userState && userState.waitingFor === 'user_id_grant') {
+          adminState.delete(telegramId);
+          const targetId = parseInt(text, 10);
+          if (isNaN(targetId)) {
+            return ctx.reply('Noto‘g‘ri ID kiritildi. Iltimos, faqat raqamlardan iborat Telegram ID kiriting.');
+          }
+
+          const userRes = await db.query('SELECT * FROM telegram_users WHERE telegram_id = $1', [targetId]);
+          const u = userRes.rows[0];
+          const sub = await getUserSubscription(targetId);
+
+          const cardText =
+            `👤 <b>TOPILGAN MIJOZ:</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `Ism: <b>${u ? `${u.first_name || ''} ${u.last_name || ''}` : 'Nomaʼlum mijoz'}</b>\n` +
+            `Username: @${u?.username || 'yo‘q'}\n` +
+            `ID: <code>${targetId}</code>\n` +
+            `Holati: ${sub ? `🟢 Faol (${sub.daysRemaining} kun qoldi)` : '🔴 Faol emas / To‘lanmagan'}\n` +
+            `━━━━━━━━━━━━━━━━━━━\n\n` +
+            `Ushbu mijozga qancha muddat litsenziya bermoqchisiz?`;
+
+          const buttons = [
+            [
+              Markup.button.callback('➕ 30 kun berish', `admin_approve_${targetId}_30`),
+              Markup.button.callback('➕ 60 kun berish', `admin_approve_${targetId}_60`),
+            ],
+            [
+              Markup.button.callback('➕ 365 kun (1 yil)', `admin_approve_${targetId}_365`),
+              Markup.button.callback('🚫 Bekor qilish', 'open_admin_panel'),
+            ],
+          ];
+
+          return await ctx.replyWithHTML(cardText, Markup.inlineKeyboard(buttons));
+        }
+
+        // Regular user text fallback
+        const activeSub = await getUserSubscription(telegramId);
+        const webAppUrl = getWebAppUrl();
+
+        if (activeSub) {
+          const buttons = [
             [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
-          ])
-        );
-      } else {
-        return ctx.replyWithHTML(
-          `Assalomu alaykum! ZAVERO POS xizmatidan foydalanish uchun <b>/start</b> buyrug‘ini yuboring.`
-        );
+          ];
+          if (isAdmin) buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
+
+          return ctx.replyWithHTML(
+            `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
+            `✅ Sizning ZAVERO POS litsenziyangiz faol (${activeSub.daysRemaining} kun qoldi).\n` +
+            `Ilovaga kirish uchun quyidagi tugmani bosing:`,
+            Markup.inlineKeyboard(buttons)
+          );
+        } else {
+          return ctx.replyWithHTML(
+            `Assalomu alaykum! ZAVERO POS tizimidan foydalanish uchun <b>/start</b> buyrug‘ini bosing va kanallarga a‘zo bo‘ling.`
+          );
+        }
+      } catch (err) {
+        console.error('text handler error:', err);
       }
     });
 
