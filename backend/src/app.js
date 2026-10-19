@@ -67,7 +67,15 @@ app.use(
   })
 );
 
-// Serve Full ZAVERO POS App (Root, Telegram WebApp button, Direct links)
+// Serve Customer Table QR Menu (Fast, standalone, mobile-optimized HTML menu)
+const serveMenuApp = (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.sendFile(path.join(__dirname, 'public', 'menu.html'));
+};
+
+// Serve Full ZAVERO POS App (Flutter Web Application for Staff / Admin / Telegram Mini App)
 const servePosApp = (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -75,14 +83,33 @@ const servePosApp = (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 };
 
+// 1. Root and POS entrypoints -> ALWAYS Full ZAVERO POS Application
 app.get('/', servePosApp);
-app.get('/menu', servePosApp);
 app.get('/pos', servePosApp);
 app.get('/app', servePosApp);
+app.get('/dashboard', servePosApp);
+app.get('/login', servePosApp);
 
+// 2. Short link for Table QR codes: /m/:cafeId/:tableNumber -> ALWAYS Table QR Menu
 app.get('/m/:cafeId/:tableNumber', (req, res) => {
-  servePosApp(req, res);
+  const { cafeId, tableNumber } = req.params;
+  res.redirect(`/menu?cafeId=${encodeURIComponent(cafeId)}&tableNumber=${encodeURIComponent(tableNumber)}`);
 });
+
+// 3. /menu route:
+// - If tableNumber or table is present -> Customer scanned a table QR code! Open QR Menu!
+// - If NO tableNumber or table is present -> User opened from Telegram Bot button! Open ZAVERO POS!
+app.get('/menu', (req, res) => {
+  const hasTable = req.query.tableNumber || req.query.table_number || req.query.table;
+  if (hasTable) {
+    return serveMenuApp(req, res);
+  }
+  return servePosApp(req, res);
+});
+
+// Explicit direct QR menu route
+app.get('/qr', serveMenuApp);
+app.get('/qr-menu', serveMenuApp);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'zavero-backend', time: new Date().toISOString() });
