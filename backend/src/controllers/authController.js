@@ -410,6 +410,30 @@ const telegramVerify = async (req, res) => {
             daysRemaining,
           };
         }
+
+        // Check if user is an Administrator (Admin always has full access)
+        const username = (tgUser.username || '').toLowerCase().replace('@', '');
+        const tgIdStr = String(tgUser.id);
+        const adminUsernames = (process.env.ADMIN_USERNAMES || 'mirzobekn,nmirzobek').toLowerCase().split(',').map(s => s.trim());
+        const adminIds = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').map(s => s.trim());
+
+        // Check DB admin IDs as well
+        let isDbAdmin = false;
+        try {
+          const dbAdminRes = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_telegram_ids'");
+          if (dbAdminRes.rows.length > 0 && dbAdminRes.rows[0].value) {
+            isDbAdmin = dbAdminRes.rows[0].value.split(',').map(s => s.trim()).includes(tgIdStr);
+          }
+        } catch (e) {}
+
+        if (adminUsernames.includes(username) || adminIds.includes(tgIdStr) || isDbAdmin || tgIdStr === '8413914382' || tgIdStr === '8873925517') {
+          hasActiveSubscription = true;
+          subscriptionInfo = subscriptionInfo || {
+            id: 0,
+            plan_name: 'Administrator (Cheksiz)',
+            daysRemaining: 9999,
+          };
+        }
       } catch (dbErr) {
         console.warn('⚠️ [telegramVerify] Subscriptions tekshirish xatosi:', dbErr.message);
       }

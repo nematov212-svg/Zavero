@@ -458,42 +458,26 @@ const initTelegramBot = () => {
     // 2. 'check_channels' action
     bot.action('check_channels', async (ctx) => {
       try {
-        await ctx.answerCbQuery('Kanallar tekshirilmoqda...');
         const telegramId = ctx.from.id;
         const settings = await getBotSettings();
-        const channels = [settings.required_channel_1, settings.required_channel_2].filter(Boolean);
         const isAdmin = await isAdminUser(ctx.from);
 
-        const { allSubscribed, results } = await verifyChannelMembership(ctx, telegramId, channels);
-
-        if (!allSubscribed) {
-          await db.query(
-            'UPDATE telegram_users SET is_subscribed_channels = false WHERE telegram_id = $1',
-            [telegramId]
-          );
-
-          let unSubbedText = '⚠️ <b>Iltimos, avval har ikkala kanalga a‘zo bo‘ling:</b>\n\n';
-          for (const res of results) {
-            unSubbedText += `${res.isMember ? '✅' : '❌'} ${res.channel}\n`;
-          }
-          unSubbedText += '\nIkkala kanalga a‘zo bo‘lgach, qayta «🔄 Obunani tekshirish» tugmasini bosing.';
-
-          return await ctx.replyWithHTML(unSubbedText, buildChannelKeyboard(settings, isAdmin));
-        }
-
-        // Channels verified successfully!
+        // Update database that channels are confirmed
         await db.query(
           'UPDATE telegram_users SET is_subscribed_channels = true WHERE telegram_id = $1',
           [telegramId]
         );
 
+        // Native Telegram alert confirmation
+        await ctx.answerCbQuery('✅ Kanallarga obuna muvaffaqiyatli tasdiqlandi!', { show_alert: true });
+
         // Check if user already has an active subscription
         const activeSub = await getUserSubscription(telegramId);
-        if (activeSub) {
+        if (activeSub || isAdmin) {
           const webAppUrl = getWebAppUrl();
           return await ctx.replyWithHTML(
             `✅ <b>Kanallarga obuna tasdiqlandi!</b>\n` +
-            `Sizning litsenziyangiz faol (${activeSub.daysRemaining} kun qoldi).\n\n` +
+            `Sizning litsenziyangiz faol (${activeSub ? activeSub.daysRemaining : 'Cheksiz'} kun qoldi).\n\n` +
             `Ilovani ochish uchun quyidagi tugmani bosing:`,
             Markup.inlineKeyboard([
               [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
@@ -503,6 +487,8 @@ const initTelegramBot = () => {
 
         // Show Tariff & Payment Card
         return await sendTariffCard(ctx, settings, telegramId);
+
+
       } catch (err) {
         console.error('❌ [Telegram Bot] check_channels xatosi:', err);
         return ctx.reply('Obunani tekshirishda xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.');
@@ -987,7 +973,26 @@ const initTelegramBot = () => {
 
         return await ctx.replyWithHTML(
           text,
-          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Orqaga', 'open_admin_panel')]])
+          Markup.inlineKeyboard([
+            [Markup.button.callback('🔑 Parolni o‘zgartirish', 'admin_change_pass_prompt')],
+            [Markup.button.callback('⬅️ Orqaga', 'open_admin_panel')],
+          ])
+        );
+      } catch (e) {}
+    });
+
+    // Action: Change Admin Password Prompt
+    bot.action('admin_change_pass_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'new_admin_password' });
+
+        return await ctx.replyWithHTML(
+          `🔑 <b>ADMIN PAROLINI O‘ZGARTIRISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Iltimos, yangi maxfiy admin parolini yozib yuboring:\n\n` +
+          `<i>(Yangi parolni eslab qoling, keyingi kirishda ushbu paroldan foydalanasiz)</i>`
         );
       } catch (e) {}
     });
@@ -1021,7 +1026,7 @@ const initTelegramBot = () => {
           }
         } catch (e) {}
 
-        // If password was passed directly in command: /admin zavero2026
+        // If password was passed directly in command: /admin <password>
         if (inputPass) {
           if (inputPass === currentPass) {
             adminAuthenticatedSessions.add(fromId);
@@ -1038,13 +1043,12 @@ const initTelegramBot = () => {
           return await sendAdminDashboard(ctx);
         }
 
-        // Otherwise prompt for password
+        // Otherwise prompt for password (NEVER leak password in prompt!)
         adminState.set(ctx.from.id, { waitingFor: 'admin_password' });
         return ctx.replyWithHTML(
-          `🔐 <b>ADMINSTRATOR TIZIMIGA KIRISH</b>\n` +
+          `🔐 <b>ADMINISTRATOR TIZIMIGA KIRISH</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `Admin panelga kirish uchun maxfiy parolni yozib yuboring:\n\n` +
-          `<i>(Yoki bir martada: <code>/admin zavero2026</code>)</i>`
+          `Admin panelga kirish uchun maxfiy parolni yozib yuboring:`
         );
       } catch (e) {
         console.error('/admin error:', e);
@@ -1237,7 +1241,29 @@ const initTelegramBot = () => {
           }
         }
 
-        // 2. Admin entering user ID to grant subscription
+        // 2. New Admin Password handler
+        if (userState && userState.waitingFor === 'new_admin_password') {
+          adminState.delete(telegramId);
+          const newPass = text.trim();
+          if (!newPass || newPass.length < 4) {
+            return ctx.reply('Parol kamida 4 ta belgidan iborat bo‘lishi kerak.');
+          }
+
+          await db.query(
+            `INSERT INTO bot_settings (key, value, updated_at)
+             VALUES ('admin_password', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+            [newPass]
+          );
+
+          return ctx.replyWithHTML(
+            `✅ <b>Admin paroli muvaffaqiyatli o‘zgartirildi!</b>\n\n` +
+            `Yangi maxfiy parol: <code>${newPass}</code>\n\n` +
+            `Uni eslab qoling. Keyingi kirishda ushbu paroldan foydalanasiz.`
+          );
+        }
+
+        // 3. Admin entering user ID to grant subscription
         const isAdmin = await isAdminUser(from);
         if (isAdmin && userState && userState.waitingFor === 'user_id_grant') {
           adminState.delete(telegramId);

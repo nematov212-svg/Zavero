@@ -1,13 +1,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-  -->
   <base href="/">
 
   <meta charset="UTF-8">
@@ -103,21 +96,31 @@
   </style>
 </head>
 <body>
-  <!-- Telegram Web App Integration & Subscription Lock -->
-  <script>
-    (function() {
-      if (window.Telegram && window.Telegram.WebApp) {
-        try {
-          var tg = window.Telegram.WebApp;
-          tg.ready();
-          tg.expand();
-          if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
-          if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
-          if (tg.setHeaderColor) tg.setHeaderColor('#0F172A');
-          if (tg.setBackgroundColor) tg.setBackgroundColor('#0F172A');
+  <!-- Initial Splash Loading Container -->
+  <div id="app-loading-container">
+    <img src="favicon.png" alt="Zavero POS" class="loading-logo" onerror="this.style.display='none'">
+    <div class="loading-title">ZAVERO POS</div>
+    <div class="loading-subtitle">Tizim yuklanmoqda...</div>
+    <div class="loading-spinner"></div>
+  </div>
 
+  <!-- Telegram Web App Integration & Subscription Verification -->
   <script>
+    function hideLoader() {
+      var loader = document.getElementById('app-loading-container');
+      if (loader) {
+        loader.style.opacity = '0';
+        loader.style.visibility = 'hidden';
+        setTimeout(function() {
+          if (loader.parentNode) loader.parentNode.removeChild(loader);
+        }, 400);
+      }
+    }
+
     function loadFlutterApp() {
+      window.addEventListener('flutter-first-frame', hideLoader);
+      setTimeout(hideLoader, 6000);
+
       var script = document.createElement('script');
       script.src = 'flutter_bootstrap.js';
       script.async = true;
@@ -148,6 +151,21 @@
     }
 
     (function() {
+      // Setup Telegram WebApp window features
+      if (window.Telegram && window.Telegram.WebApp) {
+        try {
+          var tg = window.Telegram.WebApp;
+          tg.ready();
+          tg.expand();
+          if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+          if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+          if (tg.setHeaderColor) tg.setHeaderColor('#0F172A');
+          if (tg.setBackgroundColor) tg.setBackgroundColor('#0F172A');
+        } catch (e) {
+          console.warn('Telegram WebApp setup error:', e);
+        }
+      }
+
       var isTelegram = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData;
 
       if (isTelegram) {
@@ -159,20 +177,20 @@
         })
         .then(function(res) { return res.json(); })
         .then(function(data) {
+          // If active subscription or admin -> LOAD APP!
           if (data && data.hasActiveSubscription) {
-            // Subscription is ACTIVE! Load the POS Flutter App
             loadFlutterApp();
           } else {
-            // Subscription is NOT active! Block completely!
+            // Unpaid normal user -> BLOCK COMPLETELY!
             showLockedScreen('Ilovadan foydalanish uchun to‘lov qiling va chekni administratorga yuboring. To‘lov tasdiqlangach, kirish avtomatik ochiladi.');
           }
         })
         .catch(function(err) {
           console.warn('Subscription check error:', err);
-          showLockedScreen('Server bilan bog‘lanishda xatolik. Iltimos, qayta urinib ko‘ring.');
+          showLockedScreen('Server bilan bog‘lanishda xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.');
         });
       } else {
-        // Outside Telegram (e.g. desktop browser, admin/staff direct login)
+        // Outside Telegram (e.g. desktop web browser login)
         loadFlutterApp();
       }
     })();
