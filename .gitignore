@@ -84,3 +84,7 @@ backend/.env
 backend/.env.*
 backend/*.log
 backend/uploads/
+
+.vscode/
+zavero-release.apk
+zavero/

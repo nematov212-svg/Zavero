@@ -4062,34 +4062,7 @@ class ZaveroApp extends StatelessWidget {
             theme: buildLightTheme(),
             darkTheme: buildDarkTheme(),
             themeMode: appState.darkMode ? ThemeMode.dark : ThemeMode.light,
-            onGenerateRoute: (settings) {
-              final rawName = settings.name ?? '';
-              final uri = Uri.tryParse(rawName);
-              if (rawName.contains('/menu') || rawName.contains('menu') || (uri != null && uri.path.contains('menu'))) {
-                final queryMap = <String, String>{};
-                if (uri != null) queryMap.addAll(uri.queryParameters);
-                if (Uri.base.queryParameters.isNotEmpty) queryMap.addAll(Uri.base.queryParameters);
-                if (Uri.base.hasFragment && Uri.base.fragment.contains('?')) {
-                  final fragQuery = Uri.splitQueryString(Uri.base.fragment.split('?').last);
-                  queryMap.addAll(fragQuery);
-                }
-
-                final cafeId = queryMap['cafeId'] ?? queryMap['cafe_id'] ?? 'cafe1';
-                final tableNumber = queryMap['tableNumber'] ?? queryMap['table_number'] ?? queryMap['table'];
-                final tableName = queryMap['tableName'] ?? queryMap['table_name'];
-                final hallId = queryMap['hallId'] ?? queryMap['hall_id'];
-                return MaterialPageRoute(
-                  settings: settings,
-                  builder: (_) => QRMenuScreen(
-                    cafeId: cafeId,
-                    tableNumber: tableNumber,
-                    tableName: tableName,
-                    hallId: hallId,
-                  ),
-                );
-              }
-              return null;
-            },
+            onGenerateRoute: (settings) => null,
             home: const SplashScreen(),
           );
         },
@@ -4211,35 +4184,6 @@ class _SplashScreenState extends State<SplashScreen>
     _controller.forward();
     Future.delayed(const Duration(milliseconds: 1800), () async {
       if (!mounted) return;
-
-      // 0. QR Menyu skaner qilingan bo'lsa (URL da /menu yoki #/menu bo'lsa)
-      final fullUrl = Uri.base.toString();
-      if (fullUrl.contains('menu')) {
-        final queryMap = <String, String>{};
-        if (Uri.base.queryParameters.isNotEmpty) queryMap.addAll(Uri.base.queryParameters);
-        if (Uri.base.hasFragment && Uri.base.fragment.contains('?')) {
-          final fragQuery = Uri.splitQueryString(Uri.base.fragment.split('?').last);
-          queryMap.addAll(fragQuery);
-        }
-
-        final cafeId = queryMap['cafeId'] ?? queryMap['cafe_id'] ?? 'cafe1';
-        final tableNumber = queryMap['tableNumber'] ?? queryMap['table_number'] ?? queryMap['table'];
-        final tableName = queryMap['tableName'] ?? queryMap['table_name'];
-        final hallId = queryMap['hallId'] ?? queryMap['hall_id'];
-
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: '/menu'),
-            builder: (_) => QRMenuScreen(
-              cafeId: cafeId,
-              tableNumber: tableNumber,
-              tableName: tableName,
-              hallId: hallId,
-            ),
-          ),
-        );
-        return;
-      }
 
       // 0.5. Agar 4-xonali PIN kod o'rnatilgan bo'lsa (Image 2), avval PIN Lock ekrani ochiladi:
       final hasPin = await PinSecurityService().hasAnyPin();

@@ -53,20 +53,35 @@ app.use('/api', generalApiLimiter);
 // Serve uploaded product images
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
-// Serve Public QR Menu & Telegram Mini App Web Application
-const serveMenuApp = (req, res) => {
+// Serve static Flutter POS Web Application (Telegram Mini App, Web, Desktop)
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    maxAge: '1h',
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    },
+  })
+);
+
+// Serve Full ZAVERO POS App (Root, Telegram WebApp button, Direct links)
+const servePosApp = (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
-  res.sendFile(path.join(__dirname, 'public', 'menu.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 };
 
-app.get('/', serveMenuApp);
-app.get('/menu', serveMenuApp);
+app.get('/', servePosApp);
+app.get('/menu', servePosApp);
+app.get('/pos', servePosApp);
+app.get('/app', servePosApp);
 
 app.get('/m/:cafeId/:tableNumber', (req, res) => {
-  const { cafeId, tableNumber } = req.params;
-  res.redirect(`/menu?cafeId=${encodeURIComponent(cafeId)}&tableNumber=${encodeURIComponent(tableNumber)}`);
+  servePosApp(req, res);
 });
 
 app.get('/health', (req, res) => {
@@ -91,8 +106,16 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/app', appRoutes);
 
-// 404
-app.use((req, res) => {
+// 404 for unhandled API routes
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, message: 'API yo\'nalish topilmadi.' });
+});
+
+// Fallback for Flutter Web SPA routes
+app.get('*', (req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+    return servePosApp(req, res);
+  }
   res.status(404).json({ success: false, message: 'Yo\'nalish topilmadi.' });
 });
 

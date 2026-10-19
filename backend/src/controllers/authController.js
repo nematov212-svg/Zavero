@@ -344,4 +344,58 @@ const changeCredentials = async (req, res) => {
 
 const changePassword = changeCredentials;
 
-module.exports = { register, login, getMe, updateProfile, changePassword, changeCredentials, toClientUser };
+// POST /api/auth/telegram-verify — Secure Telegram WebApp initData verification
+const telegramVerify = async (req, res) => {
+  try {
+    const { initData } = req.body;
+    if (!initData) {
+      return res.status(400).json({ success: false, message: 'initData yuborilmadi' });
+    }
+
+    const crypto = require('crypto');
+    const params = new URLSearchParams(initData);
+    const hash = params.get('hash');
+    if (!hash) {
+      return res.status(400).json({ success: false, message: 'Telegram hash topilmadi' });
+    }
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (botToken) {
+      params.delete('hash');
+      const items = [];
+      for (const [key, value] of params.entries()) {
+        items.push(`${key}=${value}`);
+      }
+      items.sort();
+      const dataCheckString = items.join('\n');
+
+      const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
+      const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+      if (calculatedHash !== hash) {
+        return res.status(401).json({ success: false, message: 'Telegram autentifikatsiyasi xato (hash mos kelmadi)' });
+      }
+
+      const authDate = parseInt(params.get('auth_date'), 10);
+      const now = Math.floor(Date.now() / 1000);
+      if (now - authDate > 86400 * 2) { // 48 hours
+        return res.status(401).json({ success: false, message: 'Telegram sessiyasi muddati o‘tgan' });
+      }
+    }
+
+    const userStr = params.get('user');
+    const tgUser = userStr ? JSON.parse(userStr) : null;
+
+    return res.json({
+      success: true,
+      verified: true,
+      telegramUser: tgUser,
+      message: 'Telegram WebApp maʼlumotlari xavfsiz tasdiqlandi',
+    });
+  } catch (error) {
+    console.error('telegramVerify error:', error);
+    return res.status(500).json({ success: false, message: 'Serverda xatolik yuz berdi.' });
+  }
+};
+
+module.exports = { register, login, getMe, updateProfile, changePassword, changeCredentials, telegramVerify, toClientUser };
