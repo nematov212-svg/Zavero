@@ -34,8 +34,8 @@ const getWebAppUrl = () => {
 // Helper: Get bot settings from DB
 const getBotSettings = async () => {
   const defaultSettings = {
-    required_channel_1: process.env.REQUIRED_CHANNEL_1 || '@zavero_official',
-    required_channel_2: process.env.REQUIRED_CHANNEL_2 || '@zavero_pos',
+    required_channel_1: process.env.REQUIRED_CHANNEL_1 || '@mirzobekdev',
+    required_channel_2: process.env.REQUIRED_CHANNEL_2 || '@zavero_uz',
     subscription_price: parseInt(process.env.SUBSCRIPTION_PRICE || '250000', 10),
     subscription_days: parseInt(process.env.SUBSCRIPTION_DAYS || '30', 10),
   };
@@ -256,7 +256,7 @@ const sendTariffCard = async (ctx, settings, telegramId) => {
 
 // Initialize Bot logic
 const initTelegramBot = () => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = process.env.TELEGRAM_BOT_TOKEN || '8838017721:AAHMXwe9rX_6ERecTM9fHKX0ctsG6b-HOK0';
 
   if (!token) {
     console.warn('⚠️ [Telegram Bot] TELEGRAM_BOT_TOKEN sozlanmagan. Bot faollashtirilmadi.');
