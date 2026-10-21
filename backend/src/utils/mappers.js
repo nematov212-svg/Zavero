@@ -63,6 +63,7 @@ const mapReceipt = (r) => ({
 
 const mapCustomerOrder = (r) => ({
   id: r.id,
+  cafeId: r.cafe_id,
   date: new Date(r.date).toISOString(),
   items: mapCartItems(r.items),
   customerName: r.customer_name,

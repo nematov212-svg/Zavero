@@ -1906,16 +1906,51 @@ const getBotInstance = () => bot;
 // SEND CUSTOMER QR ORDER NOTIFICATION (Image 5 & Telegram Bot)
 // ============================================================
 const sendCustomerOrderNotification = async (cafeId, order) => {
-  if (!bot) return;
   try {
-    const adminIds = await getAllAdminIds();
-    const tgRes = await db.query('SELECT telegram_id FROM telegram_users LIMIT 50');
-    const recipientIds = new Set(adminIds);
-    for (const row of tgRes.rows) {
-      if (row.telegram_id) recipientIds.add(String(row.telegram_id));
-    }
+    if (!bot || !cafeId) return;
+    const recipientIds = new Set();
 
-    if (recipientIds.size === 0) return;
+    // Faqat o'sha QR menyusi skaner qilingan kafe (cafeId) uchun sozlangan Telegram oluvchilarni topish:
+    // MUHIM: Director va Bot Administratorlariga SMS yuborilmaydi! Faqat o'sha kafega yuboriladi.
+    // 1. Kafe sozlamalarida telegram_chat_id bo'lsa
+    try {
+      const settRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+      if (settRes.rows.length > 0 && settRes.rows[0].data) {
+        const sData = typeof settRes.rows[0].data === 'string' ? JSON.parse(settRes.rows[0].data) : settRes.rows[0].data;
+        if (sData.telegramChatId || sData.telegramNotificationId) {
+          recipientIds.add(String(sData.telegramChatId || sData.telegramNotificationId).trim());
+        }
+      }
+    } catch (_) {}
+
+    // 2. Ushbu cafeId ga biriktirilgan xodimlarning telegram_id bo'lsa
+    try {
+      const usersRes = await db.query(
+        `SELECT telegram_id FROM users WHERE cafe_id = $1 AND telegram_id IS NOT NULL AND telegram_id != ''`,
+        [cafeId]
+      );
+      for (const u of usersRes.rows) {
+        if (u.telegram_id) recipientIds.add(String(u.telegram_id).trim());
+      }
+    } catch (_) {}
+
+    // 3. Ushbu kafe egasi (owner_email yoki owner_name) telegram_users da bo'lsa
+    try {
+      const cafeOwnerRes = await db.query(
+        `SELECT u.telegram_id 
+         FROM telegram_users u
+         JOIN cafes c ON (LOWER(TRIM(c.owner_email)) = LOWER(TRIM(u.username)) OR LOWER(TRIM(c.owner_name)) = LOWER(TRIM(u.username)))
+         WHERE c.cafe_id = $1`,
+        [cafeId]
+      );
+      for (const row of cafeOwnerRes.rows) {
+        if (row.telegram_id) recipientIds.add(String(row.telegram_id).trim());
+      }
+    } catch (_) {}
+
+    if (recipientIds.size === 0) {
+      return;
+    }
 
     const tableLabel = order.type === 'delivery'
       ? `Dastavka (${order.deliveryAddress || "Manzil yo'q"})`

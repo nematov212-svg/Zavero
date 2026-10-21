@@ -783,6 +783,7 @@ class Receipt {
 /// Mijoz online buyurtmasi
 class CustomerOrder {
   int id;
+  String? cafeId;
   DateTime date;
   List<CartItem> items;
   String customerName;
@@ -796,6 +797,7 @@ class CustomerOrder {
 
   CustomerOrder({
     required this.id,
+    this.cafeId,
     required this.date,
     required this.items,
     required this.customerName,
@@ -812,6 +814,7 @@ class CustomerOrder {
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'cafeId': cafeId,
         'date': date.toIso8601String(),
         'items': items.map((e) => e.toJson()).toList(),
         'customerName': customerName,
@@ -859,6 +862,7 @@ class CustomerOrder {
 
     return CustomerOrder(
       id: (j['id'] as num?)?.toInt() ?? int.tryParse('${j['id']}') ?? 0,
+      cafeId: (j['cafeId'] ?? j['cafe_id'])?.toString(),
       date: parsedDate,
       items: parsedItems,
       customerName: (j['customerName'] ?? j['customer_name'] ?? '').toString(),

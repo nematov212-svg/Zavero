@@ -19,7 +19,12 @@ class InAppNotificationService {
     required VoidCallback onViewOrder,
     VoidCallback? onAcceptOrder,
   }) {
-    // 1. Start voice announcement loop with periodic repeat until accepted
+    // 1. Har doim bildirishnoma qo'ng'irog'i ("Ting!" ovozi) yangraydi
+    try {
+      SoundService().playTing('qr_order');
+    } catch (_) {}
+
+    // 2. Agar Sozlamalarda ovozli gapirish yoqilgan bo'lsa, gapirib e'lon qiladi
     try {
       SoundService().announceNewOrder(order: order, repeatIntervalSec: 6);
     } catch (_) {}

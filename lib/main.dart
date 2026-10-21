@@ -921,7 +921,7 @@ class AppState extends ChangeNotifier {
 
     _customerOrdersPollTimer?.cancel();
     _customerOrdersPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (currentUser != null) {
+      if (currentUser != null && currentUser?.role != UserRole.director) {
         forceRefreshCustomerOrders();
       }
     });
@@ -1717,7 +1717,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> forceRefreshCustomerOrders() async {
-    if (currentUser == null) return;
+    if (currentUser == null || currentUser?.role == UserRole.director) return;
     try {
       final res = await ApiClient().get('/customer-orders');
       if (res['customerOrders'] is List) {
@@ -1730,7 +1730,17 @@ class AppState extends ChangeNotifier {
   }
 
   void _handleIncomingCustomerOrders(List<CustomerOrder> newOrders) {
+    // 1. Director panelida QR buyurtma SMS / pop-up / ovozli xabarlari umuman chiqmasin:
+    if (currentUser?.role == UserRole.director) {
+      return;
+    }
+
     for (final o in newOrders) {
+      // 2. Faqat o'sha QR menyusi skaner qilingan kafe paneliga (currentCafeId) xabar borishi kerak:
+      if (o.cafeId != null && o.cafeId!.isNotEmpty && o.cafeId != currentCafeId) {
+        continue;
+      }
+
       if (o.status == OrderStatus.pending && !_notifiedOrderIds.contains(o.id)) {
         _notifiedOrderIds.add(o.id);
         InAppNotificationService().showNewOrderNotification(
@@ -17615,14 +17625,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Ovozli bildirishnomalar',
+                        'Ovozli gapiradigan bildirishnoma',
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       Text(
-                        'QR buyurtmalar uchun professional ovozli xabar tizimi',
+                        'QR buyurtma kelganda gapirib e‘lon qilish sozlamasi',
                         style: TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: appState.voiceNotificationEnabled
+                        ? Colors.green.withValues(alpha: 0.15)
+                        : Colors.grey.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    appState.voiceNotificationEnabled ? 'Yoqilgan 🟢' : 'O‘chirilgan ⚪️',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: appState.voiceNotificationEnabled ? Colors.green.shade700 : Colors.grey.shade600,
+                    ),
                   ),
                 ),
               ],
@@ -17631,16 +17658,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               activeTrackColor: const Color(0xFFFFB300),
-              title: const Text('Ovozli bildirishnomalar (QR buyurtmalar)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              subtitle: const Text(
-                'Mijoz QR kod orqali buyurtma berganda real vaqtda ovozli e\'lon qilinadi va qabul qilinguncha har 5-6 soniyada takrorlanadi.',
-                style: TextStyle(fontSize: 12),
+              title: const Text(
+                'Gapiradigan ovozni yoqish / o‘chirish',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              subtitle: const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Yangi buyurtma tushganda taomlar va stol raqamini ovoz chiqarib gapiradi.\n🔔 «Ting!» qo‘ng‘iroq ovozi har doim faol bo‘ladi.',
+                  style: TextStyle(fontSize: 12, height: 1.3),
+                ),
               ),
               value: appState.voiceNotificationEnabled,
               onChanged: (val) {
                 setState(() {
                   appState.setVoiceNotificationEnabled(val);
                 });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      val
+                          ? '🔊 Gapiradigan ovozli bildirishnoma yoqildi'
+                          : '🔇 Gapiradigan ovoz o‘chirildi («Ting» ovozi faol qoladi)',
+                    ),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
               },
             ),
             const SizedBox(height: 8),
