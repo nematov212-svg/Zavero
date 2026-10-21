@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: zavero_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-zavero}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-zavero_secure_2026}
+      POSTGRES_DB: ${DB_NAME:-zavero_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-zavero} -d ${DB_NAME:-zavero_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: zavero_backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${DB_USER:-zavero}:${DB_PASSWORD:-zavero_secure_2026}@postgres:5432/${DB_NAME:-zavero_db}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-zavero_secret_jwt_token_2026}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      CORS_ORIGIN: "https://zavero.uz,https://app.zavero.uz"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../backend/uploads:/app/uploads
+
+volumes:
+  pgdata:
+    driver: local

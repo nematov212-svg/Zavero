@@ -40,6 +40,17 @@ class ApiClient {
   static String _defaultBaseUrl() {
     const fromEnv = String.fromEnvironment('API_BASE_URL');
     if (fromEnv.isNotEmpty) return fromEnv;
+    if (kIsWeb) {
+      try {
+        final origin = Uri.base.origin;
+        if (origin.contains('localhost:3000') || origin.contains('127.0.0.1:3000')) {
+          return '$origin/api';
+        }
+        if (origin.contains('onrender.com')) {
+          return '$origin/api';
+        }
+      } catch (_) {}
+    }
     return 'https://zavero-jrna.onrender.com/api';
   }
 
