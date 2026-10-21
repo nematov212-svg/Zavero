@@ -361,6 +361,16 @@ const createPublicOrder = async (req, res) => {
     });
     notifyCafe(realCafeId, 'CUSTOMER_ORDER_UPDATED', { order: createdOrder });
 
+    // Send Telegram Notification (Image 5 & Telegram bot sync)
+    try {
+      const { sendCustomerOrderNotification } = require('../bot/telegramBot');
+      if (typeof sendCustomerOrderNotification === 'function') {
+        sendCustomerOrderNotification(realCafeId, createdOrder);
+      }
+    } catch (tgErr) {
+      console.warn('⚠️ Telegram order notification error:', tgErr.message);
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Buyurtmangiz muvaffaqiyatli qabul qilindi!',

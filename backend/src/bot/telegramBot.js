@@ -111,7 +111,7 @@ const getAllAdminIds = async () => {
         if (id.trim()) ids.add(id.trim());
       });
     }
-  } catch (e) {}
+  } catch (e) { }
 
   adminAuthenticatedSessions.forEach((id) => ids.add(id));
   return Array.from(ids);
@@ -189,14 +189,14 @@ const activateSubscription = async (telegramId, { days = 30, amount = 250000, pr
           text: '🚀 ILOVANI OCHISH',
           web_app: { url: getWebAppUrl() },
         },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     // 4. Foydalanuvchiga rasmiy tasdiqlash SMS / Xabari yuborish
     if (notifyUser && bot) {
       try {
         const webAppUrl = getWebAppUrl();
-        const messageText = 
+        const messageText =
           `🎉 <b>TO‘LOVINGIZ TASDIQLANDI!</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `✅ <b>Administrator to‘lov chekingizni tasdiqladi!</b>\n\n` +
@@ -418,7 +418,7 @@ const initTelegramBot = () => {
             type: 'web_app',
             text: '🚀 ILOVANI OCHISH',
             web_app: { url: webAppUrl },
-          }).catch(() => {});
+          }).catch(() => { });
 
           const welcomeBack =
             `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
@@ -439,7 +439,7 @@ const initTelegramBot = () => {
         }
 
         // Unpaid user: reset chat menu button to default
-        ctx.setChatMenuButton({ type: 'default' }).catch(() => {});
+        ctx.setChatMenuButton({ type: 'default' }).catch(() => { });
 
         // Channel subscription prompt
         const settings = await getBotSettings();
@@ -473,6 +473,7 @@ const initTelegramBot = () => {
 
         // Check if user already has an active subscription
         const activeSub = await getUserSubscription(telegramId);
+
         if (activeSub || isAdmin) {
           const webAppUrl = getWebAppUrl();
           return await ctx.replyWithHTML(
@@ -488,7 +489,22 @@ const initTelegramBot = () => {
         // Show Tariff & Payment Card
         return await sendTariffCard(ctx, settings, telegramId);
 
+        // Check if user already has an active subscription
+        const activeSub = await getUserSubscription(telegramId);
+        if (activeSub) {
+          const webAppUrl = getWebAppUrl();
+          return await ctx.replyWithHTML(
+            `✅ <b>Kanallarga obuna tasdiqlandi!</b>\n` +
+            `Sizning litsenziyangiz faol (${activeSub.daysRemaining} kun qoldi).\n\n` +
+            `Ilovani ochish uchun quyidagi tugmani bosing:`,
+            Markup.inlineKeyboard([
+              [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
+            ])
+          );
+        }
 
+        // Show Tariff & Payment Card
+        return await sendTariffCard(ctx, settings, telegramId);
       } catch (err) {
         console.error('❌ [Telegram Bot] check_channels xatosi:', err);
         return ctx.reply('Obunani tekshirishda xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.');
@@ -509,7 +525,7 @@ const initTelegramBot = () => {
           `👤 Sizning ID raqamingiz: <code>${telegramId}</code>\n\n` +
           `Chekni yuborishingiz bilan u administratorga (@mirzobekn) yetib boradi va tasdiqlanadi.`
         );
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // 4. PHOTO HANDLER (User sends cheque photo!)
@@ -705,7 +721,7 @@ const initTelegramBot = () => {
           );
         }
         return await sendAdminDashboard(ctx);
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // Action: Admin approves subscription from Cheque or User Card
@@ -757,10 +773,10 @@ const initTelegramBot = () => {
             '❌ <b>To‘lov chekingiz tasdiqlanmadi.</b>\nIltimos, aniq maʼlumot olish uchun administratorimiz @mirzobekn ga murojaat qiling.',
             { parse_mode: 'HTML' }
           );
-        } catch (e) {}
+        } catch (e) { }
 
         return ctx.replyWithHTML(`❌ Mijoz <code>${targetId}</code> cheki rad etildi va unga xabar berildi.`);
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // Action: Admin revoke subscription
@@ -773,7 +789,7 @@ const initTelegramBot = () => {
         await db.query("UPDATE subscriptions SET status = 'cancelled', end_date = NOW() WHERE telegram_id = $1", [targetId]);
 
         // Reset chat menu button
-        bot.telegram.setChatMenuButton({ chat_id: targetId, menu_button: { type: 'default' } }).catch(() => {});
+        bot.telegram.setChatMenuButton({ chat_id: targetId, menu_button: { type: 'default' } }).catch(() => { });
 
         try {
           await bot.telegram.sendMessage(
@@ -781,10 +797,99 @@ const initTelegramBot = () => {
             '⚠️ Sizning ZAVERO POS litsenziyangiz administrator tomonidan to‘xtatildi.',
             { parse_mode: 'HTML' }
           );
-        } catch (e) {}
+        } catch (e) { }
 
         return ctx.replyWithHTML(`🚫 Mijoz <code>${targetId}</code> litsenziyasi to‘xtatildi.`);
-      } catch (e) {}
+      } catch (e) { }
+    });
+
+    // ============================================================
+    // CUSTOMER QR ORDER ACTIONS (Image 5 & Telegram Bot sync)
+    // ============================================================
+    bot.action(/^accept_order_(\d+)_(.+)$/, async (ctx) => {
+      try {
+        const orderId = parseInt(ctx.match[1], 10);
+        const cafeId = ctx.match[2];
+
+        const result = await db.query(
+          `UPDATE customer_orders SET status='preparing', updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING *`,
+          [orderId, cafeId]
+        );
+
+        if (result.rows.length === 0) {
+          return ctx.answerCbQuery('⚠️ Buyurtma topilmadi yoki allaqachon yakunlangan.', { show_alert: true });
+        }
+
+        const { mapCustomerOrder } = require('../utils/mappers');
+        const { notifyCafe } = require('../socket/socketHandler');
+        const updatedOrder = mapCustomerOrder(result.rows[0]);
+        notifyCafe(cafeId, 'CUSTOMER_ORDER_UPDATED', { order: updatedOrder });
+
+        await ctx.answerCbQuery('✅ Zakas olindi! Holati: Tayyorlanmoqda', { show_alert: true });
+
+        const staffName = ctx.from.first_name || 'Xodim';
+        const webAppUrl = getWebAppUrl();
+        const originalText = ctx.callbackQuery.message.text || '';
+
+        const updatedText =
+          `👨‍🍳 <b>BUYURTMA QABUL QILINDI!</b> (№ ${orderId})\n` +
+          `Qabul qildi: <b>${staffName}</b>\n` +
+          `Holati: <b>Tayyorlanmoqda...</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n\n` +
+          originalText;
+
+        await ctx.editMessageText(updatedText, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('✓ Tayyor deb belgilash', `ready_order_${orderId}_${cafeId}`)],
+            [Markup.button.webApp('📱 Ilovada ochish', webAppUrl)],
+          ]),
+        });
+      } catch (err) {
+        console.error('accept_order error:', err);
+        ctx.answerCbQuery('Xatolik: ' + err.message, { show_alert: true });
+      }
+    });
+
+    bot.action(/^ready_order_(\d+)_(.+)$/, async (ctx) => {
+      try {
+        const orderId = parseInt(ctx.match[1], 10);
+        const cafeId = ctx.match[2];
+
+        const result = await db.query(
+          `UPDATE customer_orders SET status='ready', updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING *`,
+          [orderId, cafeId]
+        );
+
+        if (result.rows.length === 0) {
+          return ctx.answerCbQuery('⚠️ Buyurtma topilmadi.', { show_alert: true });
+        }
+
+        const { mapCustomerOrder } = require('../utils/mappers');
+        const { notifyCafe } = require('../socket/socketHandler');
+        const updatedOrder = mapCustomerOrder(result.rows[0]);
+        notifyCafe(cafeId, 'CUSTOMER_ORDER_UPDATED', { order: updatedOrder });
+
+        await ctx.answerCbQuery('✅ Buyurtma tayyor deb belgilandi!', { show_alert: true });
+
+        const staffName = ctx.from.first_name || 'Xodim';
+        const webAppUrl = getWebAppUrl();
+        await ctx.editMessageText(
+          `🎉 <b>BUYURTMA TAYYOR!</b> (№ ${orderId})\n` +
+          `Tayyorladi: <b>${staffName}</b>\n` +
+          `Holati: 🟢 <b>Tayyor (Stolga yetkazish mumkin)</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.webApp('📱 Ilovada ochish', webAppUrl)],
+            ]),
+          }
+        );
+      } catch (err) {
+        console.error('ready_order error:', err);
+        ctx.answerCbQuery('Xatolik: ' + err.message, { show_alert: true });
+      }
     });
 
     // Action: Admin Clients List
@@ -908,7 +1013,7 @@ const initTelegramBot = () => {
           `<i>Yoki to‘g‘ridan-to‘g‘ri buyruqdan foydalaning:</i>\n` +
           `<code>/grant_sub 8413914382 30</code>`
         );
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // Action: Admin pending cheques
@@ -945,7 +1050,7 @@ const initTelegramBot = () => {
 
         buttons.push([Markup.button.callback('⬅️ Admin Panelga qaytish', 'open_admin_panel')]);
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // Action: Admin Settings
@@ -973,28 +1078,9 @@ const initTelegramBot = () => {
 
         return await ctx.replyWithHTML(
           text,
-          Markup.inlineKeyboard([
-            [Markup.button.callback('🔑 Parolni o‘zgartirish', 'admin_change_pass_prompt')],
-            [Markup.button.callback('⬅️ Orqaga', 'open_admin_panel')],
-          ])
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Orqaga', 'open_admin_panel')]])
         );
-      } catch (e) {}
-    });
-
-    // Action: Change Admin Password Prompt
-    bot.action('admin_change_pass_prompt', async (ctx) => {
-      try {
-        await ctx.answerCbQuery();
-        if (!(await isAdminUser(ctx.from))) return;
-        adminState.set(ctx.from.id, { waitingFor: 'new_admin_password' });
-
-        return await ctx.replyWithHTML(
-          `🔑 <b>ADMIN PAROLINI O‘ZGARTIRISH</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `Iltimos, yangi maxfiy admin parolini yozib yuboring:\n\n` +
-          `<i>(Yangi parolni eslab qoling, keyingi kirishda ushbu paroldan foydalanasiz)</i>`
-        );
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // Action: Logout
@@ -1003,7 +1089,7 @@ const initTelegramBot = () => {
         await ctx.answerCbQuery();
         adminAuthenticatedSessions.delete(String(ctx.from.id));
         return ctx.reply('🚪 Admin sessiyangiz yakunlandi. Qayta kirish uchun /admin bosing.');
-      } catch (e) {}
+      } catch (e) { }
     });
 
     // ==========================================
@@ -1024,9 +1110,9 @@ const initTelegramBot = () => {
           if (passRes.rows.length > 0 && passRes.rows[0].value) {
             currentPass = passRes.rows[0].value;
           }
-        } catch (e) {}
+        } catch (e) { }
 
-        // If password was passed directly in command: /admin <password>
+        // If password was passed directly in command: /admin zavero2026
         if (inputPass) {
           if (inputPass === currentPass) {
             adminAuthenticatedSessions.add(fromId);
@@ -1043,12 +1129,13 @@ const initTelegramBot = () => {
           return await sendAdminDashboard(ctx);
         }
 
-        // Otherwise prompt for password (NEVER leak password in prompt!)
+        // Otherwise prompt for password
         adminState.set(ctx.from.id, { waitingFor: 'admin_password' });
         return ctx.replyWithHTML(
-          `🔐 <b>ADMINISTRATOR TIZIMIGA KIRISH</b>\n` +
+          `🔐 <b>ADMINSTRATOR TIZIMIGA KIRISH</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `Admin panelga kirish uchun maxfiy parolni yozib yuboring:`
+          `Admin panelga kirish uchun maxfiy parolni yozib yuboring:\n\n` +
+          `<i>(Yoki bir martada: <code>/admin zavero2026</code>)</i>`
         );
       } catch (e) {
         console.error('/admin error:', e);
@@ -1229,7 +1316,7 @@ const initTelegramBot = () => {
             if (passRes.rows.length > 0 && passRes.rows[0].value) {
               currentPass = passRes.rows[0].value;
             }
-          } catch (e) {}
+          } catch (e) { }
 
           if (text === currentPass) {
             adminAuthenticatedSessions.add(String(telegramId));
@@ -1241,29 +1328,7 @@ const initTelegramBot = () => {
           }
         }
 
-        // 2. New Admin Password handler
-        if (userState && userState.waitingFor === 'new_admin_password') {
-          adminState.delete(telegramId);
-          const newPass = text.trim();
-          if (!newPass || newPass.length < 4) {
-            return ctx.reply('Parol kamida 4 ta belgidan iborat bo‘lishi kerak.');
-          }
-
-          await db.query(
-            `INSERT INTO bot_settings (key, value, updated_at)
-             VALUES ('admin_password', $1, CURRENT_TIMESTAMP)
-             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
-            [newPass]
-          );
-
-          return ctx.replyWithHTML(
-            `✅ <b>Admin paroli muvaffaqiyatli o‘zgartirildi!</b>\n\n` +
-            `Yangi maxfiy parol: <code>${newPass}</code>\n\n` +
-            `Uni eslab qoling. Keyingi kirishda ushbu paroldan foydalanasiz.`
-          );
-        }
-
-        // 3. Admin entering user ID to grant subscription
+        // 2. Admin entering user ID to grant subscription
         const isAdmin = await isAdminUser(from);
         if (isAdmin && userState && userState.waitingFor === 'user_id_grant') {
           adminState.delete(telegramId);
@@ -1357,6 +1422,71 @@ const initTelegramBot = () => {
 
 const getBotInstance = () => bot;
 
+// ============================================================
+// SEND CUSTOMER QR ORDER NOTIFICATION (Image 5 & Telegram Bot)
+// ============================================================
+const sendCustomerOrderNotification = async (cafeId, order) => {
+  if (!bot) return;
+  try {
+    const adminIds = await getAllAdminIds();
+    const tgRes = await db.query('SELECT telegram_id FROM telegram_users LIMIT 50');
+    const recipientIds = new Set(adminIds);
+    for (const row of tgRes.rows) {
+      if (row.telegram_id) recipientIds.add(String(row.telegram_id));
+    }
+
+    if (recipientIds.size === 0) return;
+
+    const tableLabel = order.type === 'delivery'
+      ? `Dastavka (${order.deliveryAddress || "Manzil yo'q"})`
+      : (order.tableNumber ? `${order.tableNumber}-stol` : (order.deliveryAddress || 'Stol'));
+
+    const customerName = order.customerName && order.customerName.trim()
+      ? order.customerName.trim()
+      : 'Mijoz';
+
+    const items = Array.isArray(order.items) ? order.items : [];
+    const itemsText = items.map((i) => {
+      const q = i.qty || i.quantity || 1;
+      const n = i.name || (i.product && i.product.name) || 'Taom';
+      const tot = (i.price || 0) * q;
+      return `• <b>${q}x</b> ${n} — ${formatSum(tot)} so‘m`;
+    }).join('\n');
+
+    const messageText =
+      `🔔 <b>YANGI QR BUYURTMA!</b> (№ ${order.id})\n` +
+      `━━━━━━━━━━━━━━━━━━━\n` +
+      `🪑 <b>Joy:</b> <b>${tableLabel}</b>\n` +
+      `👤 <b>Mijoz:</b> <b>${customerName}</b>\n` +
+      `💰 <b>Jami summa:</b> <b>${formatSum(order.total || 0)} so‘m</b>\n` +
+      `📅 <b>Vaqt:</b> ${formatDate(order.date || new Date())}\n\n` +
+      `📋 <b>Taomlar:</b>\n` +
+      (itemsText || '• Taomlar ro‘yxati mavjud') +
+      (order.notes ? `\n\n📝 <b>Izoh:</b> <i>${order.notes}</i>` : '') +
+      `\n━━━━━━━━━━━━━━━━━━━\n` +
+      `Quyidagi tugma orqali buyurtmani qabul qiling:`;
+
+    const webAppUrl = getWebAppUrl();
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('✅ Zakasni olish', `accept_order_${order.id}_${cafeId}`)],
+      [Markup.button.webApp('📱 Ilovada ochish', webAppUrl)],
+    ]);
+
+    for (const tId of recipientIds) {
+      try {
+        await bot.telegram.sendMessage(tId, messageText, {
+          parse_mode: 'HTML',
+          ...keyboard,
+        });
+      } catch (err) {
+        // Ignored if user blocked bot or invalid chat
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ [Telegram Bot] sendCustomerOrderNotification xatosi:', err.message);
+  }
+};
+
 module.exports = {
   initTelegramBot,
   getBotInstance,
@@ -1364,4 +1494,5 @@ module.exports = {
   activateSubscription,
   getBotSettings,
   isAdminUser,
+  sendCustomerOrderNotification,
 };

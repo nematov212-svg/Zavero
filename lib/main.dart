@@ -18,7 +18,6 @@ import 'screens/blocked_screen.dart';
 import 'screens/director_screen.dart';
 import 'screens/pin_lock_screen.dart';
 import 'screens/tables_management_screen.dart';
-import 'screens/qr_menu_screen.dart';
 import 'screens/customer_orders_screen.dart';
 import 'screens/staff_tracking_screen.dart';
 import 'services/in_app_notification_service.dart';
@@ -6133,139 +6132,6 @@ class _AnimatedHeaderLogoBadgeState extends State<_AnimatedHeaderLogoBadge>
   }
 }
 
-Widget _buildGreetingPillBadge(
-  BuildContext context,
-  AppUser? user,
-  bool isAdmin,
-  bool isWaiter,
-  bool isCourier,
-  bool isMobile,
-) {
-  final roleColor = isAdmin
-      ? const Color(0xFFFFB300)
-      : isWaiter
-          ? const Color(0xFF10B981)
-          : isCourier
-              ? const Color(0xFFEC4899)
-              : const Color(0xFF3B82F6);
-
-  final roleIcon = isAdmin
-      ? Icons.shield_rounded
-      : isWaiter
-          ? Icons.room_service_rounded
-          : isCourier
-              ? Icons.delivery_dining_rounded
-              : Icons.point_of_sale_rounded;
-
-  final roleLabel = isAdmin
-      ? tr('role_admin')
-      : isWaiter
-          ? tr('role_waiter')
-          : isCourier
-              ? tr('role_courier')
-              : tr('role_cashier');
-
-  return Container(
-    padding: EdgeInsets.symmetric(
-      horizontal: isMobile ? 10 : 14,
-      vertical: isMobile ? 4 : 6,
-    ),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        colors: [
-          Colors.white.withValues(alpha: 0.08),
-          Colors.white.withValues(alpha: 0.03),
-        ],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      borderRadius: BorderRadius.circular(24),
-      border: Border.all(
-        color: Colors.white.withValues(alpha: 0.12),
-        width: 1.0,
-      ),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Pulsing Online Green Indicator
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(
-            color: const Color(0xFF10B981),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF10B981).withValues(alpha: 0.6),
-                blurRadius: 6,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        // Greeting & Name
-        Flexible(
-          child: RichText(
-            overflow: TextOverflow.ellipsis,
-            text: TextSpan(
-              style: TextStyle(
-                fontSize: isMobile ? 12.5 : 14.5,
-                color: Colors.white,
-                fontWeight: FontWeight.w500,
-              ),
-              children: [
-                if (!isMobile)
-                  TextSpan(
-                    text: '${tr('welcome_user')}, ',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.75)),
-                  ),
-                TextSpan(
-                  text: user?.name ?? "Mehmon",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        // Role Badge Chip
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: roleColor.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: roleColor.withValues(alpha: 0.5),
-              width: 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(roleIcon, size: 12, color: roleColor),
-              const SizedBox(width: 4),
-              Text(
-                roleLabel,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                  color: roleColor,
-                  letterSpacing: 0.4,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
@@ -6605,10 +6471,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         return Scaffold(
           backgroundColor: const Color(0xFFF1F5F9),
+          endDrawer: _buildDashboardEndDrawer(context, user, isAdmin, isWaiter),
           appBar: AppBar(
             elevation: 0,
             backgroundColor: const Color(0xFF0F172A),
-            leadingWidth: isMobile ? 165 : 230,
+            leadingWidth: isMobile ? 180 : 250,
             leading: Padding(
               padding: const EdgeInsets.only(left: 14),
               child: Row(
@@ -6645,88 +6512,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
-            title: _buildGreetingPillBadge(context, user, isAdmin, isWaiter, isCourier, isMobile),
+            title: isMobile
+                ? null
+                : Text(
+                    user?.name != null ? '${tr('welcome_user')}, ${user!.name}' : 'ZAVERO FAST',
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70,
+                    ),
+                  ),
             actions: [
-              // Language Switcher Dropdown in Top Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<AppLanguage>(
-                      value: LocalizationService().currentLanguage,
-                      dropdownColor: const Color(0xFF1E293B),
-                      icon: const Icon(Icons.language_rounded, size: 17, color: Color(0xFFFFB300)),
-                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white),
-                      items: const [
-                        DropdownMenuItem(value: AppLanguage.uz, child: Text('🇺🇿 UZ')),
-                        DropdownMenuItem(value: AppLanguage.ru, child: Text('🇷🇺 RU')),
-                        DropdownMenuItem(value: AppLanguage.en, child: Text('🇬🇧 EN')),
-                      ],
-                      onChanged: (lang) {
-                        if (lang != null) {
-                          LocalizationService().setLanguage(lang);
-                        }
-                      },
+              Builder(
+                builder: (barCtx) => Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: IconButton(
+                    icon: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                      ),
+                      child: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
                     ),
+                    tooltip: 'Menyu',
+                    onPressed: () => Scaffold.of(barCtx).openEndDrawer(),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-
-              if (!isMobile)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-                    ),
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      ),
-                      onPressed: () => _showReportIssueDialog(context),
-                      icon: const Icon(Icons.support_agent_rounded, size: 18, color: Color(0xFFFFB300)),
-                      label: Text(
-                        tr('technical_support'),
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ),
-              const SizedBox(width: 6),
-              IconButton(
-                icon: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.logout_rounded, color: Color(0xFFF87171), size: 18),
-                ),
-                tooltip: tr('btn_logout'),
-                onPressed: () async {
-                  await appState.logout();
-                  if (context.mounted) {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AuthScreen(),
-                      ),
-                      (r) => false,
-                    );
-                  }
-                },
-              ),
-              const SizedBox(width: 8),
             ],
           ),
           body: Padding(
@@ -6920,6 +6734,320 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         );
       },
+    );
+  }
+
+  // ============================================================
+  // HAMBURGER MENU / END DRAWER (Image 3)
+  // Contains: Online status, Language Switcher, Support, Logout
+  // ============================================================
+  Widget _buildDashboardEndDrawer(
+    BuildContext context,
+    AppUser? user,
+    bool isAdmin,
+    bool isWaiter,
+  ) {
+    return Drawer(
+      backgroundColor: const Color(0xFF0F172A),
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Header: User & Cafe info + Close button
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+              ),
+              child: Row(
+                children: [
+                  const _AnimatedHeaderLogoBadge(size: 38),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          appState.restaurantName.isNotEmpty ? appState.restaurantName : 'ZAVERO FAST',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          user?.name ?? 'Foydalanuvchi',
+                          style: const TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 22),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                children: [
+                  // 1. ONLINE STATUS BADGE (Moved here per user request)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.7),
+                                blurRadius: 8,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Online • Tizim faol',
+                                style: TextStyle(
+                                  color: Color(0xFF10B981),
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Serverga ulangan, buyurtmalar qabul qilinmoqda',
+                                style: TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 22),
+
+                  // 2. LANGUAGE SWITCHER (Moved here per user request)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'TILNI TANLASH / SELECT LANGUAGE',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  _buildDrawerLanguageSelector(context),
+
+                  const SizedBox(height: 22),
+
+                  // 3. TECHNICAL SUPPORT
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'YORDAM VA XIZMATLAR',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _showReportIssueDialog(context);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.support_agent_rounded, color: Color(0xFFFFB300), size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              tr('technical_support'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // 4. LOGOUT BUTTON (Moved here per user request)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFF1E293B))),
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                    foregroundColor: const Color(0xFFF87171),
+                    elevation: 0,
+                    side: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  icon: const Icon(Icons.logout_rounded, size: 20),
+                  label: Text(
+                    tr('btn_logout'),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await appState.logout();
+                    if (context.mounted) {
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AuthScreen()),
+                        (r) => false,
+                      );
+                    }
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawerLanguageSelector(BuildContext context) {
+    final currentLang = LocalizationService().currentLanguage;
+    return Column(
+      children: [
+        _buildDrawerLangTile(
+          flag: '🇺🇿',
+          name: "O'zbekcha (UZ)",
+          isSelected: currentLang == AppLanguage.uz,
+          onTap: () {
+            LocalizationService().setLanguage(AppLanguage.uz);
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 8),
+        _buildDrawerLangTile(
+          flag: '🇷🇺',
+          name: 'Русский (RU)',
+          isSelected: currentLang == AppLanguage.ru,
+          onTap: () {
+            LocalizationService().setLanguage(AppLanguage.ru);
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 8),
+        _buildDrawerLangTile(
+          flag: '🇬🇧',
+          name: 'English (EN)',
+          isSelected: currentLang == AppLanguage.en,
+          onTap: () {
+            LocalizationService().setLanguage(AppLanguage.en);
+            setState(() {});
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDrawerLangTile({
+    required String flag,
+    required String name,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFFFFB300).withValues(alpha: 0.15)
+              : const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFFFB300) : Colors.white.withValues(alpha: 0.08),
+            width: isSelected ? 1.4 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Text(flag, style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                name,
+                style: TextStyle(
+                  color: isSelected ? const Color(0xFFFFB300) : Colors.white,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle_rounded, color: Color(0xFFFFB300), size: 18),
+          ],
+        ),
+      ),
     );
   }
 }
