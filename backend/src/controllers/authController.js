@@ -426,7 +426,7 @@ const telegramVerify = async (req, res) => {
           }
         } catch (e) {}
 
-        if (adminUsernames.includes(username) || adminIds.includes(tgIdStr) || isDbAdmin || tgIdStr === '8413914382' || tgIdStr === '8873925517') {
+        if (adminUsernames.includes(username) || adminIds.includes(tgIdStr) || isDbAdmin || tgIdStr === '8413914382' || tgIdStr === '8873925517' || tgIdStr === '8989763161') {
           hasActiveSubscription = true;
           subscriptionInfo = subscriptionInfo || {
             id: 0,
