@@ -410,6 +410,146 @@ const sendAdminDashboard = async (ctx) => {
   return await ctx.replyWithHTML(text, keyboard);
 };
 
+// Helper: Anti-Spam, Anti-Reklama and Anti-Flood detector
+const floodTracker = new Map();
+
+const isSpamOrAdMessage = (message) => {
+  if (!message) return false;
+
+  // 1. Forwarded messages from public channels, chats, or unknown users
+  if (message.forward_from_chat || message.forward_from || message.forward_origin) {
+    return true;
+  }
+
+  const text = message.text || message.caption || '';
+  if (!text) return false;
+
+  // 2. Allowed domain whitelist (our own links and payment gateways)
+  const isWhitelistedLink = (url) => {
+    const clean = url.toLowerCase();
+    return (
+      clean.includes('zavero') ||
+      clean.includes('mirzobek') ||
+      clean.includes('click.uz') ||
+      clean.includes('paycom.uz') ||
+      clean.includes('onrender.com')
+    );
+  };
+
+  // 3. Check for external links (http, https, t.me, bit.ly, etc.)
+  const urlRegex = /(https?:\/\/[^\s]+|t\.me\/[^\s]+|telegram\.me\/[^\s]+|bit\.ly\/[^\s]+)/gi;
+  const urls = text.match(urlRegex) || [];
+  for (const url of urls) {
+    if (!isWhitelistedLink(url)) {
+      return true; // External advertising link detected!
+    }
+  }
+
+  // 4. Check Telegram message entities for hidden links
+  const entities = message.entities || message.caption_entities || [];
+  for (const ent of entities) {
+    if (ent.type === 'text_link' && ent.url) {
+      if (!isWhitelistedLink(ent.url)) return true;
+    }
+    if (ent.type === 'url') {
+      const extractedUrl = text.substring(ent.offset, ent.offset + ent.length);
+      if (!isWhitelistedLink(extractedUrl)) return true;
+    }
+    // Block promotional mentions like @some_channel_bot (unless it is our admin or channel)
+    if (ent.type === 'mention') {
+      const mention = text.substring(ent.offset, ent.offset + ent.length).toLowerCase();
+      if (!mention.includes('zavero') && !mention.includes('mirzobek')) {
+        return true;
+      }
+    }
+  }
+
+  // 5. Spam / Advertising keywords in Uzbek, Russian, English
+  const spamKeywordsRegex = /\b(reklama|daromad|investitsiya|sarmoya|kripto|kriptovalyuta|bitcoin|ton coin|airdrop|hamster|kombat|blum|notcoin|kazino|casino|1xbet|melbet|mostbet|stavka|pul ishlash|kunlik daromad|bonus olish|ishga taklif|kanalga obuna|obuna bo['`’]?ling|podpishis|zarabotok|investitsion|ish bor|tez boyish|online ish|vakansiya|reklama berish|reklama narxi)\b/i;
+
+  if (spamKeywordsRegex.test(text)) {
+    return true;
+  }
+
+  return false;
+};
+
+const checkAntiFlood = (userId) => {
+  const now = Date.now();
+  const data = floodTracker.get(userId) || { count: 0, firstMsg: now, mutedUntil: 0 };
+
+  if (data.mutedUntil > now) {
+    return true; // User is currently muted
+  }
+
+  if (now - data.firstMsg < 3000) {
+    data.count += 1;
+    if (data.count > 5) {
+      data.mutedUntil = now + 15000; // Mute for 15 seconds
+      floodTracker.set(userId, data);
+      return true;
+    }
+  } else {
+    data.count = 1;
+    data.firstMsg = now;
+  }
+
+  floodTracker.set(userId, data);
+  return false;
+};
+
+// Helper: Configure Bot Profile, About, Description, and Commands
+const setupBotProfilesAndCommands = async (botInstance) => {
+  if (!botInstance) return;
+  try {
+    const description =
+      `🚀 ZAVERO POS — Kafe, restoran, fast-fud va savdo nuqtalari uchun zamonaviy kassa va avtomatlashtirish tizimi.\n\n` +
+      `✨ Asosiy imkoniyatlar:\n` +
+      `• 📱 QR menyu va onlayn buyurtmalar\n` +
+      `• ⚡️ Tezkor kassa, chek chop etish va hisob-kitob\n` +
+      `• 📊 Real vaqt hisobotlari va kassa tahlili\n` +
+      `• 👥 Xodimlar va stollar boshqaruvi\n` +
+      `• 📦 Ombor qoldig‘i va mahsulotlar hisobi\n` +
+      `• 🎁 Yangi mijozlarga 1 kunlik bepul sinov!\n\n` +
+      `🌐 Rasmiy bot: @zavero_uz`;
+
+    const shortDescription =
+      `ZAVERO POS — Kafe, restoran va savdo nuqtalari uchun professional kassa va avtomatlashtirish tizimi.`;
+
+    // Set Description (What can this bot do?)
+    try {
+      await botInstance.telegram.setMyDescription(description);
+      await botInstance.telegram.setMyDescription(description, 'uz');
+    } catch (e) {
+      console.warn('⚠️ setMyDescription error:', e.message);
+    }
+
+    // Set Short Description
+    try {
+      await botInstance.telegram.setMyShortDescription(shortDescription);
+      await botInstance.telegram.setMyShortDescription(shortDescription, 'uz');
+    } catch (e) {
+      console.warn('⚠️ setMyShortDescription error:', e.message);
+    }
+
+    // Set Commands Menu
+    try {
+      await botInstance.telegram.setMyCommands([
+        { command: 'start', description: '🚀 Botni ishga tushirish / Kirish' },
+        { command: 'sinov', description: '🎁 1 kunlik bepul sinov olish' },
+        { command: 'about', description: 'ℹ️ ZAVERO POS haqida ma’lumot' },
+        { command: 'admin', description: '👑 Administrator boshqaruv paneli' },
+      ]);
+    } catch (e) {
+      console.warn('⚠️ setMyCommands error:', e.message);
+    }
+
+    console.log('✅ [Telegram Bot] Bot tavsifi (About, Description) va menyu buyruqlari muvaffaqiyatli yangilandi.');
+  } catch (err) {
+    console.warn('⚠️ [Telegram Bot] setupBotProfilesAndCommands xatosi:', err.message);
+  }
+};
+
 // Initialize Bot logic
 const initTelegramBot = () => {
   const token = process.env.TELEGRAM_BOT_TOKEN || '8838017721:AAHMXwe9rX_6ERecTM9fHKX0ctsG6b-HOK0';
@@ -425,6 +565,56 @@ const initTelegramBot = () => {
     // Global error handler
     bot.catch((err, ctx) => {
       console.error(`⚠️ [Telegram Bot Error] Update ${ctx?.update?.update_id}:`, err.message);
+    });
+
+    // Auto-configure Bot Description & Commands
+    setupBotProfilesAndCommands(bot).catch(() => {});
+
+    // 🛡️ ANTI-SPAM, ANTI-REKLAMA & ANTI-FLOOD SECURITY MIDDLEWARE
+    bot.use(async (ctx, next) => {
+      try {
+        const from = ctx.from;
+        if (!from) return next();
+
+        const isAdmin = await isAdminUser(from);
+        if (isAdmin) return next(); // Admins are always exempt
+
+        // 1. Check Anti-Flood
+        if (checkAntiFlood(from.id)) {
+          try {
+            await ctx.deleteMessage().catch(() => {});
+          } catch (_) {}
+
+          const data = floodTracker.get(from.id);
+          if (data && data.count === 6) {
+            await ctx.replyWithHTML(
+              `⚠️ <b>XAVFSIZLIK OGOHLANTIRISHI!</b>\n` +
+              `Iltimos, shoshilmang! Botga qisqa vaqt ichida juda ko‘p xabar yuborish taqiqlangan (15 soniya kutib turing).`
+            ).catch(() => {});
+          }
+          return; // Terminate update
+        }
+
+        // 2. Check Anti-Spam / Anti-Advertising
+        if (ctx.message && isSpamOrAdMessage(ctx.message)) {
+          try {
+            await ctx.deleteMessage().catch(() => {});
+          } catch (_) {}
+
+          await ctx.replyWithHTML(
+            `🚫 <b>REKLAMA VA SPAM TAQIQLANGAN!</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `Hurmatli foydalanuvchi, ushbu bot faqat <b>ZAVERO POS</b> tizimi xizmatlari uchun mo‘ljallangan.\n\n` +
+            `Reklama, begona havolalar va spam xabarlar avtomatik tarzda o‘chirildi va qat’iyan taqiqlanadi!`
+          ).catch(() => {});
+
+          console.warn(`🛡️ [Anti-Spam] Foydalanuvchi ${from.id} dan reklama/spam to‘xtatildi va o‘chirildi.`);
+          return; // Terminate update (reklama blocked)
+        }
+      } catch (secErr) {
+        console.warn('⚠️ [Anti-Spam Middleware] Xatolik:', secErr.message);
+      }
+      return next();
     });
 
     // 1. /start command
@@ -1514,6 +1704,46 @@ const initTelegramBot = () => {
         return ctx.reply('Xatolik: ' + e.message);
       }
     });
+
+    // Command: /about, /info (Zavero POS haqida to'liq ma'lumot)
+    const sendAboutInfo = async (ctx) => {
+      const activeSub = await getUserSubscription(ctx.from.id);
+      const webAppUrl = getWebAppUrl();
+      const settings = await getBotSettings();
+      const adminContact = settings.admin_contact || '@mirzobekn';
+      const cleanAdmin = adminContact.replace('@', '');
+
+      const text =
+        `🚀 <b>ZAVERO POS — AVTOMATLASHTIRISH VA KASSA TIZIMI</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `<b>ZAVERO POS</b> — Kafe, restoran, fast-fud, oshxona va chakana savdo do‘konlari uchun yaratilgan zamonaviy bulutli (cloud) kassa va boshqaruv tizimi.\n\n` +
+        `✨ <b>ASOSIY IMKONIYATLAR:</b>\n` +
+        `• 📱 <b>QR Menyu va Buyurtmalar:</b> Mijozlar stoldagi QR kod orqali menyuni ko‘rib darhol buyurtma beradi\n` +
+        `• ⚡️ <b>Tezkor Kassa:</b> Bir necha soniyada chek chiqarish, naqd, karta va aralash to‘lovlar\n` +
+        `• 📊 <b>Moliya va Hisobot:</b> Kunlik, haftalik, oylik tushum, xarajatlar va sof foyda hisobi\n` +
+        `• 👥 <b>Xodimlar Nazorati:</b> Kassir, ofitsiant va oshpaz rollari, oyliklar hisob-kitobi\n` +
+        `• 📦 <b>Ombor va Mahsulotlar:</b> Qoldiqlar tahlili, kam qolgan tovarlar haqida bildirishnoma\n` +
+        `• 🎁 <b>1 Kunlik Bepul Sinov:</b> Yangi foydalanuvchilar tizimni 24 soat mutlaqo bepul sinab ko‘rishi mumkin!\n\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `📢 Rasmiy kanal: ${settings.required_channel_2 || '@zavero_uz'}\n` +
+        `💬 Aloqa & Qo‘llab-quvvatlash: ${adminContact}`;
+
+      const buttons = [];
+      if (activeSub) {
+        buttons.push([Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)]);
+      } else {
+        buttons.push([Markup.button.callback('🎁 1 kunlik bepul sinov olish', 'claim_1day_trial')]);
+      }
+      buttons.push([
+        Markup.button.url('📢 Rasmiy kanal', `https://t.me/${(settings.required_channel_2 || '@zavero_uz').replace('@', '')}`),
+        Markup.button.url('💬 Administrator', `https://t.me/${cleanAdmin}`),
+      ]);
+
+      return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+    };
+
+    bot.command('about', sendAboutInfo);
+    bot.command('info', sendAboutInfo);
 
     // 10. TEXT HANDLER (Handles admin entering password or user ID)
     bot.on('text', async (ctx) => {
