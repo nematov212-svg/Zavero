@@ -13,28 +13,42 @@ class StorageService {
   final ApiClient _api = ApiClient();
 
   /// Mahsulot / Taom rasmini backendga yuklash (multipart, POST /api/upload).
-  /// [ownerId] va [productId] eski Firebase yo'lida papka nomlash uchun
-  /// ishlatilgan edi — backend endi bitta umumiy `/uploads` papkasida
-  /// noyob fayl nomi bilan saqlaydi, shuning uchun bu yerda faqat log uchun
-  /// ishlatiladi (parametrlar signaturada saqlanadi, chunki main.dart shu
-  /// nomlarni chaqiradi).
+  /// Web (Uint8List baytlar) va Mobil/Desktop (File) platformalari uchun to'liq moslashtirilgan.
   /// Qaytaradi: Doimiy HTTPS backend havolasi (URL)
   Future<String?> uploadProductImage({
     required String ownerId,
     required int productId,
-    required File imageFile,
+    dynamic imageFile,
+    Uint8List? imageBytes,
+    String? filename,
   }) async {
     try {
-      if (!await imageFile.exists()) {
-        debugPrint('StorageService: Rasm fayli topilmadi: ${imageFile.path}');
+      if (kIsWeb) {
+        if (imageBytes != null) {
+          final url = await _api.uploadImage(imageBytes, filename: filename ?? 'product_$productId.jpg');
+          return url;
+        } else if (imageFile != null) {
+          final url = await _api.uploadImage(imageFile, filename: filename);
+          return url;
+        }
         return null;
       }
 
-      final url = await _api.uploadImage(imageFile);
-      if (url != null) {
-        debugPrint('StorageService: Rasm muvaffaqiyatli yuklandi -> $url');
+      if (imageFile is File) {
+        if (!await imageFile.exists()) {
+          debugPrint('StorageService: Rasm fayli topilmadi: ${imageFile.path}');
+          return null;
+        }
+        final url = await _api.uploadImage(imageFile);
+        return url;
+      } else if (imageBytes != null) {
+        final url = await _api.uploadImage(imageBytes, filename: filename ?? 'product_$productId.jpg');
+        return url;
+      } else if (imageFile != null) {
+        final url = await _api.uploadImage(imageFile, filename: filename);
+        return url;
       }
-      return url;
+      return null;
     } catch (e) {
       debugPrint('StorageService rasm yuklashda xatolik: $e');
       return null;

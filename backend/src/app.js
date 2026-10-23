@@ -52,8 +52,14 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 // Apply General Rate Limiter to all /api endpoints
 app.use('/api', generalApiLimiter);
 
-// Serve uploaded product images
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// Serve uploaded product images (cached for 30 days so browser keeps them offline)
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, '..', 'uploads'), {
+    maxAge: '30d',
+    immutable: true,
+  })
+);
 
 // Serve static Flutter POS Web Application (Telegram Mini App, Web, Desktop)
 app.use(

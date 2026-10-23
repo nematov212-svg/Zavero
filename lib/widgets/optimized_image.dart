@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import '../services/image_cache_service.dart';
 
 /// Har safar HTTP so'rov bajarmasdan, disk/memory keshidan rasm ko'rsatuvchi
@@ -13,6 +13,7 @@ class OptimizedImage extends StatefulWidget {
   final double iconSize;
   final Color? iconColor;
   final BorderRadius? borderRadius;
+  final Widget Function()? fallbackBuilder;
 
   const OptimizedImage({
     super.key,
@@ -24,6 +25,7 @@ class OptimizedImage extends StatefulWidget {
     this.iconSize = 28,
     this.iconColor,
     this.borderRadius,
+    this.fallbackBuilder,
   });
 
   @override
@@ -71,6 +73,10 @@ class _OptimizedImageState extends State<OptimizedImage> {
   }
 
   Widget _buildFallback() {
+    if (widget.fallbackBuilder != null) {
+      return widget.fallbackBuilder!();
+    }
+
     return Container(
       width: widget.width,
       height: widget.height,
@@ -98,9 +104,7 @@ class _OptimizedImageState extends State<OptimizedImage> {
         alignment: Alignment.center,
         child: _buildFallback(),
       );
-    } else if (_hasError || _bytes == null) {
-      content = _buildFallback();
-    } else {
+    } else if (_bytes != null && _bytes!.isNotEmpty) {
       content = Image.memory(
         _bytes!,
         width: widget.width,
@@ -108,6 +112,16 @@ class _OptimizedImageState extends State<OptimizedImage> {
         fit: widget.fit,
         errorBuilder: (ctx, err, stack) => _buildFallback(),
       );
+    } else if (kIsWeb && widget.imageUrl.isNotEmpty && !_hasError) {
+      content = Image.network(
+        widget.imageUrl,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        errorBuilder: (ctx, err, stack) => _buildFallback(),
+      );
+    } else {
+      content = _buildFallback();
     }
 
     if (widget.borderRadius != null) {

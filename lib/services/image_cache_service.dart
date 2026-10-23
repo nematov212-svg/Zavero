@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'api_client.dart';
 
 /// Rasmlarni mahalliy diskka hamda operativ xotiraga (RAM) keshlab beruvchi
 /// yuqori unumdorli servis.
@@ -44,26 +48,33 @@ class ImageCacheService {
 
   /// Berilgan URL bo'yicha rasm byte-larini qaytaradi:
   /// 1. RAM Memory cache (0-ms)
-  /// 2. Disk cache (0-5ms)
+  /// 2. Web SharedPreferences / Disk cache (0-5ms)
   /// 3. Network fetch (background, timeouts bilan)
-  Future<Uint8List?> getImageBytes(String url) async {
-    if (url.isEmpty) return null;
+  Future<Uint8List?> getImageBytes(String rawUrl) async {
+    if (rawUrl.trim().isEmpty) return null;
 
-    // 1. Data URL bo'lsa
-    if (url.startsWith('data:image/')) {
+    // 1. Data URL bo'lsa darhol baytlarini qaytaramiz
+    if (rawUrl.startsWith('data:image/')) {
       try {
-        return Uri.parse(url).data?.contentAsBytes();
+        final commaIdx = rawUrl.indexOf(',');
+        if (commaIdx >= 0) {
+          final b64 = rawUrl.substring(commaIdx + 1);
+          return base64Decode(b64);
+        }
+        return Uri.parse(rawUrl).data?.contentAsBytes();
       } catch (e) {
         return null;
       }
     }
 
-    // 2. RAM Memory Cache
+    final url = ApiClient().resolveImageUrl(rawUrl);
+
+    // 2. RAM Memory Cache (0 ms)
     if (_memoryCache.containsKey(url)) {
       return _memoryCache[url];
     }
 
-    // 3. Pending download bo'lsa (bir vaqtda 10 ta vidjet bir xil rasmni so'rasa, 1 marta yuklanadi)
+    // 3. Pending download bo'lsa
     if (_pendingDownloads.containsKey(url)) {
       return await _pendingDownloads[url];
     }
@@ -74,8 +85,7 @@ class ImageCacheService {
     try {
       final bytes = await _loadFromDiskOrNetwork(url);
       if (bytes != null && bytes.isNotEmpty) {
-        // Limited memory cache (max 100 ta rasm RAM'da saqlanadi, RAM to'lmasligi uchun)
-        if (_memoryCache.length > 100) {
+        if (_memoryCache.length > 120) {
           _memoryCache.remove(_memoryCache.keys.first);
         }
         _memoryCache[url] = bytes;
@@ -91,17 +101,42 @@ class ImageCacheService {
   }
 
   Future<Uint8List?> _loadFromDiskOrNetwork(String url) async {
+    // A. Web platformasi uchun kesh va yuklash
     if (kIsWeb) {
+      final cacheKey = 'img_cache_${_keyToFileName(url)}';
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final cachedB64 = prefs.getString(cacheKey);
+        if (cachedB64 != null && cachedB64.isNotEmpty) {
+          try {
+            return base64Decode(cachedB64);
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // Tarmoq orqali yuklash
       try {
         final res = await _dio.get<List<int>>(
           url,
           options: Options(responseType: ResponseType.bytes),
         );
-        if (res.data != null) return Uint8List.fromList(res.data!);
-      } catch (_) {}
+        if (res.data != null && res.data!.isNotEmpty) {
+          final bytes = Uint8List.fromList(res.data!);
+          // Web xotiraga (SharedPreferences) 150KB gacha bo'lgan rasmlarni oflayn uchun keshlaymiz
+          if (bytes.length < 150 * 1024) {
+            SharedPreferences.getInstance().then((prefs) {
+              prefs.setString(cacheKey, base64Encode(bytes)).catchError((_) => false);
+            }).catchError((_) {});
+          }
+          return bytes;
+        }
+      } catch (e) {
+        // Internet yo'q yoki yuklab bo'lmadi
+      }
       return null;
     }
 
+    // B. Mobil va Desktop uchun faylli disk kesh
     final dir = await _asyncCacheDir;
     if (dir != null) {
       final fileName = _keyToFileName(url);

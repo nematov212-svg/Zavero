@@ -5212,6 +5212,7 @@ Widget buildUniversalProductImage({
         fit: fit,
         width: double.infinity,
         height: double.infinity,
+        fallbackBuilder: fallbackBuilder,
       );
     }
 
@@ -5233,6 +5234,7 @@ Widget buildUniversalProductImage({
         fit: fit,
         width: double.infinity,
         height: double.infinity,
+        fallbackBuilder: fallbackBuilder,
       );
     }
 
@@ -11644,13 +11646,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   Future<void> _confirmPaid() async {
     if (appState.cart.isEmpty) return;
+    // Agar to'lov turi belgilanmagan bo'lsa, standart Naqd pul sifatida qabul qilamiz
     if (!payByCash && !payByCard) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('To\'lov turini tanlang: Naqd yoki Karta'),
-        ),
-      );
-      return;
+      payByCash = true;
     }
     setState(() => confirming = true);
     final method = payByCash && payByCard
@@ -11683,12 +11681,22 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
     }
 
-    appState.checkout(method: method, cashPaid: cash, cardPaid: card);
+    // 1. To'lovni qayd qilish va chek obyektini olish
+    final receipt = appState.checkout(method: method, cashPaid: cash, cardPaid: card);
+
+    // 2. AVTOMATIK CHEK CHIQARISH: "Xarid cheki" alohida bosilmagan bo'lsa ham, "To'landi" bosilganda chek avtomatik chiqadi!
+    try {
+      printReceipt(receipt).catchError((e) {
+        debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+      });
+    } catch (e) {
+      debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('To\'lov qabul qilindi')));
+    ).showSnackBar(const SnackBar(content: Text('To\'lov qabul qilindi va chek chiqarildi')));
 
     if (hallBeforeCheckout != null) {
       appState.selectedHall = hallBeforeCheckout;
