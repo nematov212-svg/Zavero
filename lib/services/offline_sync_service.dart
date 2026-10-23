@@ -235,7 +235,10 @@ class OfflineSyncService {
         bool success = false;
         try {
           if (action.type == 'checkout') {
-            final res = await ApiClient().post('/receipts/checkout', body: action.data);
+            final res = await ApiClient().post('/receipts/checkout', body: {
+              ...action.data,
+              'idempotencyKey': action.id,
+            });
             if (res['success'] == true || res['receipt'] != null) {
               success = true;
             }

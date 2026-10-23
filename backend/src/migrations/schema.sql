@@ -165,7 +165,9 @@ CREATE TABLE IF NOT EXISTS receipts (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS cafe_id VARCHAR(64);
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120);
 CREATE INDEX IF NOT EXISTS idx_receipts_cafe_date ON receipts(cafe_id, date DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_idempotency ON receipts(cafe_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 -- 10. CUSTOMER ORDERS
 CREATE TABLE IF NOT EXISTS customer_orders (

@@ -330,4 +330,19 @@ class ApiClient {
       return null;
     }
   }
+
+  /// GET /api/sync/bootstrap — Oflayn rejim uchun to'liq boshlang'ich ma'lumotlar
+  Future<Map<String, dynamic>> syncBootstrap() async {
+    return await get('/sync/bootstrap');
+  }
+
+  /// GET /api/sync/changes?since=<ISO_DATE> — Delta o'zgarishlar
+  Future<Map<String, dynamic>> syncChanges(DateTime since) async {
+    return await get('/sync/changes', query: {'since': since.toIso8601String()});
+  }
+
+  /// POST /api/sync/push — Batch amallarni yuborish
+  Future<Map<String, dynamic>> syncPush(List<Map<String, dynamic>> operations) async {
+    return await post('/sync/push', body: {'operations': operations});
+  }
 }

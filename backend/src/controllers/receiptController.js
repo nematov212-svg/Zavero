@@ -16,10 +16,28 @@ const list = async (req, res) => {
 // update the day's report, free the table. Mirrors CloudService.completeCheckout.
 const checkout = async (req, res) => {
   const cafeId = req.user.cafeId;
-  const { receipt, tableId, items } = req.body;
+  const { receipt, tableId, items, idempotencyKey } = req.body;
 
   if (!receipt || !items) {
     return res.status(400).json({ success: false, message: 'receipt va items kiritilishi shart.' });
+  }
+
+  // IDEMPOTENCY: Takroriy so'rov bo'lsa darhol mavjud chekni qaytaramiz (dublikat to'lovning oldi olinadi)
+  if (idempotencyKey) {
+    try {
+      const existing = await db.query(
+        'SELECT * FROM receipts WHERE cafe_id = $1 AND idempotency_key = $2 LIMIT 1',
+        [cafeId, idempotencyKey]
+      );
+      if (existing.rows.length > 0) {
+        return res.json({
+          success: true,
+          message: 'To‘lov allaqachon qayd etilgan (idempotent)',
+          receipt: mapReceipt(existing.rows[0]),
+          isDuplicate: true,
+        });
+      }
+    } catch (_) {}
   }
 
   try {
@@ -28,12 +46,12 @@ const checkout = async (req, res) => {
       const dateId = dateIdFrom(date);
 
       const receiptResult = await client.query(
-        `INSERT INTO receipts (cafe_id, date, items, total, method, cashier_name, table_number, hall_name, cash_paid, card_paid)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        `INSERT INTO receipts (cafe_id, date, items, total, method, cashier_name, table_number, hall_name, cash_paid, card_paid, idempotency_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
         [
           cafeId, date, JSON.stringify(items), receipt.total || 0, receipt.method || 'cash',
           receipt.cashierName || '', receipt.tableNumber ?? null, receipt.hallName ?? null,
-          receipt.cashPaid || 0, receipt.cardPaid || 0,
+          receipt.cashPaid || 0, receipt.cardPaid || 0, idempotencyKey || null,
         ]
       );
       const receiptRow = receiptResult.rows[0];

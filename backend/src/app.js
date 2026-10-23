@@ -22,6 +22,7 @@ const deviceRoutes = require('./routes/deviceRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const appRoutes = require('./routes/appRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const syncRoutes = require('./routes/syncRoutes');
 const { getBotInstance } = require('./bot/telegramBot');
 const { generalApiLimiter } = require('./middleware/rateLimitMiddleware');
 
@@ -141,6 +142,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/sync', syncRoutes);
 
 // Telegram Bot Webhook endpoint (if using webhooks)
 app.post('/api/bot/webhook', (req, res) => {
