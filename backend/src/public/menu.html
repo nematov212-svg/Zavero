@@ -3,7 +3,8 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Zavero - QR Menyu</title>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
@@ -808,7 +809,8 @@
       </div>
 
       <!-- STOL BADGE (TOP RIGHT) -->
-      <div class="stol-badge-card" onclick="promptChangeTable()" style="cursor: pointer;" title="Stol raqamini o'zgartirish">
+      <div class="stol-badge-card" onclick="promptChangeTable()" style="cursor: pointer;"
+        title="Stol raqamini o'zgartirish">
         <i class="fa-solid fa-chair"></i>
         <span id="tableNumberLabel">1-stol</span>
         <i class="fa-solid fa-pen-to-square" style="font-size: 11px; opacity: 0.6; margin-left: 2px;"></i>
@@ -957,7 +959,7 @@
             window.Telegram.WebApp.HapticFeedback.notificationOccurred(type);
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     function showNotify(msg) {
@@ -1554,15 +1556,16 @@
       if (e.target.id === 'checkoutModal') closeCheckoutModal();
     }
 
-    async function submitOrder() {
-      const submitBtn = document.getElementById('submitOrderBtn');
-      submitBtn.disabled = true;
-      submitBtn.innerText = 'Yuborilmoqda...';
+    let isOrderSubmitting = false;
 
+    async function submitOrder() {
+      if (isOrderSubmitting) return;
+
+      const submitBtn = document.getElementById('submitOrderBtn');
       const items = [];
       for (const [prodId, qty] of Object.entries(cart)) {
         const prod = products.find(p => p.id === parseInt(prodId));
-        if (prod) {
+        if (prod && qty > 0) {
           items.push({
             productId: prod.id,
             name: prod.name,
@@ -1572,8 +1575,22 @@
         }
       }
 
+      if (items.length === 0) {
+        haptic('error');
+        showNotify('Savatingiz bo‘sh! Iltimos, taom tanlang.');
+        return;
+      }
+
+      isOrderSubmitting = true;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = '⏳ Yuborilmoqda...';
+      }
+
+      const clientRequestId = 'qr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
       const body = {
         cafeId: cafeId,
+        clientRequestId: clientRequestId,
         tableNumber: parseInt(tableNumber) || null,
         tableName: tableName,
         hallId: hallId ? parseInt(hallId) : null,
@@ -1597,7 +1614,7 @@
           updateCartBar();
           renderFoodSections();
           closeCheckoutModal();
-          showNotify('🎉 Buyurtmangiz muvaffaqiyatli qabul qilindi va oshpazga yuborildi!');
+          showNotify('🎉 Buyurtmangiz muvaffaqiyatli qabul qilindi va oshxonaga yuborildi!');
         } else {
           haptic('error');
           showNotify(data.message || 'Xatolik yuz berdi.');
@@ -1606,8 +1623,11 @@
         haptic('error');
         showNotify("Server bilan ulanishda xatolik: " + err.message);
       } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerText = 'Zakas berish';
+        isOrderSubmitting = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerText = 'Zakas berish';
+        }
       }
     }
 

@@ -3,6 +3,7 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/cloud_service.dart';
+import '../widgets/connectivity_badge.dart';
 import '../widgets/optimized_image.dart';
 
 class CashierDashboard extends StatefulWidget {
@@ -109,6 +110,12 @@ class _CashierDashboardState extends State<CashierDashboard> {
         backgroundColor: Colors.orange.shade800,
         foregroundColor: Colors.white,
         actions: [
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8.0),
+              child: ConnectivityBadge(),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => _authService.logout(),

@@ -247,6 +247,35 @@ const createPublicOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: "Buyurtmada haqiqiy taomlar topilmadi." });
     }
 
+    // IDEMPOTENCY / DEDUPLICATION: Prevent double submission from rapid taps or network retry
+    const existingRecent = await db.query(
+      `SELECT * FROM customer_orders
+       WHERE cafe_id = $1 
+         AND (table_number = $2 OR delivery_address = $3)
+         AND date > NOW() - INTERVAL '45 seconds'
+         AND status = 'pending'
+       ORDER BY date DESC LIMIT 1`,
+      [
+        realCafeId,
+        tableNumber ? parseInt(tableNumber, 10) : null,
+        tableName || (tableNumber ? `${tableNumber}-stol` : ''),
+      ]
+    );
+
+    if (existingRecent.rows.length > 0) {
+      const recentOrder = existingRecent.rows[0];
+      const recentItems = typeof recentOrder.items === 'string' ? recentOrder.items : JSON.stringify(recentOrder.items);
+      const newItemsStr = JSON.stringify(normalizedItems);
+      if (recentItems === newItemsStr) {
+        return res.status(200).json({
+          success: true,
+          message: 'Buyurtmangiz allaqachon qabul qilingan!',
+          order: mapCustomerOrder(recentOrder),
+          isDuplicate: true,
+        });
+      }
+    }
+
     const result = await db.query(
       `INSERT INTO customer_orders (cafe_id, date, items, customer_name, phone, type, table_number, hall_id, delivery_address, status)
        VALUES ($1, $2, $3, $4, $5, 'dineIn', $6, $7, $8, 'pending') RETURNING *`,

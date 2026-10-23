@@ -24,8 +24,10 @@ Zavero ekotizimi 3 ta asosiy bo‘g‘indan iborat:
 ```
 
 1. **Saytdan Web Ilovaga O'tish**:
+
    - `zavero.uz` bosh sahifasida (Navbar, Hero va Footer) maxsus **"Zavero POS Web"** tugmalari o'rnatilgan.
    - Foydalanuvchi bitta bosish orqali to'g'ridan-to'g'ri `https://app.zavero.uz` manzilidagi to'liq huquqli Restaurant OS ilovasiga kiradi.
+   
 2. **Yagona Backend va Baza**:
    - Flutter ilova ham, Web versiya ham bir xil PostgreSQL bazasi va REST API bilan ishlaydi.
    - Ofitsiant mobil ilovada stolga buyurtma olsa, bu buyurtma darhol veb-brauzerdagi Kassa (POS) va Oshxona (KDS) ekranlarida real vaqtda paydo bo'ladi.

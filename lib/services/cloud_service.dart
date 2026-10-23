@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import 'api_client.dart';
 import 'local_cache_service.dart';
+import 'offline_sync_service.dart';
 import 'socket_service.dart';
 import 'supabase_realtime_service.dart';
 
@@ -418,6 +419,16 @@ class CloudService {
         throw TableBusyException(e.message);
       }
       rethrow;
+    } catch (e) {
+      debugPrint('saveTableOrder tarmoq xatosi, oflayn navbatga olinmoqda: $e');
+      try {
+        await OfflineSyncService().queueTableOrder(
+          cafeId: cafeId,
+          tableId: tableId,
+          items: items,
+          note: note,
+        );
+      } catch (_) {}
     }
   }
 
@@ -562,8 +573,19 @@ class CloudService {
       });
       return true;
     } catch (e) {
-      debugPrint('completeCheckout xatoligi: $e');
-      return false;
+      debugPrint('completeCheckout tarmoq xatoligi, oflayn navbatga saqlanmoqda: $e');
+      try {
+        await OfflineSyncService().queueCheckout(
+          cafeId: cafeId,
+          receipt: receipt,
+          tableId: tableId,
+          items: items,
+        );
+        return true;
+      } catch (offlineErr) {
+        debugPrint('Offline checkout queue error: $offlineErr');
+        return false;
+      }
     }
   }
 

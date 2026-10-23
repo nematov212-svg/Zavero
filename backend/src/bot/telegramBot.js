@@ -412,6 +412,9 @@ const sendAdminDashboard = async (ctx) => {
 
 // Helper: Anti-Spam, Anti-Reklama and Anti-Flood detector
 const floodTracker = new Map();
+const blockedUsers = new Set();
+const userSpamViolations = new Map();
+const sentOrderNotificationCache = new Set();
 
 const isSpamOrAdMessage = (message) => {
   if (!message) return false;
@@ -539,6 +542,8 @@ const setupBotProfilesAndCommands = async (botInstance) => {
         { command: 'sinov', description: '🎁 1 kunlik bepul sinov olish' },
         { command: 'about', description: 'ℹ️ ZAVERO POS haqida ma’lumot' },
         { command: 'admin', description: '👑 Administrator boshqaruv paneli' },
+        { command: 'users', description: '👥 Foydalanuvchilar (Admin)' },
+        { command: 'blocked', description: '🚫 Bloklangan spammerlar (Admin)' },
       ]);
     } catch (e) {
       console.warn('⚠️ setMyCommands error:', e.message);
@@ -579,37 +584,86 @@ const initTelegramBot = () => {
         const isAdmin = await isAdminUser(from);
         if (isAdmin) return next(); // Admins are always exempt
 
-        // 1. Check Anti-Flood
+        const chatType = ctx.chat?.type;
+        const isGroup = chatType === 'group' || chatType === 'supergroup';
+        const strId = String(from.id);
+
+        // 1. Check if user is permanently blocked
+        if (blockedUsers.has(strId)) {
+          try {
+            await ctx.deleteMessage().catch(() => {});
+          } catch (_) {}
+          if (!isGroup) {
+            await ctx.replyWithHTML(
+              `🚫 <b>SIZ BLOKLANGANSIZ!</b>\n` +
+              `Spam yoki qoidabuzarlik tufayli sizning xabarlaringiz qabul qilinmaydi.`
+            ).catch(() => {});
+          }
+          return; // Terminate update
+        }
+
+        // 2. Check Anti-Flood
         if (checkAntiFlood(from.id)) {
           try {
             await ctx.deleteMessage().catch(() => {});
           } catch (_) {}
 
           const data = floodTracker.get(from.id);
-          if (data && data.count === 6) {
+          if (data && data.count === 6 && !isGroup) {
             await ctx.replyWithHTML(
               `⚠️ <b>XAVFSIZLIK OGOHLANTIRISHI!</b>\n` +
-              `Iltimos, shoshilmang! Botga qisqa vaqt ichida juda ko‘p xabar yuborish taqiqlangan (15 soniya kutib turing).`
+              `Iltimos, shoshilmang! Xabarlar oqimi juda tez bo‘lgani sababli 15 soniya cheklandingiz.`
             ).catch(() => {});
           }
           return; // Terminate update
         }
 
-        // 2. Check Anti-Spam / Anti-Advertising
+        // 3. Check Anti-Spam / Anti-Advertising
         if (ctx.message && isSpamOrAdMessage(ctx.message)) {
           try {
             await ctx.deleteMessage().catch(() => {});
           } catch (_) {}
 
-          await ctx.replyWithHTML(
-            `🚫 <b>REKLAMA VA SPAM TAQIQLANGAN!</b>\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `Hurmatli foydalanuvchi, ushbu bot faqat <b>ZAVERO POS</b> tizimi xizmatlari uchun mo‘ljallangan.\n\n` +
-            `Reklama, begona havolalar va spam xabarlar avtomatik tarzda o‘chirildi va qat’iyan taqiqlanadi!`
-          ).catch(() => {});
+          if (isGroup) {
+            // Guruhdagi spammerni cheklash va xabarini o'chirish
+            try {
+              await ctx.telegram.restrictChatMember(ctx.chat.id, from.id, {
+                until_date: Math.floor(Date.now() / 1000) + 7200, // 2 soat
+                permissions: {
+                  can_send_messages: false,
+                  can_send_other_messages: false,
+                  can_add_web_page_previews: false,
+                },
+              }).catch(() => {});
+            } catch (_) {}
 
-          console.warn(`🛡️ [Anti-Spam] Foydalanuvchi ${from.id} dan reklama/spam to‘xtatildi va o‘chirildi.`);
-          return; // Terminate update (reklama blocked)
+            await ctx.replyWithHTML(
+              `🚫 <b>GURUHDA REKLAMA VA SPAM TAQIQLANGAN!</b>\n` +
+              `Foydalanuvchi <b>${from.first_name || from.id}</b> ning reklama xabari o‘chirildi va yozish cheklandi.`
+            ).catch(() => {});
+          } else {
+            // Shaxsiy chatda ogohlantirish va qoidabuzarliklar sonini oshirish
+            const currentViolations = (userSpamViolations.get(from.id) || 0) + 1;
+            userSpamViolations.set(from.id, currentViolations);
+
+            if (currentViolations >= 3) {
+              blockedUsers.add(strId);
+              await ctx.replyWithHTML(
+                `🚫 <b>SIZ BLOKLANDINGIZ!</b>\n` +
+                `Takroriy reklama va spam tufayli sizning ID raqamingiz botda bloklandi.`
+              ).catch(() => {});
+            } else {
+              await ctx.replyWithHTML(
+                `🚫 <b>REKLAMA VA SPAM TAQIQLANGAN!</b>\n` +
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `Hurmatli foydalanuvchi, ushbu bot faqat <b>ZAVERO POS</b> tizimi uchun mo‘ljallangan.\n` +
+                `Qoidabuzarlik holati: <b>${currentViolations}/3</b> (3 tadan so‘ng avtomatik bloklanasiz).`
+              ).catch(() => {});
+            }
+          }
+
+          console.warn(`🛡️ [Anti-Spam] Foydalanuvchi ${from.id} dan reklama/spam to‘xtatildi (${isGroup ? 'Guruh' : 'Shaxsiy'}).`);
+          return; // Terminate update
         }
       } catch (secErr) {
         console.warn('⚠️ [Anti-Spam Middleware] Xatolik:', secErr.message);
@@ -1139,7 +1193,10 @@ const initTelegramBot = () => {
         await ctx.editMessageText(updatedText, {
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback('✓ Tayyor deb belgilash', `ready_order_${orderId}_${cafeId}`)],
+            [
+              Markup.button.callback('✓ Tayyor deb belgilash', `ready_order_${orderId}_${cafeId}`),
+              Markup.button.callback('❌ Bekor qilish', `cancel_order_${orderId}_${cafeId}`),
+            ],
             [Markup.button.webApp('📱 Ilovada ochish', webAppUrl)],
           ]),
         });
@@ -1180,12 +1237,83 @@ const initTelegramBot = () => {
           {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
+              [Markup.button.callback('🏁 Yakunlash (Topshirildi)', `complete_order_${orderId}_${cafeId}`)],
               [Markup.button.webApp('📱 Ilovada ochish', webAppUrl)],
             ]),
           }
         );
       } catch (err) {
         console.error('ready_order error:', err);
+        ctx.answerCbQuery('Xatolik: ' + err.message, { show_alert: true });
+      }
+    });
+
+    bot.action(/^complete_order_(\d+)_(.+)$/, async (ctx) => {
+      try {
+        const orderId = parseInt(ctx.match[1], 10);
+        const cafeId = ctx.match[2];
+
+        const result = await db.query(
+          `UPDATE customer_orders SET status='completed', updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING *`,
+          [orderId, cafeId]
+        );
+
+        if (result.rows.length === 0) {
+          return ctx.answerCbQuery('⚠️ Buyurtma topilmadi.', { show_alert: true });
+        }
+
+        const { mapCustomerOrder } = require('../utils/mappers');
+        const { notifyCafe } = require('../socket/socketHandler');
+        const updatedOrder = mapCustomerOrder(result.rows[0]);
+        notifyCafe(cafeId, 'CUSTOMER_ORDER_UPDATED', { order: updatedOrder });
+
+        await ctx.answerCbQuery('🏁 Buyurtma yakunlandi!', { show_alert: true });
+
+        const staffName = ctx.from.first_name || 'Xodim';
+        await ctx.editMessageText(
+          `🏁 <b>BUYURTMA YAKUNLANDI!</b> (№ ${orderId})\n` +
+          `Topshirdi: <b>${staffName}</b>\n` +
+          `Holati: 🟢 <b>Mijozga yetkazilgan (Yakunlangan)</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━`,
+          { parse_mode: 'HTML' }
+        );
+      } catch (err) {
+        console.error('complete_order error:', err);
+        ctx.answerCbQuery('Xatolik: ' + err.message, { show_alert: true });
+      }
+    });
+
+    bot.action(/^cancel_order_(\d+)_(.+)$/, async (ctx) => {
+      try {
+        const orderId = parseInt(ctx.match[1], 10);
+        const cafeId = ctx.match[2];
+
+        const result = await db.query(
+          `UPDATE customer_orders SET status='cancelled', updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING *`,
+          [orderId, cafeId]
+        );
+
+        if (result.rows.length === 0) {
+          return ctx.answerCbQuery('⚠️ Buyurtma topilmadi.', { show_alert: true });
+        }
+
+        const { mapCustomerOrder } = require('../utils/mappers');
+        const { notifyCafe } = require('../socket/socketHandler');
+        const updatedOrder = mapCustomerOrder(result.rows[0]);
+        notifyCafe(cafeId, 'CUSTOMER_ORDER_UPDATED', { order: updatedOrder });
+
+        await ctx.answerCbQuery('❌ Buyurtma bekor qilindi!', { show_alert: true });
+
+        const staffName = ctx.from.first_name || 'Xodim';
+        await ctx.editMessageText(
+          `❌ <b>BUYURTMA BEKOR QILINDI!</b> (№ ${orderId})\n` +
+          `Bekor qildi: <b>${staffName}</b>\n` +
+          `Holati: 🔴 <b>Bekor qilingan</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━`,
+          { parse_mode: 'HTML' }
+        );
+      } catch (err) {
+        console.error('cancel_order error:', err);
         ctx.answerCbQuery('Xatolik: ' + err.message, { show_alert: true });
       }
     });
@@ -1745,6 +1873,94 @@ const initTelegramBot = () => {
     bot.command('about', sendAboutInfo);
     bot.command('info', sendAboutInfo);
 
+    // Safe unauthorized response (does not leak any data)
+    const replyUnauthorized = async (ctx) => {
+      return ctx.replyWithHTML(
+        `🔒 <b>Ruxsat berilmadi!</b>\n` +
+        `Kechirasiz, ushbu buyruq faqat tasdiqlangan administratorlar uchun mo‘ljallangan.`
+      );
+    };
+
+    // Command: /admin
+    bot.command('admin', async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) {
+          return replyUnauthorized(ctx);
+        }
+        return await sendAdminDashboard(ctx);
+      } catch (e) {
+        console.error('admin command error:', e.message);
+      }
+    });
+
+    // Command: /users
+    bot.command('users', async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) {
+          return replyUnauthorized(ctx);
+        }
+        const countRes = await db.query('SELECT COUNT(*) FROM telegram_users');
+        const recentRes = await db.query(
+          'SELECT telegram_id, username, first_name, created_at FROM telegram_users ORDER BY created_at DESC LIMIT 10'
+        );
+        const total = countRes.rows[0]?.count || 0;
+        const listStr = recentRes.rows
+          .map((u, i) => `${i + 1}. <b>${u.first_name || 'Noma‘lum'}</b> (@${u.username || 'yo‘q'}) — ID: <code>${u.telegram_id}</code>`)
+          .join('\n');
+
+        return await ctx.replyWithHTML(
+          `👥 <b>ZAVERO BOT FOYDALANUVCHILARI</b> (Jami: ${total} ta)\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `<b>Oxirgi 10 ta mijoz:</b>\n` +
+          (listStr || 'Foydalanuvchilar mavjud emas') +
+          `\n━━━━━━━━━━━━━━━━━━━`
+        );
+      } catch (e) {
+        console.error('users command error:', e.message);
+      }
+    });
+
+    // Command: /blocked
+    bot.command('blocked', async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) {
+          return replyUnauthorized(ctx);
+        }
+        if (blockedUsers.size === 0) {
+          return await ctx.replyWithHTML('✅ <b>Hozirda bloklangan spammerlar yo‘q.</b>');
+        }
+        const listStr = Array.from(blockedUsers).map((id, i) => `${i + 1}. ID: <code>${id}</code>`).join('\n');
+        return await ctx.replyWithHTML(
+          `🚫 <b>BLOKLANGAN SPAMMERLAR RO‘YXATI</b> (${blockedUsers.size} ta)\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          listStr +
+          `\n\n<i>Blokdan chiqarish uchun:</i> <code>/unblock ID</code>`
+        );
+      } catch (e) {
+        console.error('blocked command error:', e.message);
+      }
+    });
+
+    // Command: /unblock <id>
+    bot.command('unblock', async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) {
+          return replyUnauthorized(ctx);
+        }
+        const text = ctx.message.text.trim();
+        const parts = text.split(/\s+/);
+        if (parts.length < 2) {
+          return ctx.replyWithHTML('Iltimos, ID raqamini ko‘rsating:\nMasalan: <code>/unblock 123456789</code>');
+        }
+        const targetId = parts[1].trim();
+        blockedUsers.delete(targetId);
+        userSpamViolations.delete(Number(targetId));
+        return ctx.replyWithHTML(`✅ Foydalanuvchi <code>${targetId}</code> blokdan chiqarildi.`);
+      } catch (e) {
+        console.error('unblock command error:', e.message);
+      }
+    });
+
     // 10. TEXT HANDLER (Handles admin entering password or user ID)
     bot.on('text', async (ctx) => {
       try {
@@ -1759,6 +1975,14 @@ const initTelegramBot = () => {
         if (userState && userState.waitingFor === 'admin_password') {
           adminState.delete(telegramId);
 
+          // STRICT CHECK: Only pre-authorized telegram IDs can enter password
+          const allAdminIds = await getAllAdminIds();
+          const isAllowedId = allAdminIds.includes(String(telegramId));
+          if (!isAllowedId) {
+            console.warn(`🛡️ [Security] Unauthorized stranger ${telegramId} attempted admin login.`);
+            return ctx.replyWithHTML('🔒 <b>Ruxsat berilmadi!</b> Sizning Telegram ID raqamingiz adminlar ro‘yxatida mavjud emas.');
+          }
+
           let currentPass = process.env.ADMIN_PASSWORD || 'zavero2026';
           try {
             const passRes = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_password'");
@@ -1767,9 +1991,7 @@ const initTelegramBot = () => {
             }
           } catch (e) { }
 
-          const validPasswords = [currentPass, 'zavero2026', 'zavero', 'admin'];
-
-          if (validPasswords.includes(text)) {
+          if (text === currentPass) {
             adminAuthenticatedSessions.add(String(telegramId));
             await addAdminId(telegramId);
             await ctx.replyWithHTML('✅ <b>Parol to‘g‘ri! Xush kelibsiz, Administrator.</b>');
@@ -1907,7 +2129,16 @@ const getBotInstance = () => bot;
 // ============================================================
 const sendCustomerOrderNotification = async (cafeId, order) => {
   try {
-    if (!bot || !cafeId) return;
+    if (!bot || !cafeId || !order) return;
+
+    // 1. Idempotency / Deduplication: prevent spamming duplicate messages for same order within 60s
+    const dedupKey = `${cafeId}_${order.id}`;
+    if (sentOrderNotificationCache.has(dedupKey)) {
+      return;
+    }
+    sentOrderNotificationCache.add(dedupKey);
+    setTimeout(() => sentOrderNotificationCache.delete(dedupKey), 60000);
+
     const recipientIds = new Set();
 
     // Faqat o'sha QR menyusi skaner qilingan kafe (cafeId) uchun sozlangan Telegram oluvchilarni topish:
@@ -1952,6 +2183,15 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
       return;
     }
 
+    // Kafe nomini olish
+    let cafeName = 'ZAVERO';
+    try {
+      const cRes = await db.query('SELECT cafe_name FROM cafes WHERE cafe_id = $1', [cafeId]);
+      if (cRes.rows.length > 0 && cRes.rows[0].cafe_name) {
+        cafeName = cRes.rows[0].cafe_name;
+      }
+    } catch (_) {}
+
     const tableLabel = order.type === 'delivery'
       ? `Dastavka (${order.deliveryAddress || "Manzil yo'q"})`
       : (order.tableNumber ? `${order.tableNumber}-stol` : (order.deliveryAddress || 'Stol'));
@@ -1971,19 +2211,24 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
     const messageText =
       `🔔 <b>YANGI QR BUYURTMA!</b> (№ ${order.id})\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
+      `🏢 <b>Filial:</b> <b>${cafeName}</b>\n` +
       `🪑 <b>Joy:</b> <b>${tableLabel}</b>\n` +
       `👤 <b>Mijoz:</b> <b>${customerName}</b>\n` +
       `💰 <b>Jami summa:</b> <b>${formatSum(order.total || 0)} so‘m</b>\n` +
-      `📅 <b>Vaqt:</b> ${formatDate(order.date || new Date())}\n\n` +
+      `📅 <b>Vaqt:</b> ${formatDate(order.date || new Date())}\n` +
+      `⏳ <b>Holat:</b> 🟡 <b>Kutilmoqda (Yangi)</b>\n\n` +
       `📋 <b>Taomlar:</b>\n` +
       (itemsText || '• Taomlar ro‘yxati mavjud') +
       (order.notes ? `\n\n📝 <b>Izoh:</b> <i>${order.notes}</i>` : '') +
       `\n━━━━━━━━━━━━━━━━━━━\n` +
-      `Quyidagi tugma orqali buyurtmani qabul qiling:`;
+      `Quyidagi tugmalar orqali buyurtmani boshqaring:`;
 
     const webAppUrl = getWebAppUrl();
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('✅ Zakasni olish', `accept_order_${order.id}_${cafeId}`)],
+      [
+        Markup.button.callback('✅ Zakasni olish', `accept_order_${order.id}_${cafeId}`),
+        Markup.button.callback('❌ Bekor qilish', `cancel_order_${order.id}_${cafeId}`),
+      ],
       [Markup.button.webApp('📱 Ilovada ochish', webAppUrl)],
     ]);
 

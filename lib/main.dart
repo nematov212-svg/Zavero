@@ -31,6 +31,7 @@ import 'services/supabase_realtime_service.dart';
 import 'services/local_cache_service.dart';
 import 'services/sound_service.dart';
 import 'services/localization_service.dart';
+import 'services/offline_sync_service.dart';
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
 import 'widgets/receipt_widget.dart';
@@ -40,6 +41,7 @@ void main() async {
   try {
     await LocalizationService().init();
     await LocalCacheService().init();
+    await OfflineSyncService().init();
     await ApiClient().init();
     await SupabaseRealtimeService().init();
     final token = ApiClient().token;
@@ -920,7 +922,7 @@ class AppState extends ChangeNotifier {
     });
 
     _customerOrdersPollTimer?.cancel();
-    _customerOrdersPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _customerOrdersPollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (currentUser != null && currentUser?.role != UserRole.director) {
         forceRefreshCustomerOrders();
       }
@@ -4982,6 +4984,13 @@ class CustomerMenuScreen extends StatefulWidget {
 class _CustomerMenuScreenState extends State<CustomerMenuScreen> {
   int? selectedCategoryId;
   String search = '';
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5027,7 +5036,12 @@ class _CustomerMenuScreenState extends State<CustomerMenuScreen> {
                       borderSide: BorderSide.none,
                     ),
                   ),
-                  onChanged: (v) => setState(() => search = v),
+                  onChanged: (v) {
+                    _searchDebounce?.cancel();
+                    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+                      if (mounted) setState(() => search = v);
+                    });
+                  },
                 ),
               ),
               Padding(
@@ -9445,9 +9459,11 @@ class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
   String? _selectedItemName;
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
+  Timer? _searchDebounce;
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -9578,7 +9594,12 @@ class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
                 ),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (val) => setState(() => _searchQuery = val),
+                  onChanged: (val) {
+                    _searchDebounce?.cancel();
+                    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+                      if (mounted) setState(() => _searchQuery = val);
+                    });
+                  },
                   style: TextStyle(
                     fontSize: 14,
                     color: isDark ? Colors.white : Colors.black87,
@@ -12534,6 +12555,13 @@ class ReceiptHistoryScreen extends StatefulWidget {
 class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
   DateTime _selectedDate = DateTime.now();
   String _searchQuery = '';
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -12592,7 +12620,12 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                   borderSide: BorderSide.none,
                 ),
               ),
-              onChanged: (v) => setState(() => _searchQuery = v),
+              onChanged: (v) {
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+                  if (mounted) setState(() => _searchQuery = v);
+                });
+              },
             ),
           ),
 
@@ -13765,6 +13798,13 @@ class InventoryScreen extends StatefulWidget {
 class _InventoryScreenState extends State<InventoryScreen> {
   String _searchQuery = '';
   int? _selectedCategoryId;
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
 
   void _adjust(Product p, [int? delta]) {
     if (delta != null) {
@@ -13870,7 +13910,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 const SizedBox(height: 12),
                 // Search Input
                 TextField(
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) {
+                    _searchDebounce?.cancel();
+                    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+                      if (mounted) setState(() => _searchQuery = v);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Taom yoki mahsulot nomi bo\'yicha qidirish...',
                     prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B)),
