@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const syncController = require('../controllers/syncController');
-const auth = require('../middleware/auth');
+const auth = require('../middleware/authMiddleware');
 
 // Barcha sync so'rovlari autentifikatsiya (JWT token) talab qiladi
 router.use(auth);
