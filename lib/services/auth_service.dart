@@ -75,7 +75,7 @@ class AuthService {
       final response = await _api.post('/auth/login', body: {
         'username': cleanInput,
         'password': password,
-      });
+      }).timeout(const Duration(seconds: 4));
       final token = response['token'] as String;
       final userJson = Map<String, dynamic>.from(response['user'] as Map);
 
@@ -95,8 +95,32 @@ class AuthService {
       await _api.cacheUserJson(userJson);
       _applySession(userJson, token);
       return AppUser.fromJson(userJson);
-    } on ApiException catch (e) {
-      throw Exception(e.message);
+    } catch (e) {
+      // 🛡️ OFFLINE RETRIEVAL: Agar internet bo'lmasa, keshdagi sessiyadan yuklaymiz
+      final isNetwork = e is TimeoutException ||
+          e.toString().toLowerCase().contains('socket') ||
+          e.toString().toLowerCase().contains('failed host lookup') ||
+          e.toString().toLowerCase().contains('network') ||
+          e.toString().toLowerCase().contains('connection') ||
+          e.toString().toLowerCase().contains('clientexception') ||
+          (e is ApiException && ((e.statusCode ?? 0) == 0 || (e.statusCode ?? 0) >= 500));
+
+      if (isNetwork) {
+        final cached = await _api.readCachedUserJson();
+        if (cached != null) {
+          final uName = (cached['username'] ?? '').toString().toLowerCase();
+          final uEmail = (cached['email'] ?? '').toString().toLowerCase();
+          if (uName == cleanInput || uEmail == cleanInput) {
+            _applySession(cached, _api.token ?? 'offline_token');
+            return AppUser.fromJson(cached);
+          }
+        }
+      }
+
+      if (e is ApiException) {
+        throw Exception(e.message);
+      }
+      throw Exception(e.toString());
     }
   }
 

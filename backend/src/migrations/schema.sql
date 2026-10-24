@@ -445,6 +445,14 @@ INSERT INTO bot_settings (key, value) VALUES
   ('subscription_days', '30')
 ON CONFLICT (key) DO NOTHING;
 
-
-
-
+-- 25. BOT BLOCKED SPAMMERS (Reklama va spam tarqatuvchilarni umrbod bloklash jadvali)
+CREATE TABLE IF NOT EXISTS bot_blocked_spammers (
+    id SERIAL PRIMARY KEY,
+    telegram_id VARCHAR(64) UNIQUE NOT NULL,
+    username VARCHAR(120),
+    first_name VARCHAR(150),
+    reason TEXT NOT NULL DEFAULT 'Spam / Reklama tarqatish',
+    message_snippet TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_bot_blocked_spammers_tid ON bot_blocked_spammers(telegram_id);

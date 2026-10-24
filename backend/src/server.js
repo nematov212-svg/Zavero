@@ -39,13 +39,24 @@ const startKeepAlivePing = () => {
 };
 
 const start = async () => {
-  const connected = await db.initDb();
-  if (connected) {
-    await runMigrations();
-    await ensureCafeSeeded('cafe1');
+  let connected = false;
+  try {
+    connected = await db.initDb();
+    if (connected) {
+      await runMigrations();
+      await ensureCafeSeeded('cafe1');
+    } else {
+      console.warn('⚠️  PostgreSQL hali ulanmagan, bot xotira rejimida ishlaydi.');
+    }
+  } catch (dbErr) {
+    console.warn('⚠️  DB init xatosi:', dbErr.message);
+  }
+
+  // Telegram Botni har doim ishga tushirish (DB bo'lmasa ham qotib qolmaydi)
+  try {
     initTelegramBot();
-  } else {
-    console.warn('⚠️  Server ishga tushmoqda, lekin PostgreSQL ulanmagan. .env faylini tekshiring.');
+  } catch (botErr) {
+    console.error('⚠️  Telegram botni ishga tushirishda xatolik:', botErr.message);
   }
 
   server.listen(PORT, '0.0.0.0', () => {

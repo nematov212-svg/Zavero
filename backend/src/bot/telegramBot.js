@@ -416,10 +416,42 @@ const blockedUsers = new Set();
 const userSpamViolations = new Map();
 const sentOrderNotificationCache = new Set();
 
+// Reklama va spam tarqatuvchini PostgreSQL bazasida umrbod bloklash
+const blockSpammerPermanently = async (user, reason = 'Spam / Reklama tarqatish', snippet = '') => {
+  if (!user || !user.id) return;
+  const strId = String(user.id);
+  blockedUsers.add(strId);
+  try {
+    await db.query(
+      `INSERT INTO bot_blocked_spammers (telegram_id, username, first_name, reason, message_snippet)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (telegram_id) DO UPDATE 
+       SET reason = $4, message_snippet = $5, created_at = CURRENT_TIMESTAMP`,
+      [strId, user.username || '', user.first_name || '', reason, (snippet || '').substring(0, 500)]
+    );
+    console.log(`🛡️ [Anti-Spam] Spammer @${user.username || user.id} (ID: ${strId}) bazada bloklandi.`);
+  } catch (err) {
+    console.warn('⚠️ blockSpammerPermanently DB xatosi:', err.message);
+  }
+};
+
+// Bot ishga tushganda bazadan barcha bloklangan spammerlarni xotiraga yuklash
+const loadBlockedSpammersFromDb = async () => {
+  try {
+    const res = await db.query('SELECT telegram_id FROM bot_blocked_spammers');
+    for (const row of res.rows) {
+      if (row.telegram_id) blockedUsers.add(String(row.telegram_id));
+    }
+    console.log(`🛡️ [Anti-Spam] ${blockedUsers.size} ta bloklangan spammerlar bazadan yuklandi.`);
+  } catch (err) {
+    console.warn('⚠️ loadBlockedSpammersFromDb xatosi:', err.message);
+  }
+};
+
 const isSpamOrAdMessage = (message) => {
   if (!message) return false;
 
-  // 1. Forwarded messages from public channels, chats, or unknown users
+  // 1. Kanallar, boshqa botlar yoki guruhlardan yo'naltirilgan (Forward) barcha xabarlar
   if (message.forward_from_chat || message.forward_from || message.forward_origin) {
     return true;
   }
@@ -427,28 +459,31 @@ const isSpamOrAdMessage = (message) => {
   const text = message.text || message.caption || '';
   if (!text) return false;
 
-  // 2. Allowed domain whitelist (our own links and payment gateways)
+  // 2. Ruxsat berilgan rasmiy domenlar va to'lov shlyuzlari (Whitelist)
   const isWhitelistedLink = (url) => {
     const clean = url.toLowerCase();
     return (
-      clean.includes('zavero') ||
+      clean.includes('zavero.uz') ||
+      clean.includes('zaveropos_bot') ||
       clean.includes('mirzobek') ||
       clean.includes('click.uz') ||
+      clean.includes('payme.uz') ||
       clean.includes('paycom.uz') ||
+      clean.includes('paynet.uz') ||
       clean.includes('onrender.com')
     );
   };
 
-  // 3. Check for external links (http, https, t.me, bit.ly, etc.)
-  const urlRegex = /(https?:\/\/[^\s]+|t\.me\/[^\s]+|telegram\.me\/[^\s]+|bit\.ly\/[^\s]+)/gi;
+  // 3. Tashqi havolalar va Telegram taklif havolalari (http, https, t.me, bit.ly, qisqa linklar)
+  const urlRegex = /(https?:\/\/[^\s]+|t\.me\/[^\s]+|telegram\.me\/[^\s]+|bit\.ly\/[^\s]+|tinyurl\.com\/[^\s]+|cutt\.ly\/[^\s]+|is\.gd\/[^\s]+|tg:\/\/join[^\s]*)/gi;
   const urls = text.match(urlRegex) || [];
   for (const url of urls) {
     if (!isWhitelistedLink(url)) {
-      return true; // External advertising link detected!
+      return true; // Ruxsat berilmagan reklama havolasi!
     }
   }
 
-  // 4. Check Telegram message entities for hidden links
+  // 4. Telegram entities (matn ichiga yashirilgan havolalar, mentionlar)
   const entities = message.entities || message.caption_entities || [];
   for (const ent of entities) {
     if (ent.type === 'text_link' && ent.url) {
@@ -458,7 +493,7 @@ const isSpamOrAdMessage = (message) => {
       const extractedUrl = text.substring(ent.offset, ent.offset + ent.length);
       if (!isWhitelistedLink(extractedUrl)) return true;
     }
-    // Block promotional mentions like @some_channel_bot (unless it is our admin or channel)
+    // Begona kanal yoki botlarni reklama qilish (@some_channel)
     if (ent.type === 'mention') {
       const mention = text.substring(ent.offset, ent.offset + ent.length).toLowerCase();
       if (!mention.includes('zavero') && !mention.includes('mirzobek')) {
@@ -467,8 +502,8 @@ const isSpamOrAdMessage = (message) => {
     }
   }
 
-  // 5. Spam / Advertising keywords in Uzbek, Russian, English
-  const spamKeywordsRegex = /\b(reklama|daromad|investitsiya|sarmoya|kripto|kriptovalyuta|bitcoin|ton coin|airdrop|hamster|kombat|blum|notcoin|kazino|casino|1xbet|melbet|mostbet|stavka|pul ishlash|kunlik daromad|bonus olish|ishga taklif|kanalga obuna|obuna bo['`’]?ling|podpishis|zarabotok|investitsion|ish bor|tez boyish|online ish|vakansiya|reklama berish|reklama narxi)\b/i;
+  // 5. Reklama, qimor, kazino, kripto va pul ishlashga oid barcha spam kalit so'zlari
+  const spamKeywordsRegex = /\b(reklama|daromad|investitsiya|sarmoya|kripto|crypto|kriptovalyuta|bitcoin|btc|usdt|ton coin|airdrop|hamster|kombat|blum|notcoin|dogs|major|cats|kazino|casino|1xbet|melbet|mostbet|linebet|pin-up|vulkan|stavka|aviator|lucky jet|pul ishlash|bepul pul|kunlik daromad|bonus olish|ishga taklif|vakansiya|kanalga obuna|obuna bo['`’]?ling|podpishis|podpisatsya|kanalimizga|podpiska|zarabotok|investitsion|ish bor|tez boyish|online ish|reklama berish|reklama narxi|piar|promo|promokod|skidka|yutib oling|pul yutib|18\+|porn|intim)\b/i;
 
   if (spamKeywordsRegex.test(text)) {
     return true;
@@ -482,13 +517,13 @@ const checkAntiFlood = (userId) => {
   const data = floodTracker.get(userId) || { count: 0, firstMsg: now, mutedUntil: 0 };
 
   if (data.mutedUntil > now) {
-    return true; // User is currently muted
+    return true; // Foydalanuvchi hozirda flood sabab cheklangan
   }
 
   if (now - data.firstMsg < 3000) {
     data.count += 1;
-    if (data.count > 5) {
-      data.mutedUntil = now + 15000; // Mute for 15 seconds
+    if (data.count > 4) {
+      data.mutedUntil = now + 30000; // 30 soniya ovozsiz qilish (Mute)
       floodTracker.set(userId, data);
       return true;
     }
@@ -620,49 +655,46 @@ const initTelegramBot = () => {
 
         // 3. Check Anti-Spam / Anti-Advertising
         if (ctx.message && isSpamOrAdMessage(ctx.message)) {
+          const rawText = ctx.message.text || ctx.message.caption || '[Fayl/Media/Forward]';
           try {
             await ctx.deleteMessage().catch(() => {});
           } catch (_) {}
 
+          // Spammerni PostgreSQL ma'lumotlar bazasida doimiy bloklash
+          await blockSpammerPermanently(from, 'Reklama / Spam tarqatish', rawText);
+
           if (isGroup) {
-            // Guruhdagi spammerni cheklash va xabarini o'chirish
+            // Guruhdan spammerni darhol butunlay chetlatish (BAN)
             try {
-              await ctx.telegram.restrictChatMember(ctx.chat.id, from.id, {
-                until_date: Math.floor(Date.now() / 1000) + 7200, // 2 soat
-                permissions: {
-                  can_send_messages: false,
-                  can_send_other_messages: false,
-                  can_add_web_page_previews: false,
-                },
-              }).catch(() => {});
+              if (ctx.telegram && ctx.telegram.banChatMember) {
+                await ctx.telegram.banChatMember(ctx.chat.id, from.id).catch(() => {});
+              }
             } catch (_) {}
 
-            await ctx.replyWithHTML(
-              `🚫 <b>GURUHDA REKLAMA VA SPAM TAQIQLANGAN!</b>\n` +
-              `Foydalanuvchi <b>${from.first_name || from.id}</b> ning reklama xabari o‘chirildi va yozish cheklandi.`
-            ).catch(() => {});
-          } else {
-            // Shaxsiy chatda ogohlantirish va qoidabuzarliklar sonini oshirish
-            const currentViolations = (userSpamViolations.get(from.id) || 0) + 1;
-            userSpamViolations.set(from.id, currentViolations);
+            // Guruhga 10 soniyalik ogohlantirish yuborish (va 10 soniyadan so'ng avtomatik o'chirish)
+            try {
+              const alertMsg = await ctx.replyWithHTML(
+                `🚫 <b>[XAVFSIZLIK TIZIMI]</b>\n` +
+                `Foydalanuvchi <b>${from.first_name || from.id}</b> (@${from.username || 'nomaʼlum'}) reklama/spam tarqatgani uchun <b>guruhdan haydaldi va bloklandi</b>!`
+              ).catch(() => {});
 
-            if (currentViolations >= 3) {
-              blockedUsers.add(strId);
-              await ctx.replyWithHTML(
-                `🚫 <b>SIZ BLOKLANDINGIZ!</b>\n` +
-                `Takroriy reklama va spam tufayli sizning ID raqamingiz botda bloklandi.`
-              ).catch(() => {});
-            } else {
-              await ctx.replyWithHTML(
-                `🚫 <b>REKLAMA VA SPAM TAQIQLANGAN!</b>\n` +
-                `━━━━━━━━━━━━━━━━━━━\n` +
-                `Hurmatli foydalanuvchi, ushbu bot faqat <b>ZAVERO POS</b> tizimi uchun mo‘ljallangan.\n` +
-                `Qoidabuzarlik holati: <b>${currentViolations}/3</b> (3 tadan so‘ng avtomatik bloklanasiz).`
-              ).catch(() => {});
-            }
+              if (alertMsg && alertMsg.message_id) {
+                setTimeout(() => {
+                  ctx.telegram.deleteMessage(ctx.chat.id, alertMsg.message_id).catch(() => {});
+                }, 10000);
+              }
+            } catch (_) {}
+          } else {
+            // Shaxsiy chatda qat'iy bloklash
+            await ctx.replyWithHTML(
+              `🚫 <b>SIZ BLOKLANGANSIZ!</b>\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `Botda reklama, spam yoki qimor/stavka havolalarini tarqatish qat'iyan taqiqlangan.\n` +
+              `Sizning akkauntingiz (ID: <code>${from.id}</code>) xavfsizlik tizimi tomonidan doimiy bloklandi.`
+            ).catch(() => {});
           }
 
-          console.warn(`🛡️ [Anti-Spam] Foydalanuvchi ${from.id} dan reklama/spam to‘xtatildi (${isGroup ? 'Guruh' : 'Shaxsiy'}).`);
+          console.warn(`🛡️ [Anti-Spam] Spammer ${from.id} (@${from.username || ''}) to'xtatildi va bloklandi.`);
           return; // Terminate update
         }
       } catch (secErr) {
@@ -2093,6 +2125,9 @@ const initTelegramBot = () => {
       }
     });
 
+    // Boshlang'ich bloklangan spammerlar ro'yxatini bazadan xotiraga yuklash
+    loadBlockedSpammersFromDb().catch(() => {});
+
     // Launch polling if in standalone/dev, or webhook will handle it in Express
     const webhookDomain = process.env.RENDER_EXTERNAL_URL || process.env.WEBHOOK_URL;
     if (webhookDomain && process.env.USE_BOT_WEBHOOK === 'true') {
@@ -2104,12 +2139,36 @@ const initTelegramBot = () => {
         console.warn('⚠️ [Telegram Bot] Webhook o‘rnatishda xatolik:', e.message);
       });
     } else {
-      // Long polling
-      bot.launch({ dropPendingUpdates: true }).then(() => {
-        console.log('🤖 [Telegram Bot] Telegraf long-polling rejimida muvaffaqiyatli ishga tushdi.');
-      }).catch((err) => {
-        console.warn('⚠️ [Telegram Bot] Bot launch xatosi:', err.message);
-      });
+      // 🛡️ Long polling rejimini qotib qolmasdan (Resilient Auto-Restarting Supervisor) ishga tushirish
+      const startPollingSupervisor = async () => {
+        try {
+          // Telegram serverlarida qolib ketgan eski webhooklarni tozalaymiz (Aks holda getUpdates ishlamay qotib qoladi)
+          await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch((e) => {
+            console.warn('⚠️ [Telegram Bot] deleteWebhook ogohlantirishi:', e.message);
+          });
+        } catch (_) {}
+
+        const runLaunch = async () => {
+          try {
+            await bot.launch({ dropPendingUpdates: true });
+            console.log('🤖 [Telegram Bot] Telegraf long-polling rejimida 100% muvaffaqiyatli ishga tushdi va faol.');
+          } catch (err) {
+            console.warn('⚠️ [Telegram Bot] Polling uzildi yoki to‘xtadi:', err.message);
+            // 409 Conflict yoki tarmoq xatosida avtomatik 4 soniyadan so'ng qayta ulanadi
+            setTimeout(async () => {
+              try {
+                await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+              } catch (_) {}
+              console.log('🔄 [Telegram Bot] Polling qayta ulanmoqda (Supervisor Auto-Restart)...');
+              runLaunch();
+            }, 4000);
+          }
+        };
+
+        runLaunch();
+      };
+
+      startPollingSupervisor();
     }
 
     process.once('SIGINT', () => { if (bot) bot.stop('SIGINT'); });
