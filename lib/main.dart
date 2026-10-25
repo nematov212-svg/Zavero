@@ -3537,7 +3537,7 @@ pw.Document _buildThermalReceiptPdf({
   return doc;
 }
 
-Future<void> printReceipt(Receipt receipt) async {
+Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async {
   if (appState.printerConfigured) {
     await NetworkPrinterService.printReceiptNetwork(
       receipt,
@@ -3546,6 +3546,12 @@ Future<void> printReceipt(Receipt receipt) async {
       charsPerLine: appState.printerCharsPerLine,
       fontSize: appState.printerFontSize,
     );
+    return;
+  }
+
+  // Telegram WebApp yoki Brauzerda avtomatik to'lov paytida "blob:..." oynasi chiqmasligi uchun:
+  if (kIsWeb && isAutoCheckout) {
+    debugPrint('Web / Telegram WebApp: Avtomatik chek chop etishda printer sozlanmaganligi sababli blob oynasi ochilmadi.');
     return;
   }
 
@@ -6342,16 +6348,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 MaterialPageRoute(builder: (_) => const ProductsScreen()),
               ),
             ),
-
-            // 5. Mijozlar
-            _DashTile(
-              tr('tile_customers'),
-              Icons.groups_rounded,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CustomersScreen()),
-              ),
-            ),
           ],
 
           // ==========================================
@@ -6456,17 +6452,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const StaffTrackingScreen()),
-              ),
-            ),
-
-          // 9. Mijozlar
-          if (isAdmin)
-            _DashTile(
-              tr('tile_customers'),
-              Icons.groups_rounded,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CustomersScreen()),
               ),
             ),
 
@@ -11686,7 +11671,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     // 2. AVTOMATIK CHEK CHIQARISH: "Xarid cheki" alohida bosilmagan bo'lsa ham, "To'landi" bosilganda chek avtomatik chiqadi!
     try {
-      printReceipt(receipt).catchError((e) {
+      printReceipt(receipt, isAutoCheckout: true).catchError((e) {
         debugPrint('Avtomatik chek chiqarishda xatolik: $e');
       });
     } catch (e) {

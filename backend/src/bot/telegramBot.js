@@ -308,45 +308,62 @@ const buildChannelKeyboard = (settings, isAdmin = false) => {
   return Markup.inlineKeyboard(buttons);
 };
 
-// Build subscription tariff message and keyboard
-const sendTariffCard = async (ctx, settings, telegramId) => {
-  const price = settings.subscription_price || 250000;
-  const days = settings.subscription_days || 30;
-  const cardNumber = settings.card_number || '9860 3501 2345 6789';
-  const cardHolder = settings.card_holder || 'ZAVERO POS';
-  const adminContact = settings.admin_contact || '@mirzobekn';
-  const cleanAdmin = adminContact.replace('@', '');
+// Map for user selected tariffs
+const userSelectedTariffs = new Map();
 
+// Official ZAVERO Tariffs (Website & App)
+const TARIFFS = {
+  month_1: {
+    id: 'month_1',
+    name: '1 Oylik Tarif',
+    days: 30,
+    price: 200000,
+    label: '🥉 1 Oylik — 200 000 so‘m (30 kun)',
+  },
+  month_3: {
+    id: 'month_3',
+    name: '3 Oylik Tarif',
+    days: 90,
+    price: 550000,
+    label: '🥈 3 Oylik — 550 000 so‘m (90 kun)',
+  },
+  month_9: {
+    id: 'month_9',
+    name: '9 Oylik Tarif',
+    days: 270,
+    price: 1500000,
+    label: '🥇 9 Oylik — 1 500 000 so‘m (270 kun) 🔥',
+  },
+  year_1: {
+    id: 'year_1',
+    name: '1 Yillik / Cheksiz Tarif',
+    days: 365,
+    price: 2000000,
+    label: '💎 1 Yillik — 2 000 000 so‘m (365 kun)',
+  },
+};
+
+// Build subscription tariff selection menu (The 4 website tariffs + 1 day trial)
+const sendTariffSelectionMenu = async (ctx, settings, telegramId) => {
   const text =
     `✅ <b>Kanallarga obuna tasdiqlandi!</b>\n\n` +
-    `🚀 <b>ZAVERO POS PREMIUM TARIFI</b>\n` +
+    `🚀 <b>ZAVERO POS TARIF REJASINI TANLANG:</b>\n` +
     `━━━━━━━━━━━━━━━━━━━\n` +
-    `📦 <b>Tarif:</b> 1 oylik litsenziya (${days} kun)\n` +
-    `💰 <b>Narxi:</b> <b>${formatSum(price)} so‘m</b>\n` +
-    `👤 <b>Sizning ID raqamingiz:</b> <code>${telegramId}</code>\n` +
-    `━━━━━━━━━━━━━━━━━━━\n\n` +
-    `💳 <b>To‘lov uchun karta:</b>\n` +
-    `<code>${cardNumber}</code>\n` +
-    `Egasi: <b>${cardHolder}</b>\n\n` +
-    `📌 <b>TO‘LOV VA TASDIQLASH QOIDASI:</b>\n` +
-    `1. Yuqoridagi kartaga <b>${formatSum(price)} so‘m</b> to‘lang.\n` +
-    `2. To‘lov chekini skrinshot (rasm) qiling.\n` +
-    `3. Chek rasmini va o‘z ID raqamingizni (<code>${telegramId}</code>) administratorimiz @${cleanAdmin} ga yuboring yoki quyidagi <b>«📤 Chekni yuborish»</b> tugmasi orqali to‘g‘ridan-to‘g‘ri botga tashlang!\n\n` +
-    `<i>Administrator to‘lovingizni tekshirib tasdiqlashi bilan ilovaga kirish avtomatik ochiladi.</i>`;
+    `Qaysi tarif bo‘yicha ZAVERO POS tizimidan foydalanmoqchisiz?\n\n` +
+    `🥉 <b>1 Oylik Tarif:</b> 200 000 so‘m (30 kun)\n` +
+    `🥈 <b>3 Oylik Tarif:</b> 550 000 so‘m (90 kun — <i>50 000 so‘m tejash</i>)\n` +
+    `🥇 <b>9 Oylik Tarif:</b> 1 500 000 so‘m (270 kun — <i>300 000 so‘m KATTA CHEGIRMA</i>) 🔥\n` +
+    `💎 <b>1 Yillik Tarif:</b> 2 000 000 so‘m (365 kun — <i>eng manfaatli</i>)\n` +
+    `🎁 <b>1 Kunlik Bepul Sinov:</b> 0 so‘m (24 soat to‘liq imkoniyat)\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `<i>O‘zingizga mos tarifni tanlang:</i>`;
 
   const buttons = [
-    [
-      Markup.button.callback('🎁 1 kunlik bepul sinov olish', 'claim_1day_trial'),
-    ],
-    [
-      Markup.button.callback('📤 Chekni botga yuborish', 'prompt_send_cheque'),
-      Markup.button.url(`💬 Adminga yozish (${adminContact})`, `https://t.me/${cleanAdmin}`),
-    ],
-    [
-      Markup.button.callback('💳 Click orqali to‘lash', 'pay_click'),
-      Markup.button.callback('💳 Payme orqali to‘lash', 'pay_payme'),
-    ],
-    [Markup.button.callback('🔄 To‘lov holatini tekshirish', 'verify_payment')],
+    [Markup.button.callback('🥉 1 Oylik — 200 000 so‘m', 'select_tariff_month_1')],
+    [Markup.button.callback('🥈 3 Oylik — 550 000 so‘m', 'select_tariff_month_3')],
+    [Markup.button.callback('🥇 9 Oylik — 1 500 000 so‘m 🔥', 'select_tariff_month_9')],
+    [Markup.button.callback('💎 1 Yillik — 2 000 000 so‘m', 'select_tariff_year_1')],
+    [Markup.button.callback('🎁 1 Kunlik Bepul Sinov Olish', 'claim_1day_trial')],
   ];
 
   const isAdmin = await isAdminUser(ctx.from);
@@ -354,8 +371,61 @@ const sendTariffCard = async (ctx, settings, telegramId) => {
     buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
   }
 
-  await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+  const keyboard = Markup.inlineKeyboard(buttons);
+  if (ctx.callbackQuery) {
+    try {
+      return await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
+    } catch (_) { }
+  }
+  return await ctx.replyWithHTML(text, keyboard);
 };
+
+// Build selected tariff card with payment instructions
+const sendTariffPaymentDetails = async (ctx, settings, telegramId, tariffKey = 'month_1') => {
+  const tariff = TARIFFS[tariffKey] || TARIFFS.month_1;
+  userSelectedTariffs.set(telegramId, tariff);
+
+  const cardNumber = settings.card_number || '9860 3501 2345 6789';
+  const cardHolder = settings.card_holder || 'ZAVERO POS';
+  const adminContact = settings.admin_contact || '@mirzobekn';
+  const cleanAdmin = adminContact.replace('@', '');
+
+  const text =
+    `📦 <b>TANLANGAN TARIF: ${tariff.name.toUpperCase()}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `⏳ <b>Amal qilish muddati:</b> ${tariff.days} kun\n` +
+    `💰 <b>To‘lov summasi:</b> <b>${formatSum(tariff.price)} so‘m</b>\n` +
+    `👤 <b>Sizning ID raqamingiz:</b> <code>${telegramId}</code>\n` +
+    `━━━━━━━━━━━━━━━━━━━\n\n` +
+    `💳 <b>To‘lov uchun karta raqami:</b>\n` +
+    `<code>${cardNumber}</code>\n` +
+    `Egasi: <b>${cardHolder}</b>\n\n` +
+    `📌 <b>TO‘LOV VA AKTIVATSIYA YO‘RIQNOMASI:</b>\n` +
+    `1. Yuqoridagi kartaga <b>${formatSum(tariff.price)} so‘m</b> o‘tkazing.\n` +
+    `2. To‘lov chekini skrinshot qiling.\n` +
+    `3. <b>«📤 Chekni yuborish»</b> tugmasini bosing yoki to‘g‘ridan-to‘g‘ri shu yerga chek rasmini tashlang!\n\n` +
+    `<i>Admin chekni tasdiqlashi bilan litsenziyangiz ${tariff.days} kunga avtomatik ochiladi.</i>`;
+
+  const buttons = [
+    [Markup.button.callback('📤 Chekni botga yuborish', 'prompt_send_cheque')],
+    [
+      Markup.button.callback('💳 Click orqali to‘lash', `pay_click_${tariffKey}`),
+      Markup.button.callback('💳 Payme orqali to‘lash', `pay_payme_${tariffKey}`),
+    ],
+    [Markup.button.url(`💬 Adminga yozish (${adminContact})`, `https://t.me/${cleanAdmin}`)],
+    [Markup.button.callback('⬅️ Boshqa tarif tanlash', 'back_to_tariffs')],
+  ];
+
+  const keyboard = Markup.inlineKeyboard(buttons);
+  if (ctx.callbackQuery) {
+    try {
+      return await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
+    } catch (_) { }
+  }
+  return await ctx.replyWithHTML(text, keyboard);
+};
+
+const sendTariffCard = sendTariffSelectionMenu;
 
 // Build Admin Dashboard
 const sendAdminDashboard = async (ctx) => {
@@ -405,7 +475,7 @@ const sendAdminDashboard = async (ctx) => {
   if (ctx.callbackQuery) {
     try {
       return await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
-    } catch (_) {}
+    } catch (_) { }
   }
   return await ctx.replyWithHTML(text, keyboard);
 };
@@ -608,7 +678,7 @@ const initTelegramBot = () => {
     });
 
     // Auto-configure Bot Description & Commands
-    setupBotProfilesAndCommands(bot).catch(() => {});
+    setupBotProfilesAndCommands(bot).catch(() => { });
 
     // 🛡️ ANTI-SPAM, ANTI-REKLAMA & ANTI-FLOOD SECURITY MIDDLEWARE
     bot.use(async (ctx, next) => {
@@ -626,13 +696,13 @@ const initTelegramBot = () => {
         // 1. Check if user is permanently blocked
         if (blockedUsers.has(strId)) {
           try {
-            await ctx.deleteMessage().catch(() => {});
-          } catch (_) {}
+            await ctx.deleteMessage().catch(() => { });
+          } catch (_) { }
           if (!isGroup) {
             await ctx.replyWithHTML(
               `🚫 <b>SIZ BLOKLANGANSIZ!</b>\n` +
               `Spam yoki qoidabuzarlik tufayli sizning xabarlaringiz qabul qilinmaydi.`
-            ).catch(() => {});
+            ).catch(() => { });
           }
           return; // Terminate update
         }
@@ -640,15 +710,15 @@ const initTelegramBot = () => {
         // 2. Check Anti-Flood
         if (checkAntiFlood(from.id)) {
           try {
-            await ctx.deleteMessage().catch(() => {});
-          } catch (_) {}
+            await ctx.deleteMessage().catch(() => { });
+          } catch (_) { }
 
           const data = floodTracker.get(from.id);
           if (data && data.count === 6 && !isGroup) {
             await ctx.replyWithHTML(
               `⚠️ <b>XAVFSIZLIK OGOHLANTIRISHI!</b>\n` +
               `Iltimos, shoshilmang! Xabarlar oqimi juda tez bo‘lgani sababli 15 soniya cheklandingiz.`
-            ).catch(() => {});
+            ).catch(() => { });
           }
           return; // Terminate update
         }
@@ -657,8 +727,8 @@ const initTelegramBot = () => {
         if (ctx.message && isSpamOrAdMessage(ctx.message)) {
           const rawText = ctx.message.text || ctx.message.caption || '[Fayl/Media/Forward]';
           try {
-            await ctx.deleteMessage().catch(() => {});
-          } catch (_) {}
+            await ctx.deleteMessage().catch(() => { });
+          } catch (_) { }
 
           // Spammerni PostgreSQL ma'lumotlar bazasida doimiy bloklash
           await blockSpammerPermanently(from, 'Reklama / Spam tarqatish', rawText);
@@ -667,23 +737,23 @@ const initTelegramBot = () => {
             // Guruhdan spammerni darhol butunlay chetlatish (BAN)
             try {
               if (ctx.telegram && ctx.telegram.banChatMember) {
-                await ctx.telegram.banChatMember(ctx.chat.id, from.id).catch(() => {});
+                await ctx.telegram.banChatMember(ctx.chat.id, from.id).catch(() => { });
               }
-            } catch (_) {}
+            } catch (_) { }
 
             // Guruhga 10 soniyalik ogohlantirish yuborish (va 10 soniyadan so'ng avtomatik o'chirish)
             try {
               const alertMsg = await ctx.replyWithHTML(
                 `🚫 <b>[XAVFSIZLIK TIZIMI]</b>\n` +
                 `Foydalanuvchi <b>${from.first_name || from.id}</b> (@${from.username || 'nomaʼlum'}) reklama/spam tarqatgani uchun <b>guruhdan haydaldi va bloklandi</b>!`
-              ).catch(() => {});
+              ).catch(() => { });
 
               if (alertMsg && alertMsg.message_id) {
                 setTimeout(() => {
-                  ctx.telegram.deleteMessage(ctx.chat.id, alertMsg.message_id).catch(() => {});
+                  ctx.telegram.deleteMessage(ctx.chat.id, alertMsg.message_id).catch(() => { });
                 }, 10000);
               }
-            } catch (_) {}
+            } catch (_) { }
           } else {
             // Shaxsiy chatda qat'iy bloklash
             await ctx.replyWithHTML(
@@ -691,7 +761,7 @@ const initTelegramBot = () => {
               `━━━━━━━━━━━━━━━━━━━\n` +
               `Botda reklama, spam yoki qimor/stavka havolalarini tarqatish qat'iyan taqiqlangan.\n` +
               `Sizning akkauntingiz (ID: <code>${from.id}</code>) xavfsizlik tizimi tomonidan doimiy bloklandi.`
-            ).catch(() => {});
+            ).catch(() => { });
           }
 
           console.warn(`🛡️ [Anti-Spam] Spammer ${from.id} (@${from.username || ''}) to'xtatildi va bloklandi.`);
@@ -797,12 +867,53 @@ const initTelegramBot = () => {
           );
         }
 
-        // Show Tariff & Payment Card
-        return await sendTariffCard(ctx, settings, telegramId);
+        // Show Tariff Selection Menu (Website Tariffs)
+        return await sendTariffSelectionMenu(ctx, settings, telegramId);
       } catch (err) {
         console.error('❌ [Telegram Bot] check_channels xatosi:', err);
         return ctx.reply('Obunani tekshirishda xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.');
       }
+    });
+
+    // 2.1 Tariff Selection Handlers
+    bot.action('select_tariff_month_1', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const settings = await getBotSettings();
+        return await sendTariffPaymentDetails(ctx, settings, ctx.from.id, 'month_1');
+      } catch (_) { }
+    });
+
+    bot.action('select_tariff_month_3', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const settings = await getBotSettings();
+        return await sendTariffPaymentDetails(ctx, settings, ctx.from.id, 'month_3');
+      } catch (_) { }
+    });
+
+    bot.action('select_tariff_month_9', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const settings = await getBotSettings();
+        return await sendTariffPaymentDetails(ctx, settings, ctx.from.id, 'month_9');
+      } catch (_) { }
+    });
+
+    bot.action('select_tariff_year_1', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const settings = await getBotSettings();
+        return await sendTariffPaymentDetails(ctx, settings, ctx.from.id, 'year_1');
+      } catch (_) { }
+    });
+
+    bot.action('back_to_tariffs', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const settings = await getBotSettings();
+        return await sendTariffSelectionMenu(ctx, settings, ctx.from.id);
+      } catch (_) { }
     });
 
     // 3. Prompt user to send cheque photo
@@ -817,7 +928,7 @@ const initTelegramBot = () => {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `Iltimos, to‘lov chekining skrinshotini (rasmini) shu yerga rasm qilib yuboring.\n\n` +
           `👤 Sizning ID raqamingiz: <code>${telegramId}</code>\n\n` +
-          `Chekni yuborishingiz bilan u administratorga (@mirzobekn) yetib boradi va tasdiqlanadi.`
+          `Chekni yuborishingiz bilan u administratorga yetib boradi va tezkor tasdiqlanadi.`
         );
       } catch (e) { }
     });
@@ -841,13 +952,19 @@ const initTelegramBot = () => {
           );
         }
 
+        // Get selected tariff (defaults to 1-Month 30 days if not chosen)
+        const selectedTariff = userSelectedTariffs.get(telegramId) || TARIFFS.month_1;
+        const days = selectedTariff.days || 30;
+        const amount = selectedTariff.price || 200000;
+        const tariffName = selectedTariff.name || '1 Oylik Tarif';
+
         // Record pending payment in database
         const txId = `cheque_${Date.now()}_${telegramId}`;
         await db.query(
           `INSERT INTO payments (telegram_id, transaction_id, provider, amount, status, raw_data)
-           VALUES ($1, $2, 'cheque_manual', 250000, 'pending', $3)
+           VALUES ($1, $2, 'cheque_manual', $3, 'pending', $4)
            ON CONFLICT (transaction_id) DO NOTHING`,
-          [telegramId, txId, JSON.stringify({ file_id: fileId, caption: ctx.message.caption || '' })]
+          [telegramId, txId, amount, JSON.stringify({ file_id: fileId, caption: ctx.message.caption || '', days, tariffName })]
         );
 
         // Reply to user
@@ -855,8 +972,9 @@ const initTelegramBot = () => {
           `📥 <b>TO‘LOV CHEKINGIZ QABUL QILINDI!</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `👤 Sizning ID raqamingiz: <code>${telegramId}</code>\n` +
-          `💰 Summa: <b>250 000 so‘m (1 oylik)</b>\n\n` +
-          `Administratorimiz (@mirzobekn) chekni tekshirib tasdiqlashi bilan sizga SMS/xabar keladi va ZAVERO POS ilovasi ochiladi.\n\n` +
+          `📦 Tanlangan tarif: <b>${tariffName} (${days} kun)</b>\n` +
+          `💰 Summa: <b>${formatSum(amount)} so‘m</b>\n\n` +
+          `Administratorimiz chekni tekshirib tasdiqlashi bilan sizga xabar keladi va ZAVERO POS ilovasi ochiladi.\n\n` +
           `Iltimos, tasdiqlanishini kuting... ⏳`
         );
 
@@ -868,16 +986,21 @@ const initTelegramBot = () => {
           `👤 Mijoz: <b>${from.first_name || ''} ${from.last_name || ''}</b>\n` +
           `Username: @${from.username || 'mavjud emas'}\n` +
           `🆔 Mijoz ID: <code>${telegramId}</code>\n` +
-          `💰 Summa: <b>250 000 so‘m</b>\n` +
+          `📦 Tarif: <b>${tariffName} (${days} kun)</b>\n` +
+          `💰 Summa: <b>${formatSum(amount)} so‘m</b>\n` +
           `📅 Vaqt: <b>${formatDate(new Date())}</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `Mijozga 30 kunlik ruxsat berasizmi?`;
+          `Mijozga <b>${days} kunlik</b> litsenziyani tasdiqlaysizmi?`;
 
         const adminButtons = [
           [
-            Markup.button.callback('🎁 1 kun sinov', `admin_approve_${telegramId}_1`),
-            Markup.button.callback('✅ 30 kunlik ruxsat', `admin_approve_${telegramId}_30`),
+            Markup.button.callback(`✅ Tasdiqlash (${days} kun)`, `admin_approve_${telegramId}_${days}`),
             Markup.button.callback('❌ Rad etish', `admin_reject_${telegramId}`),
+          ],
+          [
+            Markup.button.callback('🎁 +7 kun bonus', `admin_approve_${telegramId}_${days + 7}`),
+            Markup.button.callback('🎁 +15 kun bonus', `admin_approve_${telegramId}_${days + 15}`),
+            Markup.button.callback('🎁 +30 kun bonus', `admin_approve_${telegramId}_${days + 30}`),
           ],
         ];
 
@@ -897,13 +1020,14 @@ const initTelegramBot = () => {
       }
     });
 
-    // 5. Click Payment Action
-    bot.action('pay_click', async (ctx) => {
+    // 5. Dynamic Click Payment Action
+    bot.action(/^pay_click(?:_(.*))?$/, async (ctx) => {
       try {
         await ctx.answerCbQuery();
         const telegramId = ctx.from.id;
-        const settings = await getBotSettings();
-        const price = settings.subscription_price;
+        const tariffKey = ctx.match[1] || 'month_1';
+        const tariff = TARIFFS[tariffKey] || TARIFFS.month_1;
+        const price = tariff.price;
         const serviceId = process.env.CLICK_SERVICE_ID;
         const merchantId = process.env.CLICK_MERCHANT_ID;
         const webAppUrl = getWebAppUrl();
@@ -919,13 +1043,15 @@ const initTelegramBot = () => {
         }
         buttons.push([Markup.button.callback('📤 Chekni botga yuborish', 'prompt_send_cheque')]);
         buttons.push([Markup.button.callback('🔄 To‘lovni tekshirish', 'verify_payment')]);
+        buttons.push([Markup.button.callback('⬅️ Tariflarga qaytish', 'back_to_tariffs')]);
 
         const text =
           `💳 <b>CLICK TO‘LOV TIZIMI</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `To‘lov summasi: <b>${formatSum(price)} so‘m</b>\n` +
-          `Hisob kodi (Sizning ID): <code>${telegramId}</code>\n\n` +
-          `To‘lovni amalga oshirgach, chekni administrator @mirzobekn ga yuboring yoki shu botga rasm sifatida tashlang.`;
+          `📦 Tarif: <b>${tariff.name} (${tariff.days} kun)</b>\n` +
+          `💰 To‘lov summasi: <b>${formatSum(price)} so‘m</b>\n` +
+          `👤 Hisob kodi (Sizning ID): <code>${telegramId}</code>\n\n` +
+          `To‘lovni amalga oshirgach, chekni shu botga rasm sifatida tashlang.`;
 
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) {
@@ -933,13 +1059,14 @@ const initTelegramBot = () => {
       }
     });
 
-    // 6. Payme Payment Action
-    bot.action('pay_payme', async (ctx) => {
+    // 6. Dynamic Payme Payment Action
+    bot.action(/^pay_payme(?:_(.*))?$/, async (ctx) => {
       try {
         await ctx.answerCbQuery();
         const telegramId = ctx.from.id;
-        const settings = await getBotSettings();
-        const price = settings.subscription_price;
+        const tariffKey = ctx.match[1] || 'month_1';
+        const tariff = TARIFFS[tariffKey] || TARIFFS.month_1;
+        const price = tariff.price;
         const merchantId = process.env.PAYME_MERCHANT_ID;
 
         let paymeUrl = null;
@@ -955,13 +1082,15 @@ const initTelegramBot = () => {
         }
         buttons.push([Markup.button.callback('📤 Chekni botga yuborish', 'prompt_send_cheque')]);
         buttons.push([Markup.button.callback('🔄 To‘lovni tekshirish', 'verify_payment')]);
+        buttons.push([Markup.button.callback('⬅️ Tariflarga qaytish', 'back_to_tariffs')]);
 
         const text =
           `💳 <b>PAYME TO‘LOV TIZIMI</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `To‘lov summasi: <b>${formatSum(price)} so‘m</b>\n` +
-          `Hisob kodi (Sizning ID): <code>${telegramId}</code>\n\n` +
-          `To‘lovni amalga oshirgach, chekni administrator @mirzobekn ga yuboring yoki shu botga rasm sifatida tashlang.`;
+          `📦 Tarif: <b>${tariff.name} (${tariff.days} kun)</b>\n` +
+          `💰 To‘lov summasi: <b>${formatSum(price)} so‘m</b>\n` +
+          `👤 Hisob kodi (Sizning ID): <code>${telegramId}</code>\n\n` +
+          `To‘lovni amalga oshirgach, chekni shu botga rasm sifatida tashlang.`;
 
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) {
@@ -1003,7 +1132,7 @@ const initTelegramBot = () => {
     const handleUserTrialClaim = async (ctx) => {
       try {
         if (ctx.callbackQuery) {
-          await ctx.answerCbQuery().catch(() => {});
+          await ctx.answerCbQuery().catch(() => { });
         }
         const telegramId = ctx.from.id;
         const from = ctx.from;
@@ -1068,7 +1197,7 @@ const initTelegramBot = () => {
                 [Markup.button.callback(`➕ 30 kun berish`, `admin_approve_${telegramId}_30`)],
               ]),
             });
-          } catch (_) {}
+          } catch (_) { }
         }
 
         return;
@@ -1122,15 +1251,15 @@ const initTelegramBot = () => {
 
         const confirmText = isTrial
           ? `🎁 <b>Mijozga 1 kunlik sinov muvaffaqiyatli berildi!</b>\n\n` +
-            `👤 Mijoz ID: <code>${targetId}</code>\n` +
-            `⏳ Berilgan muddat: <b>1 kun (24 soat)</b>\n` +
-            `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
-            `<i>Mijozga avtomatik tarzda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`
+          `👤 Mijoz ID: <code>${targetId}</code>\n` +
+          `⏳ Berilgan muddat: <b>1 kun (24 soat)</b>\n` +
+          `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
+          `<i>Mijozga avtomatik tarzda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`
           : `✅ <b>Mijozga muvaffaqiyatli ruxsat berildi!</b>\n\n` +
-            `👤 Mijoz ID: <code>${targetId}</code>\n` +
-            `⏳ Berilgan muddat: <b>${days} kun</b>\n` +
-            `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
-            `<i>Mijozga avtomatik tarzda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`;
+          `👤 Mijoz ID: <code>${targetId}</code>\n` +
+          `⏳ Berilgan muddat: <b>${days} kun</b>\n` +
+          `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
+          `<i>Mijozga avtomatik tarzda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`;
 
         return await ctx.replyWithHTML(
           confirmText,
@@ -1409,7 +1538,7 @@ const initTelegramBot = () => {
           try {
             await ctx.editMessageText(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
             return;
-          } catch (_) {}
+          } catch (_) { }
         }
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) {
@@ -1466,7 +1595,7 @@ const initTelegramBot = () => {
           try {
             await ctx.editMessageText(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
             return;
-          } catch (_) {}
+          } catch (_) { }
         }
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (e) {
@@ -1533,7 +1662,7 @@ const initTelegramBot = () => {
             try {
               await ctx.editMessageText(emptyText, { parse_mode: 'HTML', ...emptyKb });
               return;
-            } catch (_) {}
+            } catch (_) { }
           }
           return ctx.replyWithHTML(emptyText, emptyKb);
         }
@@ -1556,13 +1685,13 @@ const initTelegramBot = () => {
           try {
             await ctx.editMessageText(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
             return;
-          } catch (_) {}
+          } catch (_) { }
         }
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (e) { }
     });
 
-    // Action: Admin Settings
+    // Action: Admin Settings (Colorful buttons instead of slash commands)
     bot.action('admin_settings_view', async (ctx) => {
       try {
         await ctx.answerCbQuery();
@@ -1572,28 +1701,239 @@ const initTelegramBot = () => {
         const text =
           `⚙️ <b>BOT VA TARIF SOZLAMALARI</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
+          `💳 <b>Karta raqami:</b> <code>${settings.card_number}</code>\n` +
+          `👤 <b>Karta egasi:</b> <b>${settings.card_holder || 'ZAVERO POS'}</b>\n` +
+          `📞 <b>Aloqa raqami / Admin:</b> <code>${settings.admin_contact || '@mirzobekn'}</code>\n` +
+          `💵 <b>1 oylik narx:</b> <code>${formatSum(settings.subscription_price)} so‘m</code>\n` +
           `📢 <b>1-Kanal:</b> <code>${settings.required_channel_1}</code>\n` +
           `📢 <b>2-Kanal:</b> <code>${settings.required_channel_2}</code>\n` +
-          `💳 <b>Karta:</b> <code>${settings.card_number}</code>\n` +
-          `💵 <b>Oylik narx:</b> <code>${formatSum(settings.subscription_price)} so‘m</code>\n` +
-          `👤 <b>Admin lichka:</b> <code>${settings.admin_contact}</code>\n` +
           `━━━━━━━━━━━━━━━━━━━\n\n` +
-          `<i>O‘zgartirish uchun buyruqlar:</i>\n` +
-          `• <code>/set_card 9860 3501 2345 6789</code>\n` +
-          `• <code>/set_price 250000</code>\n` +
-          `• <code>/set_channel1 @mirzobekdev</code>\n` +
-          `• <code>/set_channel2 @zavero_uz</code>\n` +
-          `• <code>/set_admin_password yangi_parol</code>`;
+          `<i>O‘zgartirmoqchi bo‘lgan bo‘lim tugmasini bosing:</i>`;
 
-        const kb = Markup.inlineKeyboard([[Markup.button.callback('⬅️ Orqaga', 'open_admin_panel')]]);
+        const buttons = [
+          [
+            Markup.button.callback('💳 Karta raqamini o‘zgartirish', 'admin_set_card_prompt'),
+          ],
+          [
+            Markup.button.callback('📞 Aloqa raqamini o‘zgartirish', 'admin_set_phone_prompt'),
+            Markup.button.callback('💰 Oylik narxni o‘zgartirish', 'admin_set_price_prompt'),
+          ],
+          [
+            Markup.button.callback('📢 1-Kanalni sozlash', 'admin_set_ch1_prompt'),
+            Markup.button.callback('📢 2-Kanalni sozlash', 'admin_set_ch2_prompt'),
+          ],
+          [
+            Markup.button.callback('🎁 Bonus kunlar berish', 'admin_give_bonus_prompt'),
+            Markup.button.callback('🔐 Admin parolini yangilash', 'admin_set_pass_prompt'),
+          ],
+          [
+            Markup.button.callback('🛡️ Spam & Reklama nazorati', 'admin_spam_control'),
+            Markup.button.callback('⬅️ Boshqaruv paneliga qaytish', 'open_admin_panel'),
+          ],
+        ];
+
+        const kb = Markup.inlineKeyboard(buttons);
         if (ctx.callbackQuery) {
           try {
             await ctx.editMessageText(text, { parse_mode: 'HTML', ...kb });
             return;
-          } catch (_) {}
+          } catch (_) { }
         }
         return await ctx.replyWithHTML(text, kb);
       } catch (e) { }
+    });
+
+    // Sub-Action: Prompt change card
+    bot.action('admin_set_card_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'admin_input_card' });
+        return await ctx.replyWithHTML(
+          `💳 <b>KARTA RAQAMINI O‘ZGARTIRISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Yangi karta raqami va karta egasini yozib yuboring:\n` +
+          `<i>Masalan: 9860  Mirzobek Nematov</i>\n\n` +
+          `<i>Bekor qilish uchun: /cancel</i>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Bekor qilish', 'admin_settings_view')]])
+        );
+      } catch (_) { }
+    });
+
+    // Sub-Action: Prompt change phone / contact
+    bot.action('admin_set_phone_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'admin_input_phone' });
+        return await ctx.replyWithHTML(
+          `📞 <b>ALOQA RAQAMINI O‘ZGARTIRISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Yangi telefon raqami yoki Telegram username yozib yuboring:\n` +
+          `<i>Masalan: +998507230475 yoki @mirzobekn</i>\n\n` +
+          `<i>Bekor qilish uchun: /cancel</i>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Bekor qilish', 'admin_settings_view')]])
+        );
+      } catch (_) { }
+    });
+
+    // Sub-Action: Prompt change subscription price
+    bot.action('admin_set_price_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'admin_input_price' });
+        return await ctx.replyWithHTML(
+          `💰 <b>OYLIK NARXNI O‘ZGARTIRISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Yangi 1 oylik narxni faqat raqamlarda kiriting:\n` +
+          `<i>Masalan: 200000</i>\n\n` +
+          `<i>Bekor qilish uchun: /cancel</i>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Bekor qilish', 'admin_settings_view')]])
+        );
+      } catch (_) { }
+    });
+
+    // Sub-Action: Prompt change channel 1
+    bot.action('admin_set_ch1_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'admin_input_ch1' });
+        return await ctx.replyWithHTML(
+          `📢 <b>1-KANALNI O‘ZGARTIRISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Yangi kanal username-ni yozib yuboring:\n` +
+          `<i>Masalan: @mirzobekdev</i>\n\n` +
+          `<i>Bekor qilish uchun: /cancel</i>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Bekor qilish', 'admin_settings_view')]])
+        );
+      } catch (_) { }
+    });
+
+    // Sub-Action: Prompt change channel 2
+    bot.action('admin_set_ch2_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'admin_input_ch2' });
+        return await ctx.replyWithHTML(
+          `📢 <b>2-KANALNI O‘ZGARTIRISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Yangi kanal username-ni yozib yuboring:\n` +
+          `<i>Masalan: @zavero_uz</i>\n\n` +
+          `<i>Bekor qilish uchun: /cancel</i>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Bekor qilish', 'admin_settings_view')]])
+        );
+      } catch (_) { }
+    });
+
+    // Sub-Action: Prompt change admin password
+    bot.action('admin_set_pass_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'admin_input_pass' });
+        return await ctx.replyWithHTML(
+          `🔐 <b>ADMIN PAROLINI O‘ZGARTIRISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Yangi maxfiy admin parolini yozib yuboring:\n\n` +
+          `<i>Bekor qilish uchun: /cancel</i>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Bekor qilish', 'admin_settings_view')]])
+        );
+      } catch (_) { }
+    });
+
+    // Sub-Action: Prompt give bonus days
+    bot.action('admin_give_bonus_prompt', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+        adminState.set(ctx.from.id, { waitingFor: 'admin_input_bonus_id' });
+        return await ctx.replyWithHTML(
+          `🎁 <b>MIJOZGA BONUS KUN BERISH</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Bonus bermoqchi bo‘lgan mijozning <b>Telegram ID</b> raqamini yuboring:\n\n` +
+          `<i>Bekor qilish uchun: /cancel</i>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Bekor qilish', 'admin_settings_view')]])
+        );
+      } catch (_) { }
+    });
+
+    // Sub-Action: Spam control panel
+    bot.action('admin_spam_control', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) return;
+
+        const spamCountRes = await db.query('SELECT COUNT(*) FROM bot_blocked_spammers');
+        const count = spamCountRes.rows[0].count;
+
+        const text =
+          `🛡️ <b>XAVFSIZLIK VA ANTI-SPAM NAZORATI</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🚫 <b>Bazada bloklangan spammerlar:</b> ${count} ta\n` +
+          `⚡️ <b>Havola va reklama filtri:</b> 🟢 FAOL\n` +
+          `🌊 <b>Anti-flood filtri:</b> 🟢 FAOL\n` +
+          `🧹 <b>Avtomatik tozalash:</b> Reklama xabarlari darhol o‘chiriladi va tarqatuvchi bloklanadi.\n` +
+          `━━━━━━━━━━━━━━━━━━━`;
+
+        const buttons = [
+          [Markup.button.callback('🚫 Bloklanganlar ro‘yxati', 'admin_view_blocked_spammers')],
+          [Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')],
+        ];
+
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+      } catch (_) { }
+    });
+
+    // Action: Grant bonus days to specific user
+    bot.action(/^admin_grant_bonus_(\d+)_(\d+)$/, async (ctx) => {
+      try {
+        if (!(await isAdminUser(ctx.from))) return ctx.answerCbQuery('⛔️ Ruxsat yo‘q!');
+        await ctx.answerCbQuery('Bonus berilmoqda...');
+
+        const targetId = parseInt(ctx.match[1], 10);
+        const bonusDays = parseInt(ctx.match[2], 10);
+
+        const result = await activateSubscription(targetId, {
+          days: bonusDays,
+          amount: 0,
+          provider: 'admin_bonus',
+          transactionId: `bonus_${Date.now()}_${targetId}`,
+          notifyUser: false,
+        });
+
+        // Notify user with congratulatory message
+        try {
+          const webAppUrl = getWebAppUrl();
+          await bot.telegram.sendMessage(
+            targetId,
+            `🎁 <b>TABRIKLAYMIZ! SIZGA BONUS KUN BERILDI!</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `Administrator sizga <b>+${bonusDays} kunlik bonus</b> litsenziya taqdim etdi!\n\n` +
+            `📅 Yangi amal qilish muddati: <b>${formatDate(result.endDate)}</b> gacha\n\n` +
+            `ZAVERO POS tizimidan unumli foydalaning!`,
+            {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
+              ]),
+            }
+          );
+        } catch (_) { }
+
+        return await ctx.replyWithHTML(
+          `✅ <b>Bonus muvaffaqiyatli berildi!</b>\n\n` +
+          `👤 Mijoz ID: <code>${targetId}</code>\n` +
+          `🎁 Qo‘shilgan kunlar: <b>+${bonusDays} kun</b>\n` +
+          `📅 Yangi tugash vaqti: <b>${formatDate(result.endDate)}</b>`,
+          Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+        );
+      } catch (err) {
+        console.error('admin_grant_bonus xatosi:', err);
+        return ctx.reply('Xatolik: ' + err.message);
+      }
     });
 
     // Action: Logout
@@ -1747,15 +2087,15 @@ const initTelegramBot = () => {
 
         const successText = isTrial
           ? `🎁 <b>Mijozga 1 kunlik sinov muvaffaqiyatli berildi!</b>\n\n` +
-            `👤 Mijoz ID: <code>${targetId}</code>\n` +
-            `⏳ Muddat: <b>1 kun (24 soat)</b>\n` +
-            `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
-            `<i>Mijozga avtomatik ravishda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`
+          `👤 Mijoz ID: <code>${targetId}</code>\n` +
+          `⏳ Muddat: <b>1 kun (24 soat)</b>\n` +
+          `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
+          `<i>Mijozga avtomatik ravishda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`
           : `✅ <b>Mijozga muvaffaqiyatli ruxsat berildi!</b>\n\n` +
-            `👤 Mijoz ID: <code>${targetId}</code>\n` +
-            `⏳ Muddat: <b>${days} kun</b>\n` +
-            `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
-            `<i>Mijozga avtomatik ravishda tasdiqlash xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`;
+          `👤 Mijoz ID: <code>${targetId}</code>\n` +
+          `⏳ Muddat: <b>${days} kun</b>\n` +
+          `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
+          `<i>Mijozga avtomatik ravishda tasdiqlash xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`;
 
         return ctx.replyWithHTML(successText);
       } catch (err) {
@@ -2099,6 +2439,181 @@ const initTelegramBot = () => {
           return await ctx.replyWithHTML(cardText, Markup.inlineKeyboard(buttons));
         }
 
+        // 4. Admin Settings Interactive Text Inputs (Cancel handler)
+        if (isAdmin && userState && text.toLowerCase() === '/cancel') {
+          adminState.delete(telegramId);
+          return await ctx.replyWithHTML(
+            'Amal bekor qilindi.',
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+          );
+        }
+
+        // 4.1 Card number & holder
+        if (isAdmin && userState && userState.waitingFor === 'admin_input_card') {
+          adminState.delete(telegramId);
+          const digitsOnly = text.replace(/\D/g, '');
+          let cardNum = text;
+          let cardHolder = 'ZAVERO POS';
+
+          if (digitsOnly.length >= 16) {
+            const raw = digitsOnly.slice(0, 16);
+            cardNum = `${raw.slice(0, 4)} ${raw.slice(4, 8)} ${raw.slice(8, 12)} ${raw.slice(12, 16)}`;
+            const remaining = text.replace(/\d/g, '').replace(/[-_]/g, '').trim();
+            if (remaining.length > 2) cardHolder = remaining;
+          }
+
+          await db.query(
+            `INSERT INTO bot_settings (key, value, updated_at)
+             VALUES ('card_number', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+            [cardNum]
+          );
+
+          if (cardHolder && cardHolder !== 'ZAVERO POS') {
+            await db.query(
+              `INSERT INTO bot_settings (key, value, updated_at)
+               VALUES ('card_holder', $1, CURRENT_TIMESTAMP)
+               ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+              [cardHolder]
+            );
+          }
+
+          return await ctx.replyWithHTML(
+            `✅ <b>Karta ma’lumotlari muvaffaqiyatli saqlandi!</b>\n\n` +
+            `💳 Karta: <code>${cardNum}</code>\n` +
+            `👤 Egasi: <b>${cardHolder}</b>`,
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+          );
+        }
+
+        // 4.2 Phone / Contact
+        if (isAdmin && userState && userState.waitingFor === 'admin_input_phone') {
+          adminState.delete(telegramId);
+          await db.query(
+            `INSERT INTO bot_settings (key, value, updated_at)
+             VALUES ('admin_contact', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+            [text]
+          );
+
+          return await ctx.replyWithHTML(
+            `✅ <b>Aloqa ma’lumoti yangilandi!</b>\n\n` +
+            `📞 Aloqa: <code>${text}</code>`,
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+          );
+        }
+
+        // 4.3 Subscription Price
+        if (isAdmin && userState && userState.waitingFor === 'admin_input_price') {
+          adminState.delete(telegramId);
+          const priceNum = parseInt(text.replace(/\D/g, ''), 10);
+          if (isNaN(priceNum) || priceNum <= 0) {
+            return ctx.reply('Iltimos, to‘g‘ri summa kiriting (faqat raqamlar).');
+          }
+
+          await db.query(
+            `INSERT INTO bot_settings (key, value, updated_at)
+             VALUES ('subscription_price', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+            [String(priceNum)]
+          );
+
+          return await ctx.replyWithHTML(
+            `✅ <b>1 oylik narx yangilandi!</b>\n\n` +
+            `💰 Yangi narx: <b>${formatSum(priceNum)} so‘m</b>`,
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+          );
+        }
+
+        // 4.4 Channel 1
+        if (isAdmin && userState && userState.waitingFor === 'admin_input_ch1') {
+          adminState.delete(telegramId);
+          const ch1 = text.startsWith('@') ? text : `@${text}`;
+          await db.query(
+            `INSERT INTO bot_settings (key, value, updated_at)
+             VALUES ('required_channel_1', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+            [ch1]
+          );
+
+          return await ctx.replyWithHTML(
+            `✅ <b>1-Kanal sozlamasi yangilandi!</b>\n\n` +
+            `📢 Kanal: <code>${ch1}</code>`,
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+          );
+        }
+
+        // 4.5 Channel 2
+        if (isAdmin && userState && userState.waitingFor === 'admin_input_ch2') {
+          adminState.delete(telegramId);
+          const ch2 = text.startsWith('@') ? text : `@${text}`;
+          await db.query(
+            `INSERT INTO bot_settings (key, value, updated_at)
+             VALUES ('required_channel_2', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+            [ch2]
+          );
+
+          return await ctx.replyWithHTML(
+            `✅ <b>2-Kanal sozlamasi yangilandi!</b>\n\n` +
+            `📢 Kanal: <code>${ch2}</code>`,
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+          );
+        }
+
+        // 4.6 Admin Password
+        if (isAdmin && userState && userState.waitingFor === 'admin_input_pass') {
+          adminState.delete(telegramId);
+          await db.query(
+            `INSERT INTO bot_settings (key, value, updated_at)
+             VALUES ('admin_password', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+            [text]
+          );
+
+          return await ctx.replyWithHTML(
+            `✅ <b>Admin paroli muvaffaqiyatli yangilandi!</b>`,
+            Markup.inlineKeyboard([[Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')]])
+          );
+        }
+
+        // 4.7 Bonus Days ID input
+        if (isAdmin && userState && userState.waitingFor === 'admin_input_bonus_id') {
+          adminState.delete(telegramId);
+          const targetId = parseInt(text.trim(), 10);
+          if (isNaN(targetId)) {
+            return ctx.reply('Noto‘g‘ri ID kiritildi. Iltimos, faqat raqamlardan iborat Telegram ID kiriting.');
+          }
+
+          const userRes = await db.query('SELECT * FROM telegram_users WHERE telegram_id = $1', [targetId]);
+          const u = userRes.rows[0];
+          const sub = await getUserSubscription(targetId);
+
+          const bonusText =
+            `🎁 <b>MIJOZGA BONUS KUN BERISH</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `👤 Mijoz: <b>${u ? `${u.first_name || ''} ${u.last_name || ''}` : 'Mijoz'}</b>\n` +
+            `Username: @${u?.username || 'yo‘q'}\n` +
+            `🆔 ID: <code>${targetId}</code>\n` +
+            `Holati: ${sub ? `🟢 Faol (${sub.daysRemaining} kun qoldi)` : '🔴 Faol emas'}\n` +
+            `━━━━━━━━━━━━━━━━━━━\n\n` +
+            `Ushbu mijozga necha kun bonus bermoqchisiz?`;
+
+          const bonusButtons = [
+            [
+              Markup.button.callback('🎁 +7 kun bonus', `admin_grant_bonus_${targetId}_7`),
+              Markup.button.callback('🎁 +15 kun bonus', `admin_grant_bonus_${targetId}_15`),
+            ],
+            [
+              Markup.button.callback('🎁 +30 kun bonus', `admin_grant_bonus_${targetId}_30`),
+              Markup.button.callback('🎁 +60 kun bonus', `admin_grant_bonus_${targetId}_60`),
+            ],
+            [Markup.button.callback('⬅️ Sozlamalarga qaytish', 'admin_settings_view')],
+          ];
+
+          return await ctx.replyWithHTML(bonusText, Markup.inlineKeyboard(bonusButtons));
+        }
+
         // 3. Regular user text fallback
         const activeSub = await getUserSubscription(telegramId);
         const webAppUrl = getWebAppUrl();
@@ -2126,7 +2641,7 @@ const initTelegramBot = () => {
     });
 
     // Boshlang'ich bloklangan spammerlar ro'yxatini bazadan xotiraga yuklash
-    loadBlockedSpammersFromDb().catch(() => {});
+    loadBlockedSpammersFromDb().catch(() => { });
 
     // Launch polling if in standalone/dev, or webhook will handle it in Express
     const webhookDomain = process.env.RENDER_EXTERNAL_URL || process.env.WEBHOOK_URL;
@@ -2146,7 +2661,7 @@ const initTelegramBot = () => {
           await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch((e) => {
             console.warn('⚠️ [Telegram Bot] deleteWebhook ogohlantirishi:', e.message);
           });
-        } catch (_) {}
+        } catch (_) { }
 
         const runLaunch = async () => {
           try {
@@ -2157,8 +2672,8 @@ const initTelegramBot = () => {
             // 409 Conflict yoki tarmoq xatosida avtomatik 4 soniyadan so'ng qayta ulanadi
             setTimeout(async () => {
               try {
-                await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-              } catch (_) {}
+                await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => { });
+              } catch (_) { }
               console.log('🔄 [Telegram Bot] Polling qayta ulanmoqda (Supervisor Auto-Restart)...');
               runLaunch();
             }, 4000);
@@ -2211,7 +2726,7 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
           recipientIds.add(String(sData.telegramChatId || sData.telegramNotificationId).trim());
         }
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Ushbu cafeId ga biriktirilgan xodimlarning telegram_id bo'lsa
     try {
@@ -2222,7 +2737,7 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
       for (const u of usersRes.rows) {
         if (u.telegram_id) recipientIds.add(String(u.telegram_id).trim());
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 3. Ushbu kafe egasi (owner_email yoki owner_name) telegram_users da bo'lsa
     try {
@@ -2236,7 +2751,7 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
       for (const row of cafeOwnerRes.rows) {
         if (row.telegram_id) recipientIds.add(String(row.telegram_id).trim());
       }
-    } catch (_) {}
+    } catch (_) { }
 
     if (recipientIds.size === 0) {
       return;
@@ -2249,7 +2764,7 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
       if (cRes.rows.length > 0 && cRes.rows[0].cafe_name) {
         cafeName = cRes.rows[0].cafe_name;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const tableLabel = order.type === 'delivery'
       ? `Dastavka (${order.deliveryAddress || "Manzil yo'q"})`
