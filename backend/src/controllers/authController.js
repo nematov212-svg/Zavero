@@ -163,7 +163,7 @@ const login = async (req, res) => {
       token,
       user: toClientUser(user),
       isBlocked,
-      isExpired, 
+      isExpired,
       cafe: {
         id: user.cafe_id,
         name: user.cafe_name || '',
@@ -424,7 +424,7 @@ const telegramVerify = async (req, res) => {
           if (dbAdminRes.rows.length > 0 && dbAdminRes.rows[0].value) {
             isDbAdmin = dbAdminRes.rows[0].value.split(',').map(s => s.trim()).includes(tgIdStr);
           }
-        } catch (e) {}
+        } catch (e) { }
 
         if (adminUsernames.includes(username) || adminIds.includes(tgIdStr) || isDbAdmin || tgIdStr === '8413914382' || tgIdStr === '8873925517' || tgIdStr === '8989763161') {
           hasActiveSubscription = true;
@@ -446,7 +446,7 @@ const telegramVerify = async (req, res) => {
       hasActiveSubscription,
       subscription: subscriptionInfo,
       message: hasActiveSubscription
-        ? 'Telegram WebApp maʼlumotlari va faol obuna tasdiqlandi'
+        ? 'Telegram WebApp ma`lumotlari va faol obuna tasdiqlandi'
         : 'Obuna faol emas yoki muddati tugagan. Iltimos, Telegram botimiz orqali to‘lovni amalga oshiring.',
     });
   } catch (error) {

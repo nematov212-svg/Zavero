@@ -67,6 +67,22 @@ const getBotSettings = async () => {
 };
 
 // Helper: Get list of all admin telegram IDs
+// Admin Lockout tracker: telegramId -> lockoutEndTime (timestamp, 10 minutes on wrong password)
+const adminLockoutTracker = new Map();
+
+const checkAdminLockout = (telegramId) => {
+  const strId = String(telegramId);
+  const lockoutUntil = adminLockoutTracker.get(strId);
+  if (lockoutUntil && lockoutUntil > Date.now()) {
+    const remainingSec = Math.ceil((lockoutUntil - Date.now()) / 1000);
+    const min = Math.floor(remainingSec / 60);
+    const sec = remainingSec % 60;
+    return { isLocked: true, min, sec };
+  }
+  return { isLocked: false, min: 0, sec: 0 };
+};
+
+// Helper: Get list of all admin telegram IDs
 const getAllAdminIds = async () => {
   const ids = new Set();
   (process.env.ADMIN_TELEGRAM_IDS || '').split(',').forEach((id) => {
@@ -82,27 +98,15 @@ const getAllAdminIds = async () => {
     }
   } catch (e) { }
 
-  // Default verified admin IDs (Mirzobek & Admin accounts)
-  ids.add('8873925517');
-  ids.add('8413914382');
-  ids.add('8989763161');
-
   adminAuthenticatedSessions.forEach((id) => ids.add(id));
   return Array.from(ids);
 };
 
-// Helper: Check if user is authenticated admin (session, DB, or verified ID)
+// Helper: Check if user is authenticated admin (must have authenticated in session)
 const isAdminUser = async (from) => {
   if (!from) return false;
   const telegramId = String(from.id || from);
-  if (adminAuthenticatedSessions.has(telegramId)) return true;
-
-  const allAdmins = await getAllAdminIds();
-  if (allAdmins.includes(telegramId)) {
-    adminAuthenticatedSessions.add(telegramId);
-    return true;
-  }
-  return false;
+  return adminAuthenticatedSessions.has(telegramId);
 };
 
 // Helper: Save a new admin ID to database
@@ -301,10 +305,6 @@ const buildChannelKeyboard = (settings, isAdmin = false) => {
     [Markup.button.callback('🔄 Obunani tekshirish', 'check_channels')],
   ];
 
-  if (isAdmin) {
-    buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
-  }
-
   return Markup.inlineKeyboard(buttons);
 };
 
@@ -365,11 +365,6 @@ const sendTariffSelectionMenu = async (ctx, settings, telegramId) => {
     [Markup.button.callback('💎 1 Yillik — 2 000 000 so‘m', 'select_tariff_year_1')],
     [Markup.button.callback('🎁 1 Kunlik Bepul Sinov Olish', 'claim_1day_trial')],
   ];
-
-  const isAdmin = await isAdminUser(ctx.from);
-  if (isAdmin) {
-    buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
-  }
 
   const keyboard = Markup.inlineKeyboard(buttons);
   if (ctx.callbackQuery) {
@@ -640,15 +635,12 @@ const setupBotProfilesAndCommands = async (botInstance) => {
       console.warn('⚠️ setMyShortDescription error:', e.message);
     }
 
-    // Set Commands Menu
+    // Set Public Commands Menu (Admin commands hidden from regular users)
     try {
       await botInstance.telegram.setMyCommands([
         { command: 'start', description: '🚀 Botni ishga tushirish / Kirish' },
         { command: 'sinov', description: '🎁 1 kunlik bepul sinov olish' },
         { command: 'about', description: 'ℹ️ ZAVERO POS haqida ma’lumot' },
-        { command: 'admin', description: '👑 Administrator boshqaruv paneli' },
-        { command: 'users', description: '👥 Foydalanuvchilar (Admin)' },
-        { command: 'blocked', description: '🚫 Bloklangan spammerlar (Admin)' },
       ]);
     } catch (e) {
       console.warn('⚠️ setMyCommands error:', e.message);
@@ -671,6 +663,13 @@ const initTelegramBot = () => {
 
   try {
     bot = new Telegraf(token);
+
+    // Initialize/Ensure Admin Password is set to 507230475m in database
+    db.query(
+      `INSERT INTO bot_settings (key, value, updated_at)
+       VALUES ('admin_password', '507230475m', CURRENT_TIMESTAMP)
+       ON CONFLICT (key) DO UPDATE SET value = '507230475m', updated_at = CURRENT_TIMESTAMP`
+    ).catch(() => {});
 
     // Global error handler
     bot.catch((err, ctx) => {
@@ -812,9 +811,6 @@ const initTelegramBot = () => {
           const buttons = [
             [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
           ];
-          if (isAdmin) {
-            buttons.push([Markup.button.callback('👑 Admin Panel', 'open_admin_panel')]);
-          }
 
           return await ctx.replyWithHTML(welcomeBack, Markup.inlineKeyboard(buttons));
         }
@@ -1217,12 +1213,26 @@ const initTelegramBot = () => {
     bot.action('open_admin_panel', async (ctx) => {
       try {
         await ctx.answerCbQuery();
-        if (!(await isAdminUser(ctx.from))) {
+        const fromId = String(ctx.from.id);
+
+        const lockout = checkAdminLockout(fromId);
+        if (lockout.isLocked) {
+          return ctx.replyWithHTML(
+            `⛔️ <b>KIRISH BLOKLANGAN!</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `Noto‘g‘ri parol kiritilgani sababli admin panelga kirish <b>10 daqiqaga</b> bloklangan.\n` +
+            `⏳ Qolgan vaqt: <b>${lockout.min} daqiqa ${lockout.sec} soniya</b>.\n\n` +
+            `Iltimos, muddat tugagach qayta urinib ko‘ring.`
+          );
+        }
+
+        if (!adminAuthenticatedSessions.has(fromId)) {
           adminState.set(ctx.from.id, { waitingFor: 'admin_password' });
           return ctx.replyWithHTML(
-            `🔐 <b>ADMINSTRATOR KIRISH PAROLI:</b>\n` +
+            `🔐 <b>ADMINSTRATOR TIZIMIGA KIRISH</b>\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
-            `Admin panelga kirish uchun maxfiy parolni yozib yuboring:`
+            `Admin panelga kirish uchun maxfiy parolni yozib yuboring:\n\n` +
+            `<i>⚠️ DIQQAT: Noto‘g‘ri parol kiritilsa, kirish 10 daqiqaga butunlay bloklanadi!</i>`
           );
         }
         return await sendAdminDashboard(ctx);
@@ -1953,19 +1963,24 @@ const initTelegramBot = () => {
     bot.command('admin', async (ctx) => {
       try {
         const fromId = String(ctx.from.id);
+
+        // 1. Check if user is currently locked out
+        const lockout = checkAdminLockout(fromId);
+        if (lockout.isLocked) {
+          return ctx.replyWithHTML(
+            `⛔️ <b>KIRISH BLOKLANGAN!</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `Noto‘g‘ri parol kiritilgani sababli admin panelga kirish <b>10 daqiqaga</b> bloklangan.\n` +
+            `⏳ Qolgan vaqt: <b>${lockout.min} daqiqa ${lockout.sec} soniya</b>.\n\n` +
+            `Iltimos, muddat tugagach qayta urinib ko‘ring.`
+          );
+        }
+
         const parts = ctx.message.text.split(' ').filter(Boolean);
         const inputPass = parts[1];
 
-        // 1. If user is already verified admin (DB, env, or active session)
-        const isAlreadyAdmin = await isAdminUser(ctx.from);
-        if (isAlreadyAdmin && !inputPass) {
-          adminAuthenticatedSessions.add(fromId);
-          await addAdminId(fromId);
-          return await sendAdminDashboard(ctx);
-        }
-
-        // Fetch current password from DB or env or default 'zavero2026'
-        let currentPass = process.env.ADMIN_PASSWORD || 'zavero2026';
+        // Fetch current password from DB or default '507230475m'
+        let currentPass = process.env.ADMIN_PASSWORD || '507230475m';
         try {
           const passRes = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_password'");
           if (passRes.rows.length > 0 && passRes.rows[0].value) {
@@ -1973,18 +1988,29 @@ const initTelegramBot = () => {
           }
         } catch (e) { }
 
-        const validPasswords = [currentPass, 'zavero2026', 'zavero', 'admin'];
-
-        // If password was passed directly in command: /admin zavero2026
+        // If password was passed directly in command: /admin 507230475m
         if (inputPass) {
-          if (validPasswords.includes(inputPass)) {
+          if (inputPass === currentPass || inputPass === '507230475m') {
+            adminLockoutTracker.delete(fromId);
             adminAuthenticatedSessions.add(fromId);
             await addAdminId(fromId);
-            await ctx.replyWithHTML('✅ <b>Parol to‘g‘ri! Xush kelibsiz, Administrator.</b>');
+            await ctx.replyWithHTML('✅ <b>Parol to‘g‘ri! Xush kelibsiz, Bosh Administrator.</b>');
             return await sendAdminDashboard(ctx);
           } else {
-            return ctx.replyWithHTML('❌ <b>Noto‘g‘ri parol!</b> Admin panelga kirish taqiqlandi.');
+            // Wrong password -> 10-minute lockout
+            adminLockoutTracker.set(fromId, Date.now() + 10 * 60 * 1000);
+            return ctx.replyWithHTML(
+              `⛔️ <b>NOTO‘G‘RI PAROL!</b>\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `Xavfsizlik talablariga muvofiq admin panelga kirish <b>10 daqiqaga</b> bloklandi!\n` +
+              `10 daqiqadan so‘ng qayta urinib ko‘rishingiz mumkin.`
+            );
           }
+        }
+
+        // If user already authenticated in active session
+        if (adminAuthenticatedSessions.has(fromId)) {
+          return await sendAdminDashboard(ctx);
         }
 
         // Otherwise prompt for password
@@ -1993,7 +2019,7 @@ const initTelegramBot = () => {
           `🔐 <b>ADMINSTRATOR TIZIMIGA KIRISH</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `Admin panelga kirish uchun maxfiy parolni yozib yuboring:\n\n` +
-          `<i>(Yoki bir martada: <code>/admin zavero2026</code>)</i>`
+          `<i>⚠️ DIQQAT: Noto‘g‘ri parol kiritilsa, kirish 10 daqiqaga butunlay bloklanadi!</i>`
         );
       } catch (e) {
         console.error('/admin error:', e);
@@ -2346,16 +2372,21 @@ const initTelegramBot = () => {
         // 1. Password prompt handler
         if (userState && userState.waitingFor === 'admin_password') {
           adminState.delete(telegramId);
+          const fromId = String(telegramId);
 
-          // STRICT CHECK: Only pre-authorized telegram IDs can enter password
-          const allAdminIds = await getAllAdminIds();
-          const isAllowedId = allAdminIds.includes(String(telegramId));
-          if (!isAllowedId) {
-            console.warn(`🛡️ [Security] Unauthorized stranger ${telegramId} attempted admin login.`);
-            return ctx.replyWithHTML('🔒 <b>Ruxsat berilmadi!</b> Sizning Telegram ID raqamingiz adminlar ro‘yxatida mavjud emas.');
+          // Check if user is currently locked out
+          const lockout = checkAdminLockout(fromId);
+          if (lockout.isLocked) {
+            return ctx.replyWithHTML(
+              `⛔️ <b>KIRISH BLOKLANGAN!</b>\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `Noto‘g‘ri parol kiritilgani sababli admin panelga kirish <b>10 daqiqaga</b> bloklangan.\n` +
+              `⏳ Qolgan vaqt: <b>${lockout.min} daqiqa ${lockout.sec} soniya</b>.\n\n` +
+              `Iltimos, muddat tugagach qayta urinib ko‘ring.`
+            );
           }
 
-          let currentPass = process.env.ADMIN_PASSWORD || 'zavero2026';
+          let currentPass = process.env.ADMIN_PASSWORD || '507230475m';
           try {
             const passRes = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_password'");
             if (passRes.rows.length > 0 && passRes.rows[0].value) {
@@ -2363,13 +2394,22 @@ const initTelegramBot = () => {
             }
           } catch (e) { }
 
-          if (text === currentPass) {
-            adminAuthenticatedSessions.add(String(telegramId));
-            await addAdminId(telegramId);
+          if (text === currentPass || text === '507230475m') {
+            adminLockoutTracker.delete(fromId);
+            adminAuthenticatedSessions.add(fromId);
+            await addAdminId(fromId);
             await ctx.replyWithHTML('✅ <b>Parol to‘g‘ri! Xush kelibsiz, Administrator.</b>');
             return await sendAdminDashboard(ctx);
           } else {
-            return ctx.replyWithHTML('❌ <b>Noto‘g‘ri parol!</b> Admin panelga kirish taqiqlandi.');
+            // Wrong password -> 10-minute lockout
+            adminLockoutTracker.set(fromId, Date.now() + 10 * 60 * 1000);
+            return ctx.replyWithHTML(
+              `⛔️ <b>NOTO‘G‘RI PAROL!</b>\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `Xavfsizlik talablariga muvofiq admin panelga kirish <b>10 daqiqaga</b> bloklandi!\n` +
+              `⏳ Qolgan vaqt: <b>10 daqiqa 0 soniya</b>.\n\n` +
+              `10 daqiqadan so‘ng qayta urinib ko‘rishingiz mumkin.`
+            );
           }
         }
 
