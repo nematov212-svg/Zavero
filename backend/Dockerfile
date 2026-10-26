@@ -29,5 +29,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -f http://127.0.0.1:${PORT}/api/health || exit 1
 
-# Start command: safe idempotent DB migration first, then start Node.js server
-CMD ["sh", "-c", "node src/migrations/migrate.js && npm start"]
+# Start command: server.js automatically runs migrations and starts listening on 0.0.0.0:PORT
+CMD ["npm", "start"]
