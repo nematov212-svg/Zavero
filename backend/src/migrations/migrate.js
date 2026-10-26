@@ -129,11 +129,8 @@ if (require.main === module) {
       await runMigrations();
     } catch (e) {
       console.error('Migration error:', e);
-    } finally {
-      try {
-        if (db.pool) await db.pool.end();
-      } catch (_) {}
-      setTimeout(() => process.exit(0), 50);
     }
+    // Migratsiyadan so'ng darhol Zavero SaaS serverini ishga tushirish
+    require('../server');
   })();
 }
