@@ -124,8 +124,16 @@ module.exports = { runMigrations, seedDirectorAndDefaults };
 
 if (require.main === module) {
   (async () => {
-    await db.initDb();
-    await runMigrations();
-    process.exit(0);
+    try {
+      await db.initDb();
+      await runMigrations();
+    } catch (e) {
+      console.error('Migration error:', e);
+    } finally {
+      try {
+        if (db.pool) await db.pool.end();
+      } catch (_) {}
+      setTimeout(() => process.exit(0), 50);
+    }
   })();
 }
