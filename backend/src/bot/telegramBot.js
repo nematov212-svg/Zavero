@@ -2693,14 +2693,18 @@ const initTelegramBot = () => {
     loadBlockedSpammersFromDb().catch(() => { });
 
     // Launch polling if in standalone/dev, or webhook will handle it in Express
+    const isRailway = !!(process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_ENVIRONMENT);
     const webhookDomain = process.env.WEBHOOK_URL ||
       (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null) ||
       process.env.WEBAPP_URL;
-    if (webhookDomain && process.env.USE_BOT_WEBHOOK === 'true') {
+
+    const useWebhook = process.env.USE_BOT_WEBHOOK === 'true' || (isRailway && process.env.USE_BOT_WEBHOOK !== 'false' && !!webhookDomain);
+
+    if (useWebhook && webhookDomain) {
       const webhookPath = '/api/bot/webhook';
       const fullUrl = `${webhookDomain.endsWith('/') ? webhookDomain.slice(0, -1) : webhookDomain}${webhookPath}`;
-      bot.telegram.setWebhook(fullUrl).then(() => {
-        console.log(`🤖 [Telegram Bot] Webhook o‘rnatildi: ${fullUrl}`);
+      bot.telegram.setWebhook(fullUrl, { drop_pending_updates: true }).then(() => {
+        console.log(`🤖 [Telegram Bot] Webhook 100% muvaffaqiyatli o‘rnatildi: ${fullUrl}`);
       }).catch((e) => {
         console.warn('⚠️ [Telegram Bot] Webhook o‘rnatishda xatolik:', e.message);
       });

@@ -50,7 +50,18 @@ app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// Apply General Rate Limiter to all /api endpoints
+// Telegram Bot Webhook endpoint (High-performance handler, bypasses rate limit for Telegram servers)
+app.post('/api/bot/webhook', (req, res) => {
+  const bot = getBotInstance();
+  if (bot && req.body) {
+    bot.handleUpdate(req.body).catch((e) => {
+      console.warn('⚠️ [Telegram Bot] Webhook update xatoligi:', e.message);
+    });
+  }
+  return res.sendStatus(200);
+});
+
+// Apply General Rate Limiter to all other /api endpoints
 app.use('/api', generalApiLimiter);
 
 // Serve uploaded product images (cached for 30 days so browser keeps them offline)
@@ -147,15 +158,6 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/sync', syncRoutes);
-
-// Telegram Bot Webhook endpoint (if using webhooks)
-app.post('/api/bot/webhook', (req, res) => {
-  const bot = getBotInstance();
-  if (bot) {
-    return bot.webhookCallback('/api/bot/webhook')(req, res);
-  }
-  return res.sendStatus(200);
-});
 
 // 404 for unhandled API routes
 app.use('/api', (req, res) => {
