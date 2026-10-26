@@ -16,7 +16,7 @@ const uploadImage = async (req, res) => {
     const id = result.rows[0].id;
     const rawProto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : req.protocol);
     const host = req.get('host') || '';
-    const scheme = (host.includes('onrender.com') || rawProto === 'https') ? 'https' : rawProto;
+    const scheme = (host.includes('railway.app') || rawProto === 'https') ? 'https' : rawProto;
     const url = process.env.APP_URL
       ? `${process.env.APP_URL.replace(/\/$/, '')}/api/upload/${id}`
       : `${scheme}://${host}/api/upload/${id}`;

@@ -170,6 +170,7 @@ CREATE INDEX IF NOT EXISTS idx_receipts_cafe_date ON receipts(cafe_id, date DESC
 CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_idempotency ON receipts(cafe_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 -- 10. CUSTOMER ORDERS
+
 CREATE TABLE IF NOT EXISTS customer_orders (
     id SERIAL PRIMARY KEY,
     cafe_id VARCHAR(64) NOT NULL,

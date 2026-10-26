@@ -33,7 +33,11 @@ const formatDate = (date) => {
 
 // Helper: Get Base WebApp URL (Full ZAVERO POS app)
 const getWebAppUrl = () => {
-  const url = process.env.WEBAPP_URL || process.env.RENDER_EXTERNAL_URL || 'https://zavero-jrna.onrender.com';
+  let url = process.env.WEBAPP_URL;
+  if (!url && process.env.RAILWAY_PUBLIC_DOMAIN) {
+    url = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  }
+  url = url || 'https://app.zavero.uz';
   return url.endsWith('/') ? url : `${url}/`;
 };
 
@@ -535,7 +539,7 @@ const isSpamOrAdMessage = (message) => {
       clean.includes('payme.uz') ||
       clean.includes('paycom.uz') ||
       clean.includes('paynet.uz') ||
-      clean.includes('onrender.com')
+      clean.includes('railway.app')
     );
   };
 
@@ -654,6 +658,11 @@ const setupBotProfilesAndCommands = async (botInstance) => {
 
 // Initialize Bot logic
 const initTelegramBot = () => {
+  if (process.env.DISABLE_TELEGRAM_BOT === 'true') {
+    console.log('ℹ️ [Telegram Bot] DISABLE_TELEGRAM_BOT=true sozlangani sababli bot ishga tushirilmadi (Render va Railway nusxalari to‘qnashuvini oldini olish uchun).');
+    return null;
+  }
+
   const token = process.env.TELEGRAM_BOT_TOKEN || '8838017721:AAHMXwe9rX_6ERecTM9fHKX0ctsG6b-HOK0';
 
   if (!token) {
@@ -2684,7 +2693,9 @@ const initTelegramBot = () => {
     loadBlockedSpammersFromDb().catch(() => { });
 
     // Launch polling if in standalone/dev, or webhook will handle it in Express
-    const webhookDomain = process.env.RENDER_EXTERNAL_URL || process.env.WEBHOOK_URL;
+    const webhookDomain = process.env.WEBHOOK_URL ||
+      (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null) ||
+      process.env.WEBAPP_URL;
     if (webhookDomain && process.env.USE_BOT_WEBHOOK === 'true') {
       const webhookPath = '/api/bot/webhook';
       const fullUrl = `${webhookDomain.endsWith('/') ? webhookDomain.slice(0, -1) : webhookDomain}${webhookPath}`;

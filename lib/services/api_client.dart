@@ -34,7 +34,7 @@ class ApiClient {
   static const _tokenKey = 'zavero_auth_token';
   static const _userKey = 'zavero_current_user';
 
-  /// Backend serverless / cloud manzili (Render: https://zavero-jrna.onrender.com/api).
+  /// Backend bulut API manzili
   /// --dart-define=API_BASE_URL=... orqali o'zgartirish mumkin.
   
   static String _defaultBaseUrl() {
@@ -43,15 +43,12 @@ class ApiClient {
     if (kIsWeb) {
       try {
         final origin = Uri.base.origin;
-        if (origin.contains('localhost:3000') || origin.contains('127.0.0.1:3000')) {
-          return '$origin/api';
-        }
-        if (origin.contains('onrender.com')) {
+        if (origin.isNotEmpty && !origin.startsWith('file:')) {
           return '$origin/api';
         }
       } catch (_) {}
     }
-    return 'https://zavero-jrna.onrender.com/api';
+    return 'https://app.zavero.uz/api';
   }
 
   late Dio _dio;
@@ -131,7 +128,7 @@ class ApiClient {
         final prefs = await SharedPreferences.getInstance();
         final savedUrl = prefs.getString('custom_api_base_url');
         if (savedUrl != null && savedUrl.isNotEmpty) {
-          if (savedUrl.contains('family-cafe-backend-eu.onrender.com') ||
+          if (savedUrl.contains('onrender.com') ||
               savedUrl.contains('localhost:3000') ||
               savedUrl.contains('10.0.2.2:3000')) {
             await prefs.remove('custom_api_base_url');

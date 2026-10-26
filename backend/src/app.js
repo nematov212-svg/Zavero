@@ -124,6 +124,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'zavero-backend', time: new Date().toISOString() });
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', service: 'zavero-backend', time: new Date().toISOString() });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/director', directorRoutes);
 app.use('/api/devices', deviceRoutes);

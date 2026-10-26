@@ -18,11 +18,14 @@ const io = new Server(server, {
 });
 initSocket(io);
 
-// Keep-Alive Self-Ping: Render kabi bepul serverlar 15 daqiqada uyquga ketmasligi uchun har 10 minutda ping yuboradi
+// Keep-Alive Self-Ping: Server 24/7 uyquga ketmasligi uchun ping yuboradi
 const startKeepAlivePing = () => {
-  const url = process.env.RENDER_EXTERNAL_URL || process.env.SELF_PING_URL;
+  let url = process.env.SELF_PING_URL || process.env.WEBAPP_URL;
+  if (!url && process.env.RAILWAY_PUBLIC_DOMAIN) {
+    url = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  }
   if (!url) {
-    console.log('💡 Keep-alive ping: RENDER_EXTERNAL_URL sozlanmagan, ichki timer faol.');
+    console.log('💡 Keep-alive ping: URL sozlanmagan, ichki timer faol.');
     return;
   }
 

@@ -55,7 +55,7 @@ const saveOrder = async (req, res) => {
       const existingOrder = orderRes.rows[0];
 
       if (table.status === 'occupied' && existingOrder && existingOrder.started_by &&
-          existingOrder.started_by !== username && !forceOccupy) {
+        existingOrder.started_by !== username && !forceOccupy) {
         throw Object.assign(new Error('Bu stol hozir band'), { status: 409, code: 'TABLE_BUSY' });
       }
 

@@ -1,0 +1,16 @@
+.git
+.github
+.vscode
+.dart_tool
+android
+ios
+linux
+macos
+windows
+test
+build
+zavero-dart-tool-backup
+zavero-release.apk
+backend/node_modules
+backend/.env
+.DS_Store
