@@ -30,6 +30,16 @@ const app = express();
 
 app.disable('x-powered-by');
 
+// 🛑 Render Decommission: If running on Render, redirect all traffic to Railway
+if (process.env.RENDER) {
+  app.use((req, res, next) => {
+    if (req.path === '/health' || req.path === '/api/health') {
+      return res.status(200).json({ status: 'decommissioned', message: 'Render service has been migrated to Railway' });
+    }
+    return res.redirect(301, `https://zavero-backend-production-7dc9.up.railway.app${req.originalUrl}`);
+  });
+}
+
 app.use(
   helmet({
     crossOriginResourcePolicy: false,

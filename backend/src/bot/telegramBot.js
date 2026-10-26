@@ -658,6 +658,11 @@ const setupBotProfilesAndCommands = async (botInstance) => {
 
 // Initialize Bot logic
 const initTelegramBot = () => {
+  if (process.env.RENDER) {
+    console.log('🛑 [Telegram Bot] Render aniqlandi. Bot Renderda butunlay o‘chirildi (Railwayga ko‘chirilgan).');
+    return null;
+  }
+
   if (process.env.DISABLE_TELEGRAM_BOT === 'true') {
     console.log('ℹ️ [Telegram Bot] DISABLE_TELEGRAM_BOT=true sozlangani sababli bot ishga tushirilmadi (Render va Railway nusxalari to‘qnashuvini oldini olish uchun).');
     return null;

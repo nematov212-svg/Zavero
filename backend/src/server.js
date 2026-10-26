@@ -63,7 +63,12 @@ const start = async () => {
     console.warn('⚠️  DB init xatosi:', dbErr.message);
   }
 
-  // 3. Telegram Botni ishga tushirish
+  // 3. Telegram Botni ishga tushirish (Renderda butunlay o'chirilgan, faqat Railwayda ishlaydi)
+  if (process.env.RENDER) {
+    console.log('🛑 [Render Decommission] Ushbu servis Renderdan Railwayga ko‘chirildi. Renderdagi Telegram Bot va fon vazifalari butunlay to‘xtatildi.');
+    return;
+  }
+
   try {
     initTelegramBot();
   } catch (botErr) {
