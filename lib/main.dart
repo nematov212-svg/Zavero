@@ -256,6 +256,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _socketNewCustomerOrderSub;
   StreamSubscription? _socketReceiptAddedSub;
   StreamSubscription? _socketReportUpdatedSub;
+  StreamSubscription? _settingsSub;
   bool isUnderMaintenance = false;
   Timer? _cartSaveTimer;
   bool isCloudSynced = false;
@@ -326,6 +327,9 @@ class AppState extends ChangeNotifier {
     voiceNotificationEnabled = val;
     SoundService().setVoiceEnabled(val);
     saveData();
+    if (currentCafeId.isNotEmpty) {
+      _cloudService.saveSettings(currentCafeId, {'voiceNotificationEnabled': val});
+    }
     notifyListeners();
   }
 
@@ -1046,6 +1050,21 @@ class AppState extends ChangeNotifier {
           dailyReports.insert(0, rep);
         }
         notifyListeners();
+      }
+    });
+
+    // Real-time sound / voice settings sync across devices and Telegram WebApp
+    _settingsSub?.cancel();
+    _settingsSub = SocketService().on(CafeSocketEvent.settingsUpdated).listen((data) {
+      final s = data['settings'];
+      if (s is Map && s['voiceNotificationEnabled'] != null) {
+        final enabled = s['voiceNotificationEnabled'] == true || s['voiceNotificationEnabled'] == 'true';
+        if (voiceNotificationEnabled != enabled) {
+          voiceNotificationEnabled = enabled;
+          SoundService().setVoiceEnabled(enabled);
+          saveData();
+          notifyListeners();
+        }
       }
     });
 
@@ -3188,7 +3207,10 @@ pw.Document _buildThermalReceiptPdf({
 }) {
   const double widthPt = 80.0 * PdfPageFormat.mm;
   const double marginPt = 3.0 * PdfPageFormat.mm;
-  const format = PdfPageFormat(widthPt, double.infinity, marginAll: marginPt);
+  final double estimatedHeight = 175.0 +
+      (items.length * 15.5) +
+      (appState.receiptQrEnabled ? 90.0 : 0.0);
+  final format = PdfPageFormat(widthPt, estimatedHeight, marginAll: marginPt);
 
   final doc = pw.Document();
   final helvetica = pw.Font.helvetica();
