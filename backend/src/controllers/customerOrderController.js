@@ -24,7 +24,7 @@ const save = async (req, res) => {
            hall_id=$6, delivery_address=$7, status=$8, updated_at=CURRENT_TIMESTAMP
            WHERE id=$9 AND cafe_id=$10 RETURNING *`,
           [JSON.stringify(items || []), customerName || '', phone || '', type || 'dineIn',
-           tableNumber ?? null, hallId ?? null, deliveryAddress ?? null, status || 'pending', id, cafeId]
+          tableNumber ?? null, hallId ?? null, deliveryAddress ?? null, status || 'pending', id, cafeId]
         );
         row = result.rows[0];
       }
@@ -34,7 +34,7 @@ const save = async (req, res) => {
         `INSERT INTO customer_orders (cafe_id, date, items, customer_name, phone, type, table_number, hall_id, delivery_address, status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
         [cafeId, date ? new Date(date) : new Date(), JSON.stringify(items || []), customerName || '',
-         phone || '', type || 'dineIn', tableNumber ?? null, hallId ?? null, deliveryAddress ?? null, status || 'pending']
+          phone || '', type || 'dineIn', tableNumber ?? null, hallId ?? null, deliveryAddress ?? null, status || 'pending']
       );
       row = result.rows[0];
     }
@@ -111,16 +111,42 @@ const getPublicMenu = async (req, res) => {
     }
 
     const realCafeId = cafe.cafe_id;
-    const [catRes, prodRes, settingsRes, tablesRes] = await Promise.all([
-      db.query('SELECT * FROM categories WHERE cafe_id = $1 ORDER BY id ASC', [realCafeId]),
-      db.query('SELECT * FROM products WHERE cafe_id = $1 ORDER BY id ASC', [realCafeId]),
-      db.query('SELECT data FROM settings WHERE cafe_id = $1', [realCafeId]),
-      db.query('SELECT id, number, seats, hall_id, status FROM restaurant_tables WHERE cafe_id = $1 ORDER BY number ASC', [realCafeId]),
-    ]);
+    let catRows = [];
+    let prodRows = [];
+    let settingsRows = [];
+    let tablesRows = [];
+
+    try {
+      const res = await db.query('SELECT * FROM categories WHERE cafe_id = $1 ORDER BY id ASC', [realCafeId]);
+      catRows = res.rows || [];
+    } catch (e) {
+      console.warn('getPublicMenu categories warning:', e.message);
+    }
+
+    try {
+      const res = await db.query('SELECT * FROM products WHERE cafe_id = $1 ORDER BY id ASC', [realCafeId]);
+      prodRows = res.rows || [];
+    } catch (e) {
+      console.warn('getPublicMenu products warning:', e.message);
+    }
+
+    try {
+      const res = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [realCafeId]);
+      settingsRows = res.rows || [];
+    } catch (e) {
+      console.warn('getPublicMenu settings warning:', e.message);
+    }
+
+    try {
+      const res = await db.query('SELECT id, number, seats, hall_id, status FROM restaurant_tables WHERE cafe_id = $1 ORDER BY number ASC', [realCafeId]);
+      tablesRows = res.rows || [];
+    } catch (e) {
+      console.warn('getPublicMenu restaurant_tables warning:', e.message);
+    }
 
     let settings = {};
-    if (settingsRes.rows.length > 0 && settingsRes.rows[0].data) {
-      settings = typeof settingsRes.rows[0].data === 'string' ? JSON.parse(settingsRes.rows[0].data) : settingsRes.rows[0].data;
+    if (settingsRows.length > 0 && settingsRows[0].data) {
+      settings = typeof settingsRows[0].data === 'string' ? JSON.parse(settingsRows[0].data) : settingsRows[0].data;
     }
 
     const resolvedCafeName = cafe.cafe_name || cafe.receipt_name || 'Kafe';
@@ -139,13 +165,13 @@ const getPublicMenu = async (req, res) => {
         servicePercent: settings.servicePercent || 0,
       },
       banners: Array.isArray(settings.promoBanners) ? settings.promoBanners : [],
-      categories: catRes.rows.map(mapCategory),
-      products: prodRes.rows.map(mapProduct),
-      tables: tablesRes.rows,
+      categories: catRows.map(mapCategory),
+      products: prodRows.map(mapProduct),
+      tables: tablesRows,
     });
   } catch (error) {
     console.error('getPublicMenu error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Menyu ma‘lumotlarini yuklashda xatolik yuz berdi.' });
   }
 };
 

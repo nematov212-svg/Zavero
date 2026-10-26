@@ -81,12 +81,14 @@ const saveOrder = async (req, res) => {
 
     notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', {
       tableId,
+      tableNumber: result.number,
       table: mapTable(result),
       items: mapCartItems(items),
       note: note || '',
     });
     notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', {
       tableId,
+      tableNumber: result.number,
       status: 'occupied',
     });
 
@@ -105,18 +107,20 @@ const release = async (req, res) => {
   const cafeId = getTenantCafeId(req);
   const tableId = parseInt(req.params.id, 10);
   try {
+    let releasedTableNumber = null;
     await db.withTransaction(async (client) => {
-      await client.query(
+      const up = await client.query(
         `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL,
-         updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2`,
+         updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING number`,
         [tableId, cafeId]
       );
+      if (up.rows.length > 0) releasedTableNumber = up.rows[0].number;
       await client.query('DELETE FROM table_orders WHERE table_id = $1', [tableId]);
     });
 
-    notifyCafe(cafeId, 'TABLE_RELEASED', { tableId });
-    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, status: 'free' });
-    notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, items: [], note: '' });
+    notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: releasedTableNumber });
+    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: releasedTableNumber, status: 'free' });
+    notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: releasedTableNumber, items: [], note: '' });
     return res.json({ success: true });
   } catch (error) {
     console.error('release error:', error);

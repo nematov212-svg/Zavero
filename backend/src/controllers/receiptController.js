@@ -137,9 +137,9 @@ const checkout = async (req, res) => {
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
     notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow) });
     if (effectiveTableId) {
-      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId });
-      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, status: 'free' });
-      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, items: [], note: '' });
+      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: receipt.tableNumber });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: receipt.tableNumber, status: 'free' });
+      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: receipt.tableNumber, items: [], note: '' });
     }
 
     return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow) });

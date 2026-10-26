@@ -254,6 +254,8 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _socketTableOrderSub;
   StreamSubscription? _socketTableReleasedSub;
   StreamSubscription? _socketNewCustomerOrderSub;
+  StreamSubscription? _socketReceiptAddedSub;
+  StreamSubscription? _socketReportUpdatedSub;
   bool isUnderMaintenance = false;
   Timer? _cartSaveTimer;
   bool isCloudSynced = false;
@@ -957,35 +959,46 @@ class AppState extends ChangeNotifier {
     // REAL-TIME STOLLAR VA OFITSIANT/KAFE SINXRONIZATSIYASI (0-MS)
     // ============================================================
     _socketTableStatusSub?.cancel();
+    _socketTableStatusSub?.cancel();
     _socketTableStatusSub = SocketService().on(CafeSocketEvent.tableStatusUpdated).listen((data) {
       final tId = (data['tableId'] as num?)?.toInt();
+      final tNum = (data['tableNumber'] as num?)?.toInt();
       final st = data['status'] as String?;
-      if (tId != null) {
-        final idx = tables.indexWhere((t) => t.id == tId);
-        if (idx != -1) {
-          tables[idx].status = (st == 'occupied') ? TableStatus.occupied : TableStatus.free;
-          notifyListeners();
+      final isOcc = (st == 'occupied');
+      int idx = -1;
+      if (tId != null) idx = tables.indexWhere((t) => t.id == tId);
+      if (idx == -1 && tNum != null) idx = tables.indexWhere((t) => t.number == tNum);
+      if (idx != -1) {
+        tables[idx].status = isOcc ? TableStatus.occupied : TableStatus.free;
+        if (!isOcc) {
+          tableOrders.remove(tables[idx].id);
+          tableNotes.remove(tables[idx].id);
         }
+        notifyListeners();
       }
     });
 
     _socketTableOrderSub?.cancel();
     _socketTableOrderSub = SocketService().on(CafeSocketEvent.tableOrderUpdated).listen((data) {
       final tId = (data['tableId'] as num?)?.toInt();
-      if (tId != null) {
+      final tNum = (data['tableNumber'] as num?)?.toInt();
+      int idx = -1;
+      if (tId != null) idx = tables.indexWhere((t) => t.id == tId);
+      if (idx == -1 && tNum != null) idx = tables.indexWhere((t) => t.number == tNum);
+
+      if (idx != -1) {
+        final tableKey = tables[idx].id;
         final rawItems = data['items'];
         if (rawItems is List && rawItems.isNotEmpty) {
           final items = rawItems
               .whereType<Map>()
               .map((m) => CartItem.fromJson(Map<String, dynamic>.from(m)))
               .toList();
-          tableOrders[tId] = items;
-          final idx = tables.indexWhere((t) => t.id == tId);
-          if (idx != -1) tables[idx].status = TableStatus.occupied;
+          tableOrders[tableKey] = items;
+          tables[idx].status = TableStatus.occupied;
         } else {
-          tableOrders.remove(tId);
-          final idx = tables.indexWhere((t) => t.id == tId);
-          if (idx != -1) tables[idx].status = TableStatus.free;
+          tableOrders.remove(tableKey);
+          tables[idx].status = TableStatus.free;
         }
         notifyListeners();
       }
@@ -994,10 +1007,44 @@ class AppState extends ChangeNotifier {
     _socketTableReleasedSub?.cancel();
     _socketTableReleasedSub = SocketService().on(CafeSocketEvent.tableReleased).listen((data) {
       final tId = (data['tableId'] as num?)?.toInt();
-      if (tId != null) {
-        tableOrders.remove(tId);
-        final idx = tables.indexWhere((t) => t.id == tId);
-        if (idx != -1) tables[idx].status = TableStatus.free;
+      final tNum = (data['tableNumber'] as num?)?.toInt();
+      int idx = -1;
+      if (tId != null) idx = tables.indexWhere((t) => t.id == tId);
+      if (idx == -1 && tNum != null) idx = tables.indexWhere((t) => t.number == tNum);
+      if (idx != -1) {
+        final tableKey = tables[idx].id;
+        tableOrders.remove(tableKey);
+        tableNotes.remove(tableKey);
+        tables[idx].status = TableStatus.free;
+        notifyListeners();
+      }
+    });
+
+    // Real-time receipts sync across devices and Telegram WebApp
+    _socketReceiptAddedSub?.cancel();
+    _socketReceiptAddedSub = SocketService().on(CafeSocketEvent.receiptAdded).listen((data) {
+      final rRaw = data['receipt'];
+      if (rRaw is Map) {
+        final r = Receipt.fromJson(Map<String, dynamic>.from(rRaw));
+        if (!receipts.any((x) => x.id == r.id)) {
+          receipts.insert(0, r);
+          notifyListeners();
+        }
+      }
+    });
+
+    // Real-time financial reports sync across devices and Telegram WebApp
+    _socketReportUpdatedSub?.cancel();
+    _socketReportUpdatedSub = SocketService().on(CafeSocketEvent.reportUpdated).listen((data) {
+      final repRaw = data['report'];
+      if (repRaw is Map) {
+        final rep = DailyReport.fromJson(Map<String, dynamic>.from(repRaw));
+        final idx = dailyReports.indexWhere((x) => x.dateId == rep.dateId);
+        if (idx != -1) {
+          dailyReports[idx] = rep;
+        } else {
+          dailyReports.insert(0, rep);
+        }
         notifyListeners();
       }
     });
@@ -1146,7 +1193,11 @@ class AppState extends ChangeNotifier {
   /// To'lov/menyu ekranidan stol tanlashga qaytganda sessiyani saqlab tozalaydi
   void leaveOrderSession() {
     if (selectedTable != null && cart.isNotEmpty) {
+      final tId = selectedTable!.id;
+      final savedItems = List<CartItem>.from(cart);
+      final savedNote = selectedTableNote;
       _syncCartToTable();
+      _saveCartRemoteOnly(targetTableId: tId, targetItems: savedItems, targetNote: savedNote);
     }
     _saveCartLocalOnly();
     cart.clear();
@@ -1245,11 +1296,11 @@ class AppState extends ChangeNotifier {
   }
 
   /// Serverga fon rejimida saqlash (tezkor ketma-ket bosishlarni birlashtiradi)
-  Future<void> _saveCartRemoteOnly() async {
-    if (selectedTable == null) return;
-    final tableId = selectedTable!.id;
-    final items = List<CartItem>.from(cart);
-    final note = selectedTableNote;
+  Future<void> _saveCartRemoteOnly({int? targetTableId, List<CartItem>? targetItems, String? targetNote}) async {
+    final tableId = targetTableId ?? selectedTable?.id;
+    if (tableId == null) return;
+    final items = targetItems ?? List<CartItem>.from(cart);
+    final note = targetNote ?? selectedTableNote;
     try {
       if (items.isNotEmpty) {
         await _cloudService.saveTableOrder(

@@ -36,8 +36,9 @@ const initSocket = (io) => {
       console.log(`👤 [Socket.IO] Auto-joined room ${cafeRoom(socket.user.cafeId)}`);
     }
 
-    socket.on('JOIN_CAFE', ({ cafeId, token }) => {
-      let joinCafeId = cafeId;
+    socket.on('JOIN_CAFE', (data) => {
+      let joinCafeId = typeof data === 'string' ? data : (data?.cafeId || data?.id);
+      let token = typeof data === 'object' ? data?.token : null;
       if (token) {
         try {
           const secret = getJwtSecret();
@@ -46,7 +47,7 @@ const initSocket = (io) => {
           if (decoded.role === 'director') {
             socket.join('director_room');
           }
-          joinCafeId = (decoded.role === 'director' ? cafeId : decoded.cafeId) || cafeId;
+          joinCafeId = (decoded.role === 'director' ? (data?.cafeId || joinCafeId) : decoded.cafeId) || joinCafeId;
         } catch (e) {
           console.error('[Socket.IO] JOIN_CAFE token error:', e.message);
         }

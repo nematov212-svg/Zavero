@@ -669,7 +669,7 @@ const initTelegramBot = () => {
       `INSERT INTO bot_settings (key, value, updated_at)
        VALUES ('admin_password', '507230475m', CURRENT_TIMESTAMP)
        ON CONFLICT (key) DO UPDATE SET value = '507230475m', updated_at = CURRENT_TIMESTAMP`
-    ).catch(() => {});
+    ).catch(() => { });
 
     // Global error handler
     bot.catch((err, ctx) => {
@@ -2758,6 +2758,8 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
     // Faqat o'sha QR menyusi skaner qilingan kafe (cafeId) uchun sozlangan Telegram oluvchilarni topish:
     // MUHIM: Director va Bot Administratorlariga SMS yuborilmaydi! Faqat o'sha kafega yuboriladi.
     // 1. Kafe sozlamalarida telegram_chat_id bo'lsa
+
+
     try {
       const settRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
       if (settRes.rows.length > 0 && settRes.rows[0].data) {
