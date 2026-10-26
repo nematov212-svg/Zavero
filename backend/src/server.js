@@ -42,6 +42,14 @@ const startKeepAlivePing = () => {
 };
 
 const start = async () => {
+  // 1. Birinchi navbatda portni tinglash — Railway Healthcheck darhol 200 OK oladi
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 ZAVERO SaaS backend ${PORT}-portda ishga tushdi (0.0.0.0:${PORT})`);
+    console.log(`🔌 Socket.IO real-time sinxronizatsiya faol.`);
+    startKeepAlivePing();
+  });
+
+  // 2. Fonda bazaga ulanish va migratsiyalarni xavfsiz bajarish
   let connected = false;
   try {
     connected = await db.initDb();
@@ -55,18 +63,12 @@ const start = async () => {
     console.warn('⚠️  DB init xatosi:', dbErr.message);
   }
 
-  // Telegram Botni har doim ishga tushirish (DB bo'lmasa ham qotib qolmaydi)
+  // 3. Telegram Botni ishga tushirish
   try {
     initTelegramBot();
   } catch (botErr) {
     console.error('⚠️  Telegram botni ishga tushirishda xatolik:', botErr.message);
   }
-
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 ZAVERO SaaS backend ${PORT}-portda ishga tushdi (0.0.0.0:${PORT})`);
-    console.log(`🔌 Socket.IO real-time sinxronizatsiya faol.`);
-    startKeepAlivePing();
-  });
 };
 
 process.on('uncaughtException', (err) => {
