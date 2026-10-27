@@ -6065,6 +6065,75 @@ void _showReportIssueDialog(BuildContext context) {
 }
 
 // ============================================================
+// ============================================================
+// ANIMATED MENU BUTTON (hamburger → X)
+// ============================================================
+class _AnimatedMenuBtn extends StatefulWidget {
+  final VoidCallback onTap;
+  const _AnimatedMenuBtn({required this.onTap});
+  @override
+  State<_AnimatedMenuBtn> createState() => _AnimatedMenuBtnState();
+}
+
+class _AnimatedMenuBtnState extends State<_AnimatedMenuBtn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _rot;
+  late final Animation<double> _scale;
+  bool _open = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _rot   = Tween<double>(begin: 0, end: 0.375).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _scale = Tween<double>(begin: 1, end: 0.85).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  void _toggle() {
+    setState(() => _open = !_open);
+    _open ? _ctrl.forward() : _ctrl.reverse();
+    widget.onTap();
+    // reset after drawer closes
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) { setState(() => _open = false); _ctrl.reverse(); }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _toggle,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) => Transform.scale(
+          scale: _scale.value,
+          child: Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08 + _ctrl.value * 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12 + _ctrl.value * 0.1), width: 1),
+              boxShadow: _open ? [BoxShadow(color: const Color(0xFFFFB300).withValues(alpha: 0.25), blurRadius: 12, spreadRadius: 1)] : [],
+            ),
+            child: RotationTransition(
+              turns: _rot,
+              child: Icon(
+                _open ? Icons.close_rounded : Icons.menu_rounded,
+                color: _open ? const Color(0xFFFFB300) : Colors.white.withValues(alpha: 0.9),
+                size: 20,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // IMAGE 3 & 4: ANIMATED HEADER LOGO BADGE & GREETING PILL BADGE
 // ============================================================
 class _AnimatedHeaderLogoBadge extends StatefulWidget {
@@ -7003,9 +7072,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               _mobileNavBtn(Icons.history_rounded, 'Cheklar', 2 == _mobileNavIndex,
                                 tiles.length > 2 ? () { setState(() => _mobileNavIndex = 2); tiles[2].onTap(); } : () {},
                               ),
-                              // 4. Menu (drawer)
-                              Builder(builder: (ctx) => _mobileNavBtn(Icons.grid_view_rounded, 'Menu', false, () => Scaffold.of(ctx).openEndDrawer())),
-                              // 5. Profil
+                              // 4. Profil
                               _mobileNavBtn(Icons.person_rounded, 'Profil', 4 == _mobileNavIndex, () {
                                 setState(() => _mobileNavIndex = 4);
                                 Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
@@ -7034,23 +7101,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(width: 10),
                           const Text('ZAVERO POS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5)),
                           const Spacer(),
-                          // Online
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: const Color(0xFF16A34A).withValues(alpha: 0.18), borderRadius: BorderRadius.circular(12)),
-                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.circle, color: Color(0xFF22C55E), size: 7),
-                              SizedBox(width: 4),
-                              Text('Online', style: TextStyle(color: Color(0xFF22C55E), fontSize: 11, fontWeight: FontWeight.w700)),
-                            ]),
-                          ),
-                          const SizedBox(width: 8),
-                          CircleAvatar(
-                            radius: 15,
-                            backgroundColor: const Color(0xFF1A2E45),
-                            child: Text((user?.name ?? 'A').substring(0, 1).toUpperCase(),
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                          ),
+                          // Animated Menu button
+                          Builder(builder: (ctx) => _AnimatedMenuBtn(onTap: () => Scaffold.of(ctx).openEndDrawer())),
                         ]),
                       ),
                     ),
@@ -7079,6 +7131,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 
   Widget _mobileNavBtn(IconData icon, String label, bool active, VoidCallback onTap, {int badge = 0}) {
+
     final activeColor = const Color(0xFFFFB300);
     final inactiveColor = Colors.white.withValues(alpha: 0.45);
     final color = active ? activeColor : inactiveColor;
@@ -17120,103 +17173,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ── Parol o'zgartirish ────────────────────────────
-          _section(
-            icon: Icons.lock_rounded,
-            title: 'Parol o\'zgartirish',
-            children: [
-              _pwField('Joriy parol', _oldPwCtrl, _obscureOld, () => setState(() => _obscureOld = !_obscureOld)),
-              const SizedBox(height: 10),
-              _pwField('Yangi parol', _newPwCtrl, _obscureNew, () => setState(() => _obscureNew = !_obscureNew)),
-              const SizedBox(height: 10),
-              _pwField('Yangi parolni tasdiqlang', _confirmPwCtrl, _obscureConfirm, () => setState(() => _obscureConfirm = !_obscureConfirm)),
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _changingPw ? null : _changePassword,
-                  icon: _changingPw
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.save_rounded, size: 18),
-                  label: const Text('Parolni saqlash'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1E5AFF),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // ── Ilova paroli (PIN lock) ───────────────────────
-          _section(
-            icon: Icons.phonelink_lock_rounded,
-            title: 'Ilova paroli',
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Ilovani PIN bilan qulflash', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                  Switch(
-                    value: _appLockEnabled,
-                    activeColor: const Color(0xFF1E5AFF),
-                    onChanged: (v) => setState(() => _appLockEnabled = v),
-                  ),
-                ],
-              ),
-              if (_appLockEnabled) ...[
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _pinCtrl,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: '4-6 xonali PIN kiriting',
-                    prefixIcon: const Icon(Icons.pin_rounded),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    counterText: '',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _settingPin ? null : () async {
-                      if (_pinCtrl.text.length < 4) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('PIN kamida 4 raqam bo\'lishi kerak!')),
-                        );
-                        return;
-                      }
-                      setState(() => _settingPin = true);
-                      await Future.delayed(const Duration(milliseconds: 500));
-                      setState(() => _settingPin = false);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('PIN muvaffaqiyatli o\'rnatildi!'), backgroundColor: Colors.green),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.check_circle_rounded, size: 18),
-                    label: const Text('PIN saqlash'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF059669),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 16),
-
           // ── Sozlamalar ────────────────────────────────────
           _section(
             icon: Icons.settings_rounded,
@@ -17225,6 +17181,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _navRow(context, Icons.tune_rounded, 'Ilova sozlamalari', const SettingsScreen()),
             ],
           ),
+
           const SizedBox(height: 24),
 
           // ── Chiqish ───────────────────────────────────────
