@@ -581,7 +581,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> updatePassword(String oldPassword, String newPassword) async {
-    await ApiClient().post('/auth/password', {'oldPassword': oldPassword, 'newPassword': newPassword});
+    await ApiClient().post('/auth/password', body: {'oldPassword': oldPassword, 'newPassword': newPassword});
   }
 
 
@@ -6644,7 +6644,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   return InkWell(
                     onTap: () => Scaffold.of(ctx).openEndDrawer(),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 12 : 16, vertical: 14),
+                      padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 12 : 16, vertical: 14),
                       child: Row(children: [
                         CircleAvatar(
                           radius: 18,
