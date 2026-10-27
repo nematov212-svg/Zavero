@@ -22,7 +22,7 @@ class ReceiptItem {
   });
 }
 
-/// 80mm Termal printer cheki — Rasm 1 ga aynan 1:1 mos klassik chek dizayni.
+/// 80mm Termal printer cheki — Rasm 2 (print) ga 100% mos preview widget.
 class ReceiptWidget extends StatelessWidget {
   final String checkId;
   final String waiter;
@@ -142,7 +142,7 @@ class ReceiptWidget extends StatelessWidget {
             ? customAddress!.trim()
             : (appState.restaurantAddress.trim().isNotEmpty
                 ? appState.restaurantAddress.trim()
-                : "Navoi ko'chasi 12, Buxoro");
+                : "Navoiy ko'chasi 12, Buxoro");
 
         final phone = (customPhone != null && customPhone!.trim().isNotEmpty)
             ? customPhone!.trim()
@@ -156,7 +156,7 @@ class ReceiptWidget extends StatelessWidget {
             ? customFooter!.trim()
             : (appState.receiptFooterNote.trim().isNotEmpty
                 ? appState.receiptFooterNote.trim()
-                : 'Bizni tanlaganingiz uchun rahmat!');
+                : 'Xaridingiz uchun rahmat!');
 
         final logoUrl = customLogoUrl ?? appState.appLogoUrl;
         final showQr = customShowQr ?? appState.receiptQrEnabled;
@@ -183,11 +183,21 @@ class ReceiptWidget extends StatelessWidget {
 
         final formattedCheckId = formatCheckNumber(checkId);
         final cashier = waiter.trim().isNotEmpty ? waiter.trim() : 'Admin';
+        final tableDisplay = table.trim().isNotEmpty ? table.trim() : '-';
+        final payMethod = paymentMethod?.trim().isNotEmpty == true ? paymentMethod!.trim() : 'Karta';
+        final paid = paidAmount ?? total.toDouble();
+        final change = changeAmount ?? 0.0;
 
-        const cardWidth = 370.0;
         final finalSubtotal = calculatedSubtotal > 0 ? calculatedSubtotal : total;
         final finalDiscount = (discount ?? 0).round();
         final finalTotal = total;
+        final serviceLabel = 'Xizmat haqi (${(servicePercentage ?? 0).toStringAsFixed(0)}%):';
+        final serviceVal = (serviceFee ?? 0).round();
+
+        const cardWidth = 370.0;
+        const ts = TextStyle(fontSize: 11.0, color: Colors.black87);
+        const tsB = TextStyle(fontSize: 11.0, fontWeight: FontWeight.w800, color: Colors.black);
+        const tsSm = TextStyle(fontSize: 10.0, color: Colors.black54);
 
         return ClipPath(
           clipper: const ZigzagClipper(zigzagHeight: 6, zigzagWidth: 12),
@@ -198,6 +208,7 @@ class ReceiptWidget extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // ── Settings bar ──────────────────────────────────────────
                 if (showThreeDotsMenu)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -224,33 +235,225 @@ class ReceiptWidget extends StatelessWidget {
                       ],
                     ),
                   ),
+
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 14),
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _buildHeader(logoUrl, cafeName, slogan),
-                      const SizedBox(height: 12),
-                      Container(height: 0.8, color: Colors.black26),
+
+                      // ── 1. BRAND HEADER ───────────────────────────────────
+                      Center(
+                        child: logoUrl != null && logoUrl.trim().isNotEmpty
+                            ? _buildLogoImage(logoUrl.trim())
+                            : SizedBox(
+                                width: 44, height: 38,
+                                child: CustomPaint(painter: _ZaveroLogoPainter()),
+                              ),
+                      ),
+                      const SizedBox(height: 3),
+                      const Center(
+                        child: Text('ZAVERO',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900,
+                                letterSpacing: 2.5, color: Colors.black)),
+                      ),
+                      // "— POS —"
+                      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Container(width: 30, height: 0.8, color: Colors.black),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6),
+                          child: Text('POS',
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
+                                  letterSpacing: 2.0, color: Colors.black)),
+                        ),
+                        Container(width: 30, height: 0.8, color: Colors.black),
+                      ]),
+                      const SizedBox(height: 6),
+                      Center(
+                        child: Text(cafeName,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black)),
+                      ),
+                      if (slogan.isNotEmpty)
+                        Center(
+                          child: Text(slogan,
+                              style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic, color: Colors.black54)),
+                        ),
+                      const SizedBox(height: 8),
+
+                      // ── 2. TELEFON VA MANZIL ──────────────────────────────
+                      Row(children: [
+                        const Icon(Icons.phone_outlined, size: 12, color: Colors.black54),
+                        const SizedBox(width: 4),
+                        Text(phone, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.black)),
+                      ]),
+                      const SizedBox(height: 2),
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Icon(Icons.location_on_outlined, size: 12, color: Colors.black54),
+                        const SizedBox(width: 4),
+                        Expanded(child: Text(address, style: const TextStyle(fontSize: 10, color: Colors.black87))),
+                      ]),
                       const SizedBox(height: 10),
-                      _buildInfoBlock(
-                        cafeName: cafeName, address: address, phone: phone,
-                        dateStr: dateStr, timeStr: timeStr,
-                        checkId: formattedCheckId, cashier: cashier,
+
+                      // ── 3. CHEK # | STOL (bir qatorda) ───────────────────
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          RichText(text: TextSpan(children: [
+                            const TextSpan(text: 'Chek ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black)),
+                            TextSpan(text: '\u2116 $formattedCheckId', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.black)),
+                          ])),
+                          RichText(text: TextSpan(children: [
+                            const TextSpan(text: 'Stol: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black)),
+                            TextSpan(text: tableDisplay, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.black)),
+                          ])),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+
+                      // ── 4. SANA / XODIM ───────────────────────────────────
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Sana:  $dateStr    $timeStr', style: const TextStyle(fontSize: 10, color: Colors.black87)),
+                          Text('Xodim:  $cashier', style: const TextStyle(fontSize: 10, color: Colors.black87)),
+                        ],
                       ),
                       const SizedBox(height: 10),
-                      _buildDashedLine(),
+
+                      // ── 5. JADVAL SARLAVHASI (kulrang fon) ────────────────
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                        color: Colors.grey.shade200,
+                        child: Row(children: const [
+                          SizedBox(width: 20, child: Text('No', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.black87))),
+                          Expanded(child: Text('Nomi', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.black87))),
+                          SizedBox(width: 30, child: Text('Dona', textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.black87))),
+                          SizedBox(width: 44, child: Text('Narxi', textAlign: TextAlign.right, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.black87))),
+                          SizedBox(width: 46, child: Text('Jami', textAlign: TextAlign.right, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.black87))),
+                        ]),
+                      ),
+                      const SizedBox(height: 4),
+
+                      // ── 6. MAHSULOTLAR ────────────────────────────────────
+                      if (items.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Text("Buyurtmada taomlar yo'q",
+                              style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black54)),
+                        )
+                      else
+                        ...items.asMap().entries.map((entry) {
+                          final idx = entry.key;
+                          final item = entry.value;
+                          final rowNum = item.index ?? (idx + 1);
+                          final qty = parseQuantity(item.quantity);
+                          final price = parsePrice(item.price);
+                          final jami = price * qty;
+                          return Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  SizedBox(width: 20, child: Text('$rowNum', style: const TextStyle(fontSize: 11, color: Colors.black87))),
+                                  Expanded(child: Text(item.name, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.black))),
+                                  SizedBox(width: 30, child: Text('$qty', textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: Colors.black87))),
+                                  SizedBox(width: 44, child: Text(money(price), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11, color: Colors.black87))),
+                                  SizedBox(width: 46, child: Text(money(jami), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black))),
+                                ]),
+                              ),
+                              if (idx < items.length - 1)
+                                _dashedLine(),
+                            ],
+                          );
+                        }),
                       const SizedBox(height: 8),
-                      _buildItemsTable(items),
+
+                      // ── 7. SUBTOTALS ──────────────────────────────────────
+                      _summaryRow('Mahsulotlar jami:', money(finalSubtotal), tsNorm: ts, tsBold: tsB),
+                      const SizedBox(height: 3),
+                      _summaryRow('Chegirma:', money(finalDiscount), tsNorm: ts, tsBold: tsB),
+                      const SizedBox(height: 3),
+                      _summaryRow(serviceLabel, money(serviceVal), tsNorm: ts, tsBold: tsB),
+                      const SizedBox(height: 10),
+
+                      // ── 8. QORA JAMI BLOKI ────────────────────────────────
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('JAMI:',
+                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.0)),
+                            Text(money(finalTotal),
+                                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // ── 9. TO'LOV MA'LUMOTLARI ────────────────────────────
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Icon(Icons.credit_card_outlined, size: 16, color: Colors.black54),
+                        const SizedBox(width: 8),
+                        Expanded(child: Column(children: [
+                          _summaryRow("To'lov turi:", payMethod, tsNorm: ts, tsBold: tsB),
+                          const SizedBox(height: 3),
+                          _summaryRow("To'langan summa:", money(paid.round()), tsNorm: ts, tsBold: tsB),
+                          const SizedBox(height: 3),
+                          _summaryRow('Qaytim:', money(change.round()), tsNorm: ts, tsBold: tsB),
+                        ])),
+                      ]),
+                      const SizedBox(height: 10),
+
+                      // ── 10. AJRATUVCHI CHIZIQ ─────────────────────────────
+                      Container(height: 0.8, color: Colors.black26),
+                      const SizedBox(height: 10),
+
+                      // ── 11. QR KOD ────────────────────────────────────────
+                      if (showQr) ...[
+                        Center(
+                          child: QrImageView(
+                            data: 'https://zavero-backend-production-7dc9.up.railway.app',
+                            version: QrVersions.auto,
+                            size: 100.0,
+                            padding: EdgeInsets.zero,
+                            backgroundColor: Colors.white,
+                            eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
+                            dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      // ── 12. FOOTER ────────────────────────────────────────
+                      Center(
+                        child: Text(footerText,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic,
+                                fontWeight: FontWeight.w700, color: Colors.black)),
+                      ),
+                      const SizedBox(height: 6),
+                      Center(
+                        child: Text('ZAVERO POS — Kafe boshqaruvi osonroq.',
+                            style: TextStyle(fontSize: 9, color: Colors.grey.shade600)),
+                      ),
                       const SizedBox(height: 8),
-                      _buildDashedLine(),
-                      const SizedBox(height: 10),
-                      _buildTotals(subtotalVal: finalSubtotal, discountVal: finalDiscount, grandTotalVal: finalTotal),
-                      const SizedBox(height: 14),
-                      if (showQr) _buildQrSection(),
-                      _buildFooter(footerText: footerText, cafeName: cafeName),
-                      const SizedBox(height: 10),
+
+                      // ── 13. YURAKCHA ─────────────────────────────────────
+                      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Container(width: 28, height: 0.8, color: Colors.black45),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: Text('\u2665', style: TextStyle(fontSize: 14, color: Colors.black54)),
+                        ),
+                        Container(width: 28, height: 0.8, color: Colors.black45),
+                      ]),
+                      const SizedBox(height: 8),
                     ],
                   ),
                 ),
@@ -262,232 +465,26 @@ class ReceiptWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(String? logoUrl, String cafeName, String slogan) {
-    return Column(
-      children: [
-        if (logoUrl != null && logoUrl.trim().isNotEmpty)
-          _buildLogoImage(logoUrl.trim())
-        else
-          SizedBox(width: 64, height: 64, child: CustomPaint(painter: ChefHatPainter())),
-        const SizedBox(height: 6),
-        Text(
-          cafeName,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 27, fontWeight: FontWeight.w800, fontStyle: FontStyle.italic,
-            color: Colors.black, letterSpacing: 0.4, height: 1.1,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(width: 28, height: 0.8, color: Colors.black45),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(slogan, textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Colors.black54, letterSpacing: 0.3)),
-            ),
-            const SizedBox(width: 8),
-            Container(width: 28, height: 0.8, color: Colors.black45),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInfoBlock({
-    required String cafeName, required String address, required String phone,
-    required String dateStr, required String timeStr,
-    required String checkId, required String cashier,
-  }) {
-    const labelStyle = TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Colors.black87);
-    const boldStyle = TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.black);
-
-    Widget leftRow(IconData icon, String text, {bool bold = false}) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 5),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 13.5, color: Colors.black54),
-          const SizedBox(width: 5),
-          Expanded(child: Text(text, style: bold ? boldStyle : labelStyle, maxLines: 2)),
-        ]),
-      );
-    }
-
-    Widget rightRow(IconData icon, String text) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 5),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 13.5, color: Colors.black54),
-          const SizedBox(width: 5),
-          Expanded(child: Text(text, style: labelStyle, maxLines: 1)),
-        ]),
-      );
-    }
-
-    return IntrinsicHeight(
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(flex: 5, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          leftRow(Icons.storefront_outlined, cafeName, bold: true),
-          leftRow(Icons.location_on_outlined, address),
-          leftRow(Icons.phone_outlined, phone),
-        ])),
-        Container(width: 0.8, color: Colors.black12, margin: const EdgeInsets.symmetric(horizontal: 8)),
-        Expanded(flex: 4, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          rightRow(Icons.calendar_today_outlined, dateStr),
-          rightRow(Icons.access_time_outlined, timeStr),
-          rightRow(Icons.receipt_outlined, 'Chek No: $checkId'),
-          rightRow(Icons.person_outline, 'Kassir: $cashier'),
-        ])),
-      ]),
-    );
-  }
-
-  Widget _buildItemsTable(List<ReceiptItem> itemsList) {
-    const headerStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black87);
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          decoration: const BoxDecoration(
-            border: Border(
-              top: BorderSide(color: Colors.black26, width: 0.8),
-              bottom: BorderSide(color: Colors.black26, width: 0.8),
-            ),
-          ),
-          child: Row(children: [
-            const SizedBox(width: 22, child: Text('No', style: headerStyle)),
-            const Expanded(child: Text('Nomi', style: headerStyle)),
-            const SizedBox(width: 54, child: Text('Miqdori', textAlign: TextAlign.center, style: headerStyle)),
-            const SizedBox(width: 46, child: Text('Narx', textAlign: TextAlign.right, style: headerStyle)),
-            const SizedBox(width: 50, child: Text('Summa', textAlign: TextAlign.right, style: headerStyle)),
-          ]),
-        ),
-        if (itemsList.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 14),
-            child: Text("Buyurtmada taomlar yo'q",
-                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.black54)),
-          )
-        else
-          ...itemsList.asMap().entries.map((entry) {
-            final idx = entry.key;
-            final item = entry.value;
-            final rowNum = item.index ?? (idx + 1);
-            final qty = parseQuantity(item.quantity);
-            final price = parsePrice(item.price);
-            final summa = price * qty;
-            return Container(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 0.5))),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(width: 22, child: Text('$rowNum',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87))),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(item.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black)),
-                  if (item.subtitle != null && item.subtitle!.trim().isNotEmpty)
-                    Text(item.subtitle!.trim(),
-                        style: const TextStyle(fontSize: 10, color: Colors.black54, fontStyle: FontStyle.italic)),
-                ])),
-                SizedBox(width: 54, child: Text('$qty dona', textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87))),
-                SizedBox(width: 46, child: Text(money(price), textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87))),
-                SizedBox(width: 50, child: Text(money(summa), textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black))),
-              ]),
-            );
-          }),
-      ],
-    );
-  }
-
-  Widget _buildTotals({required int subtotalVal, required int discountVal, required int grandTotalVal}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Column(children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Jami:', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.black)),
-          Text("${money(subtotalVal)} so'm", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.black)),
-        ]),
-        const SizedBox(height: 4),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Chegirma:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.black87)),
-          Text("${money(discountVal)} so'm", style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.black87)),
-        ]),
-        const SizedBox(height: 4),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text("To'lov:", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.black)),
-          Text("${money(grandTotalVal)} so'm", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.black)),
-        ]),
-      ]),
-    );
-  }
-
-  Widget _buildQrSection() {
-    return Column(children: [
-      Center(
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(border: Border.all(color: Colors.black26, width: 0.8), borderRadius: BorderRadius.circular(8)),
-          child: QrImageView(
-            data: 'https://zavero-backend-production-7dc9.up.railway.app',
-            version: QrVersions.auto,
-            size: 110.0,
-            padding: EdgeInsets.zero,
-            backgroundColor: Colors.white,
-            eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
-            dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
-          ),
-        ),
-      ),
-      const SizedBox(height: 10),
-      const Text(
-        'QR skaner qiling va\nZavero web saytiga o\'ting!',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Colors.black54, height: 1.5),
-      ),
-      const SizedBox(height: 16),
+  static Widget _summaryRow(String label, String value, {required TextStyle tsNorm, required TextStyle tsBold}) {
+    return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text(label, style: tsNorm),
+      Text(value, style: tsBold),
     ]);
   }
 
-  Widget _buildFooter({required String footerText, required String cafeName}) {
-    return Column(children: [
-      Container(height: 0.8, color: Colors.black26),
-      const SizedBox(height: 12),
-      Text(
-        footerText,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 17, fontWeight: FontWeight.w700, fontStyle: FontStyle.italic,
-          color: Colors.black, letterSpacing: 0.3,
-        ),
-      ),
-      const SizedBox(height: 10),
-      const Text('\u2661', style: TextStyle(fontSize: 20, color: Colors.black54)),
-      const SizedBox(height: 8),
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(width: 22, height: 0.8, color: Colors.black45),
-        const SizedBox(width: 8),
-        Text(cafeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87, letterSpacing: 0.5)),
-        const SizedBox(width: 8),
-        Container(width: 22, height: 0.8, color: Colors.black45),
-      ]),
-    ]);
-  }
-
-  Widget _buildDashedLine() {
+  static Widget _dashedLine() {
     return LayoutBuilder(builder: (context, constraints) {
-      const dashWidth = 4.0;
-      const dashSpace = 3.0;
-      final count = (constraints.maxWidth / (dashWidth + dashSpace)).floor();
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: List.generate(count, (_) => const SizedBox(
-          width: dashWidth, height: 0.8,
-          child: DecoratedBox(decoration: BoxDecoration(color: Colors.black26)),
-        )),
+      const dw = 3.5, ds = 3.0;
+      final count = (constraints.maxWidth / (dw + ds)).floor();
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(count, (_) => const SizedBox(
+            width: dw, height: 0.6,
+            child: DecoratedBox(decoration: BoxDecoration(color: Colors.black26)),
+          )),
+        ),
       );
     });
   }
@@ -497,18 +494,18 @@ class ReceiptWidget extends StatelessWidget {
       if (pathOrUrl.startsWith('data:image/')) {
         final commaIdx = pathOrUrl.indexOf(',');
         final base64Str = commaIdx != -1 ? pathOrUrl.substring(commaIdx + 1) : pathOrUrl;
-        return Image.memory(base64Decode(base64Str), height: 72, width: 160, fit: BoxFit.contain,
+        return Image.memory(base64Decode(base64Str), height: 48, width: 120, fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => _defaultLogo());
       } else if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
-        return Image.network(pathOrUrl, height: 72, width: 160, fit: BoxFit.contain,
+        return Image.network(pathOrUrl, height: 48, width: 120, fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => _defaultLogo());
       } else if (pathOrUrl.startsWith('assets/')) {
-        return Image.asset(pathOrUrl, height: 72, width: 160, fit: BoxFit.contain,
+        return Image.asset(pathOrUrl, height: 48, width: 120, fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => _defaultLogo());
       } else if (!kIsWeb) {
         final file = File(pathOrUrl);
         if (file.existsSync()) {
-          return Image.file(file, height: 72, width: 160, fit: BoxFit.contain,
+          return Image.file(file, height: 48, width: 120, fit: BoxFit.contain,
               errorBuilder: (_, __, ___) => _defaultLogo());
         }
       }
@@ -516,54 +513,42 @@ class ReceiptWidget extends StatelessWidget {
     return _defaultLogo();
   }
 
-  Widget _defaultLogo() => SizedBox(width: 64, height: 64, child: CustomPaint(painter: ChefHatPainter()));
+  Widget _defaultLogo() => SizedBox(width: 44, height: 38, child: CustomPaint(painter: _ZaveroLogoPainter()));
 }
 
-/// Oshpazlik shapkasi + vilka ikonkasi — Rasm 1 ga mos.
-class ChefHatPainter extends CustomPainter {
+/// ZAVERO geometrik Z logosi — Rasm 2 ga mos CustomPainter.
+class _ZaveroLogoPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
 
-    final strokePaint = Paint()
+    final paint = Paint()
       ..color = Colors.black
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 2.8
+      ..strokeCap = StrokeCap.square
+      ..strokeJoin = StrokeJoin.miter
       ..isAntiAlias = true;
 
-    // Shapka poyasi (brim)
-    final brimRRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(w * 0.08, h * 0.73, w * 0.84, h * 0.20),
-      const Radius.circular(4),
-    );
-    canvas.drawRRect(brimRRect, strokePaint);
+    // Z shakli (ZAVERO logo)
+    final path = Path()
+      ..moveTo(w * 0.12, h * 0.10)
+      ..lineTo(w * 0.88, h * 0.10)
+      ..lineTo(w * 0.12, h * 0.90)
+      ..lineTo(w * 0.88, h * 0.90);
 
-    // Shapka yon tomonlari
-    final bodyPath = Path()
-      ..moveTo(w * 0.18, h * 0.73)
-      ..lineTo(w * 0.18, h * 0.44)
-      ..moveTo(w * 0.82, h * 0.73)
-      ..lineTo(w * 0.82, h * 0.44);
-    canvas.drawPath(bodyPath, strokePaint);
+    canvas.drawPath(path, paint);
 
-    // Aylana dome
-    final domeRect = Rect.fromCenter(center: Offset(w * 0.50, h * 0.32), width: w * 0.74, height: h * 0.40);
-    canvas.drawArc(domeRect, 3.14159, 3.14159, false, strokePaint);
-    canvas.drawLine(Offset(w * 0.13, h * 0.44), Offset(w * 0.87, h * 0.44), strokePaint);
+    // Yuqori diagonal chiziq
+    final midPaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.8
+      ..strokeCap = StrokeCap.square;
 
-    // Vilka
-    final forkX = w * 0.50;
-    canvas.drawLine(Offset(forkX, h * 0.28), Offset(forkX, h * 0.66),
-        Paint()..color = Colors.black..strokeWidth = 2.0..strokeCap = StrokeCap.round);
-    for (int i = -1; i <= 1; i++) {
-      final tx = forkX + i * w * 0.09;
-      canvas.drawLine(Offset(tx, h * 0.12), Offset(tx, h * 0.30),
-          Paint()..color = Colors.black..strokeWidth = 1.8..strokeCap = StrokeCap.round);
-    }
-    canvas.drawLine(Offset(forkX - w * 0.09, h * 0.30), Offset(forkX + w * 0.09, h * 0.30),
-        Paint()..color = Colors.black..strokeWidth = 1.8);
+    canvas.drawLine(Offset(w * 0.12, h * 0.10), Offset(w * 0.88, h * 0.10), midPaint);
+    canvas.drawLine(Offset(w * 0.12, h * 0.90), Offset(w * 0.88, h * 0.90), midPaint);
   }
 
   @override
@@ -601,4 +586,42 @@ class ZigzagClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+/// Eski ChefHatPainter — boshqa joylar uchun saqlanadi
+class ChefHatPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final strokePaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+    final brimRRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(w * 0.08, h * 0.73, w * 0.84, h * 0.20), const Radius.circular(4));
+    canvas.drawRRect(brimRRect, strokePaint);
+    final bodyPath = Path()
+      ..moveTo(w * 0.18, h * 0.73)..lineTo(w * 0.18, h * 0.44)
+      ..moveTo(w * 0.82, h * 0.73)..lineTo(w * 0.82, h * 0.44);
+    canvas.drawPath(bodyPath, strokePaint);
+    final domeRect = Rect.fromCenter(center: Offset(w * 0.50, h * 0.32), width: w * 0.74, height: h * 0.40);
+    canvas.drawArc(domeRect, 3.14159, 3.14159, false, strokePaint);
+    canvas.drawLine(Offset(w * 0.13, h * 0.44), Offset(w * 0.87, h * 0.44), strokePaint);
+    final forkX = w * 0.50;
+    canvas.drawLine(Offset(forkX, h * 0.28), Offset(forkX, h * 0.66),
+        Paint()..color = Colors.black..strokeWidth = 2.0..strokeCap = StrokeCap.round);
+    for (int i = -1; i <= 1; i++) {
+      final tx = forkX + i * w * 0.09;
+      canvas.drawLine(Offset(tx, h * 0.12), Offset(tx, h * 0.30),
+          Paint()..color = Colors.black..strokeWidth = 1.8..strokeCap = StrokeCap.round);
+    }
+    canvas.drawLine(Offset(forkX - w * 0.09, h * 0.30), Offset(forkX + w * 0.09, h * 0.30),
+        Paint()..color = Colors.black..strokeWidth = 1.8);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
