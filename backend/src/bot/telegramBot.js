@@ -824,6 +824,7 @@ const initTelegramBot = () => {
 
           const buttons = [
             [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
+            [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('📋 Litsenziya', 'my_license')],
           ];
 
           return await ctx.replyWithHTML(welcomeBack, Markup.inlineKeyboard(buttons));
@@ -843,6 +844,114 @@ const initTelegramBot = () => {
       } catch (err) {
         console.error('❌ [Telegram Bot] /start xatosi:', err);
         return ctx.reply('Tizimda xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.');
+      }
+    });
+
+    // 1.5 Profil action
+    bot.action('my_profile', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const from = ctx.from;
+        const telegramId = from.id;
+        const activeSub = await getUserSubscription(telegramId);
+        const webAppUrl = getWebAppUrl();
+
+        const profileText =
+          `👤 <b>MENING PROFILIM</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🙋 <b>Ism:</b> ${from.first_name || ''} ${from.last_name || ''}\n` +
+          `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
+          `📛 <b>Username:</b> ${from.username ? '@' + from.username : 'Yo'q'}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol' : '❌ Faol emas'}\n` +
+          ${activeSub ? `'📅 <b>Muddati:</b> ' + formatDate(activeSub.end_date) + ' gacha\n' +
+          '⏳ <b>Qoldi:</b> ' + activeSub.daysRemaining + ' kun\n'` : `'💡 Litsenziya sotib olish uchun /start bosing\n'`} +
+          `━━━━━━━━━━━━━━━━━━━`;
+
+        const buttons = [
+          [Markup.button.webApp('⚙️ Sozlamalar (Ilova)', webAppUrl + '#/profile')],
+          [Markup.button.callback('⬅️ Orqaga', 'back_to_start')],
+        ];
+        return await ctx.replyWithHTML(profileText, Markup.inlineKeyboard(buttons));
+      } catch (err) {
+        console.error('my_profile error:', err);
+      }
+    });
+
+    bot.action('my_license', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const telegramId = ctx.from.id;
+        const activeSub = await getUserSubscription(telegramId);
+        const webAppUrl = getWebAppUrl();
+
+        if (!activeSub) {
+          return ctx.replyWithHTML(
+            `❌ <b>Faol litsenziya topilmadi.</b>\nYangi litsenziya olish uchun /start bosing.`,
+            Markup.inlineKeyboard([[Markup.button.callback('🔙 Orqaga', 'back_to_start')]])
+          );
+        }
+
+        const text =
+          `📋 <b>LITSENZIYA MA'LUMOTLARI</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `✅ <b>Holat:</b> Faol\n` +
+          `📅 <b>Tugash sanasi:</b> ${formatDate(activeSub.end_date)}\n` +
+          `⏳ <b>Qolgan kunlar:</b> ${activeSub.daysRemaining} kun\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Ilovaga kirish uchun tugmani bosing:`;
+
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard([
+          [Markup.button.webApp('🚀 ZAVERO POS', webAppUrl)],
+          [Markup.button.callback('🔙 Orqaga', 'back_to_start')],
+        ]));
+      } catch (err) {
+        console.error('my_license error:', err);
+      }
+    });
+
+    bot.action('back_to_start', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const from = ctx.from;
+        const telegramId = from.id;
+        const webAppUrl = getWebAppUrl();
+        const activeSub = await getUserSubscription(telegramId);
+        const text = activeSub
+          ? `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n✅ <b>Litsenziyangiz faol!</b>\n📅 ${formatDate(activeSub.end_date)} gacha\n⏳ ${activeSub.daysRemaining} kun qoldi`
+          : `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>! /start bosib litsenziya oling.`;
+        const buttons = activeSub
+          ? [[Markup.button.webApp('🚀 ZAVERO POS'NI OCHISH', webAppUrl)],
+             [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('📋 Litsenziya', 'my_license')]]
+          : [[Markup.button.callback('🔄 Obunani tekshirish', 'check_channels')]];
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+      } catch (err) { console.error('back_to_start error:', err); }
+    });
+
+    // Command: /profil
+    bot.command('profil', async (ctx) => {
+      try {
+        const from = ctx.from;
+        const telegramId = from.id;
+        const activeSub = await getUserSubscription(telegramId);
+        const webAppUrl = getWebAppUrl();
+
+        const profileText =
+          `👤 <b>MENING PROFILIM</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🙋 <b>Ism:</b> ${from.first_name || ''} ${from.last_name || ''}\n` +
+          `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
+          `📛 <b>Username:</b> ${from.username ? '@' + from.username : 'Yo'q'}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol, ' + activeSub.daysRemaining + ' kun qoldi' : '❌ Faol emas'}\n` +
+          `━━━━━━━━━━━━━━━━━━━`;
+
+        return await ctx.replyWithHTML(profileText, Markup.inlineKeyboard([
+          [Markup.button.webApp('⚙️ Ilovaga kirish', webAppUrl)],
+          [Markup.button.callback('📋 Litsenziya', 'my_license')],
+        ]));
+      } catch (err) {
+        console.error('/profil error:', err);
       }
     });
 
