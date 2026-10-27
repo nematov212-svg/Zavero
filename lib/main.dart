@@ -580,9 +580,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> updatePassword(String newPassword) async {
-    await supabase.auth.updateUser(UserAttributes(password: newPassword));
+  Future<void> updatePassword(String oldPassword, String newPassword) async {
+    await ApiClient().post('/auth/password', {'oldPassword': oldPassword, 'newPassword': newPassword});
   }
+
+
 
   Future<void> logout() async {
 
@@ -6642,7 +6644,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   return InkWell(
                     onTap: () => Scaffold.of(ctx).openEndDrawer(),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 12 : 16, vertical: 14),
                       child: Row(children: [
                         CircleAvatar(
                           radius: 18,
@@ -6652,21 +6654,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(user?.name ?? 'Admin', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                            Text(
-                              isAdmin ? 'Direktor' : isWaiter ? 'Ofitsiant' : isCourier ? 'Kuryer' : 'Kassir',
-                              style: const TextStyle(color: Color(0xFF6B8BA4), fontSize: 11),
-                            ),
-                          ],
-                        )),
-                        const Icon(Icons.keyboard_arrow_right_rounded, color: Color(0xFF6B8BA4), size: 18),
+                        if (!_sidebarCollapsed) ...[
+                          const SizedBox(width: 10),
+                          Expanded(child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(user?.name ?? 'Admin', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+                              Text(
+                                isAdmin ? 'Direktor' : isWaiter ? 'Ofitsiant' : isCourier ? 'Kuryer' : 'Kassir',
+                                style: const TextStyle(color: Color(0xFF6B8BA4), fontSize: 11),
+                              ),
+                            ],
+                          )),
+                          const Icon(Icons.keyboard_arrow_right_rounded, color: Color(0xFF6B8BA4), size: 18),
+                        ],
                       ]),
                     ),
                   );
+
                 }),
               ],
             ),
@@ -17069,7 +17075,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _changingPw = true);
     try {
       // Supabase auth orqali parolni yangilash
-      await appState.updatePassword(_newPwCtrl.text);
+      await appState.updatePassword(_oldPwCtrl.text, _newPwCtrl.text);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Parol muvaffaqiyatli o\'zgartirildi!'), backgroundColor: Colors.green),

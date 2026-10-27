@@ -41,7 +41,8 @@ const checkout = async (req, res) => {
   }
 
   try {
-    const { receiptRow, reportRow } = await db.withTransaction(async (client) => {
+    const { receiptRow, reportRow, effectiveTableId } = await db.withTransaction(async (client) => {
+
       const date = receipt.date ? new Date(receipt.date) : new Date();
       const dateId = dateIdFrom(date);
 
