@@ -6521,202 +6521,487 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
         ];
 
-        final isMobile = MediaQuery.of(context).size.width < 600;
+        final screenWidth = MediaQuery.of(context).size.width;
+        final isMobile = screenWidth < 700;
 
-        return Scaffold(
-          backgroundColor: const Color(0xFFF1F5F9),
-          endDrawer: _buildDashboardEndDrawer(context, user, isAdmin, isWaiter),
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: const Color(0xFF0F172A),
-            leadingWidth: isMobile ? 180 : 250,
-            leading: Padding(
-              padding: const EdgeInsets.only(left: 14),
-              child: Row(
-                children: [
-                  const _AnimatedHeaderLogoBadge(size: 38),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'ZAVERO FAST',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.2,
-                            color: Color(0xFFFF4D4D),
-                          ),
-                        ),
-                        Text(
-                          appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Family Cafe',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.7),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
+        // Sidebar nav items — same tiles list
+        final navItems = <Map<String, dynamic>>[
+          if (isAdmin || isWaiter || isCourier || isCustomer) ...{
+            ...tiles.asMap().entries.map((e) {
+              final t = e.value;
+              return <String, dynamic>{
+                'label': t.label,
+                'icon': t.icon,
+                'onTap': t.onTap,
+                'badge': t.badge,
+              };
+            }),
+          }.toList(),
+        ];
+
+        // Active index tracking
+        Widget buildSidebar() {
+          return Container(
+            width: 220,
+            color: const Color(0xFF0F1E30),
+            child: Column(
+              children: [
+                // ── Logo + Cafe header ─────────────────────────
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFF1A2E45), width: 1)),
                   ),
-                ],
-              ),
-            ),
-            title: isMobile
-                ? null
-                : Text(
-                    user?.name != null ? '${tr('welcome_user')}, ${user!.name}' : 'ZAVERO FAST',
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white70,
-                    ),
-                  ),
-            actions: [
-              Builder(
-                builder: (barCtx) => Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A2E45),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const _AnimatedHeaderLogoBadge(size: 40),
                       ),
-                      child: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
-                    ),
-                    tooltip: 'Menyu',
-                    onPressed: () => Scaffold.of(barCtx).openEndDrawer(),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('ZAVERO', style: TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w900,
+                              fontSize: 13, letterSpacing: 1.2,
+                            )),
+                            const Text('POS', style: TextStyle(
+                              color: Color(0xFFFFB300), fontWeight: FontWeight.w700,
+                              fontSize: 11, letterSpacing: 1.0,
+                            )),
+                          ],
+                        ),
+                      ),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () {},
+                        child: const Icon(Icons.keyboard_arrow_left_rounded, color: Colors.white54, size: 22),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
-          body: Padding(
-            padding: EdgeInsets.all(isMobile ? 12 : 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
+
+                // ── Cafe name sub-header ───────────────────────
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: Row(children: [
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      width: 36, height: 36,
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: isWaiter
-                              ? [const Color(0xFF10B981), const Color(0xFF059669)]
-                              : [const Color(0xFFFFB300), const Color(0xFFFF8F00)],
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: (isWaiter ? const Color(0xFF10B981) : const Color(0xFFFFB300)).withValues(alpha: 0.3),
-                            blurRadius: 8,
-                          ),
-                        ],
+                        color: const Color(0xFF1A2E45),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Icon(
-                        isAdmin
-                            ? Icons.admin_panel_settings_rounded
-                            : isWaiter
-                                ? Icons.room_service_rounded
-                                : isCourier
-                                    ? Icons.delivery_dining_rounded
-                                    : isCustomer
-                                        ? Icons.person_pin_circle_rounded
-                                        : Icons.point_of_sale_rounded,
-                        color: isWaiter ? Colors.white : Colors.black87,
-                        size: 20,
-                      ),
+                      child: const Icon(Icons.storefront_rounded, color: Color(0xFFFFB300), size: 18),
                     ),
                     const SizedBox(width: 10),
-                    Text(
-                      isAdmin
-                          ? tr('admin_panel')
-                          : isCustomer
-                              ? tr('customer_panel')
-                              : 'Xodim Paneli',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    if (!isAdmin && !isCustomer) ...[
-                      const SizedBox(width: 10),
-                      Builder(builder: (context) {
-                        final myReceipts = appState.receipts.where((r) {
-                          final cName = r.cashierName.trim().toLowerCase();
-                          final uName = (user?.name ?? '').trim().toLowerCase();
-                          final uLogin = (user?.username ?? '').trim().toLowerCase();
-                          return (uName.isNotEmpty && cName == uName) || (uLogin.isNotEmpty && cName == uLogin);
-                        }).toList();
-                        final myOrdersCount = myReceipts.length;
-                        final myRevenue = myReceipts.fold(0.0, (s, r) => s + r.total);
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.shopping_bag_outlined, size: 14, color: Color(0xFF10B981)),
-                              const SizedBox(width: 5),
-                              Text(
-                                myOrdersCount > 0
-                                    ? 'Buyurtmalarim: $myOrdersCount ta (${formatSum(myRevenue)})'
-                                    : 'Buyurtmalarim: 0 ta',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF10B981),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                      const SizedBox(width: 10),
-                      _buildBreakModeButton(context, user, appState),
-                    ],
-                  ],
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                        ),
+                        const Text('Kafe boshqaruvi osonroq', style: TextStyle(color: Color(0xFF6B8BA4), fontSize: 10.5)),
+                      ],
+                    )),
+                  ]),
                 ),
-                const SizedBox(height: 16),
+
+                const Divider(color: Color(0xFF1A2E45), height: 1),
+                const SizedBox(height: 8),
+
+                // ── Nav items ────────────────────────────────
                 Expanded(
-                  child: GridView.builder(
-                    padding: EdgeInsets.only(bottom: isMobile ? 24 : 16),
-                    gridDelegate: isMobile
-                        ? const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            childAspectRatio: 1.25,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                          )
-                        : const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 185,
-                            childAspectRatio: 1.15,
-                            crossAxisSpacing: 16,
-                            mainAxisSpacing: 16,
-                          ),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     itemCount: tiles.length,
-                    itemBuilder: (context, i) => tiles[i],
+                    itemBuilder: (context, i) {
+                      final t = tiles[i];
+                      final isFirst = i == 0;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Material(
+                          color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: t.onTap,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                              child: Row(children: [
+                                Container(
+                                  width: 32, height: 32,
+                                  decoration: BoxDecoration(
+                                    color: isFirst
+                                        ? const Color(0xFF1E5AFF).withValues(alpha: 0.35)
+                                        : Colors.white.withValues(alpha: 0.07),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 17),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(child: Text(t.label, style: TextStyle(
+                                  color: isFirst ? Colors.white : const Color(0xFF8BA5BF),
+                                  fontSize: 13, fontWeight: isFirst ? FontWeight.w700 : FontWeight.w500,
+                                ))),
+                                if ((t.badge ?? 0) > 0)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
+                                    child: Text('${t.badge}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ),
+                              ]),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
+
+                const Divider(color: Color(0xFF1A2E45), height: 1),
+
+                // ── User footer ──────────────────────────────
+                Builder(builder: (ctx) {
+                  return InkWell(
+                    onTap: () => Scaffold.of(ctx).openEndDrawer(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      child: Row(children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: const Color(0xFF1A2E45),
+                          child: Text(
+                            (user?.name ?? 'A').substring(0, 1).toUpperCase(),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(user?.name ?? 'Admin', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                            Text(
+                              isAdmin ? 'Direktor' : isWaiter ? 'Ofitsiant' : isCourier ? 'Kuryer' : 'Kassir',
+                              style: const TextStyle(color: Color(0xFF6B8BA4), fontSize: 11),
+                            ),
+                          ],
+                        )),
+                        const Icon(Icons.keyboard_arrow_right_rounded, color: Color(0xFF6B8BA4), size: 18),
+                      ]),
+                    ),
+                  );
+                }),
               ],
             ),
-          ),
+          );
+        }
+
+        Widget mainContent = Column(
+          children: [
+            // ── Top bar (online, bell, avatar) ───────────────
+            Container(
+              height: 60,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFE8ECF0))),
+              ),
+              child: Row(children: [
+                // Zal tanlang title
+                const Icon(Icons.grid_view_rounded, color: Color(0xFF0F1E30), size: 20),
+                const SizedBox(width: 10),
+                const Text('Zal tanlang', style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30),
+                )),
+                const Spacer(),
+                // Online
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                    Icon(Icons.circle, color: Color(0xFF4CAF50), size: 9),
+                    SizedBox(width: 6),
+                    Text('Online', style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.w700, fontSize: 12)),
+                  ]),
+                ),
+                const SizedBox(width: 12),
+                // Bell
+                Stack(children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined, color: Color(0xFF0F1E30), size: 22),
+                    onPressed: () {},
+                  ),
+                  Positioned(right: 8, top: 8, child: Container(
+                    width: 16, height: 16,
+                    decoration: const BoxDecoration(color: Color(0xFFE53935), shape: BoxShape.circle),
+                    child: const Center(child: Text('2', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                  )),
+                ]),
+                const SizedBox(width: 4),
+                // Avatar
+                GestureDetector(
+                  onTap: () {},
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: const Color(0xFF0F1E30),
+                      child: Text(
+                        (user?.name ?? 'A').substring(0, 1).toUpperCase(),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(user?.name ?? 'Admin', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F1E30))),
+                    const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.black45, size: 18),
+                  ]),
+                ),
+              ]),
+            ),
+
+            // ── Main section: "Zal tanlang" grid ─────────────
+            Expanded(
+              child: Container(
+                color: const Color(0xFFF0F2F7),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Section header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                      child: Row(children: [
+                        const Icon(Icons.table_restaurant_rounded, color: Color(0xFF0F1E30), size: 22),
+                        const SizedBox(width: 10),
+                        const Text('Zal tanlang', style: TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30),
+                        )),
+                        const Spacer(),
+                        // Zal dropdown
+                        if (appState.halls.isNotEmpty)
+                          Material(
+                            color: const Color(0xFF0F1E30),
+                            borderRadius: BorderRadius.circular(10),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                                  builder: (_) => Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(height: 12),
+                                      Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                                      const SizedBox(height: 16),
+                                      ...appState.halls.map((h) => ListTile(
+                                        leading: Icon(h.icon),
+                                        title: Text(h.name),
+                                        trailing: appState.selectedHall?.id == h.id ? const Icon(Icons.check, color: Color(0xFF0F1E30)) : null,
+                                        onTap: () {
+                                          appState.selectedHall = h;
+                                          Navigator.pop(context);
+                                        },
+                                      )),
+                                      const SizedBox(height: 16),
+                                    ],
+                                  ),
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  Icon(appState.selectedHall?.icon ?? Icons.table_restaurant, color: Colors.white, size: 15),
+                                  const SizedBox(width: 6),
+                                  Text(appState.selectedHall?.name ?? 'Zal', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 17),
+                                ]),
+                              ),
+                            ),
+                          ),
+                      ]),
+                    ),
+
+                    // Table cards grid
+                    Expanded(
+                      child: AnimatedBuilder(
+                        animation: appState,
+                        builder: (context, _) {
+                          final selectedHall = appState.selectedHall;
+                          if (selectedHall == null && appState.halls.isNotEmpty) {
+                            appState.selectedHall = appState.halls.first;
+                          }
+                          final myTables = selectedHall != null
+                              ? (appState.tables.where((t) {
+                                  if (t.hallId == selectedHall.id) return true;
+                                  final h = appState.halls.firstWhere(
+                                    (h) => h.id == t.hallId,
+                                    orElse: () => Hall(id: -1, name: '', icon: Icons.home),
+                                  );
+                                  return h.name.trim().toLowerCase() == selectedHall.name.trim().toLowerCase();
+                                }).toList()..sort((a, b) => a.number.compareTo(b.number)))
+                              : <TableModel>[];
+
+                          if (myTables.isEmpty) {
+                            return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.table_restaurant_outlined, size: 60, color: Colors.grey.shade300),
+                              const SizedBox(height: 12),
+                              Text("Bu zalda stollar yo'q", style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+                            ]));
+                          }
+
+                          return GridView.builder(
+                            padding: const EdgeInsets.all(20),
+                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: 200,
+                              childAspectRatio: 0.90,
+                              crossAxisSpacing: 14,
+                              mainAxisSpacing: 14,
+                            ),
+                            itemCount: myTables.length,
+                            itemBuilder: (context, i) {
+                              final t = myTables[i];
+                              final free = t.status == TableStatus.free;
+                              final orderTotal = appState.tableOrderTotal(t);
+                              final glowColor = free ? const Color(0xFF4CAF50) : const Color(0xFFE53935);
+                              final statusLabel = free ? "Bo'sh" : "Band";
+                              final tableColors = [
+                                const Color(0xFF7C3AED), const Color(0xFF3B82F6), const Color(0xFF10B981),
+                                const Color(0xFFFF9800), const Color(0xFFE53935), const Color(0xFF14B8A6),
+                              ];
+                              final circleColor = tableColors[i % tableColors.length];
+
+                              return GestureDetector(
+                                onTap: () {
+                                  appState.selectTable(t);
+                                  if (free) {
+                                    Navigator.push(context, MaterialPageRoute(
+                                      settings: const RouteSettings(name: 'pos'),
+                                      builder: (_) => const POSScreen(),
+                                    ));
+                                  } else {
+                                    Navigator.push(context, MaterialPageRoute(
+                                      settings: const RouteSettings(name: 'payment'),
+                                      builder: (_) => const PaymentScreen(),
+                                    ));
+                                  }
+                                },
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    boxShadow: [BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.06),
+                                      blurRadius: 10, offset: const Offset(0, 4),
+                                    )],
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // Circle icon with table icon
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Container(
+                                              width: 52, height: 52,
+                                              decoration: BoxDecoration(
+                                                color: circleColor,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(Icons.table_restaurant_rounded, color: Colors.white, size: 26),
+                                            ),
+                                            // Arrow
+                                            Container(
+                                              width: 26, height: 26,
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey.shade100,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Colors.black45),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 10),
+                                        // Table number
+                                        Text('${t.number}', style: const TextStyle(
+                                          fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30),
+                                        )),
+                                        const SizedBox(height: 4),
+                                        // Status badge + order total
+                                        Row(children: [
+                                          Container(
+                                            width: 8, height: 8,
+                                            decoration: BoxDecoration(color: glowColor, shape: BoxShape.circle),
+                                          ),
+                                          const SizedBox(width: 5),
+                                          Text(statusLabel, style: TextStyle(
+                                            fontSize: 12, fontWeight: FontWeight.w600, color: glowColor,
+                                          )),
+                                          if (!free && orderTotal > 0) ...{
+                                            const SizedBox(width: 6),
+                                            Text(formatSum(orderTotal), style: const TextStyle(
+                                              fontSize: 11, color: Color(0xFF94A3B8),
+                                            )),
+                                          }.toList(),
+                                        ]),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFF0F2F7),
+          endDrawer: _buildDashboardEndDrawer(context, user, isAdmin, isWaiter),
+          body: isMobile
+              ? Column(children: [
+                  // Mobile: top AppBar + content
+                  AppBar(
+                    backgroundColor: const Color(0xFF0F1E30),
+                    title: const Text('ZAVERO POS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                    actions: [
+                      Builder(builder: (ctx) => IconButton(
+                        icon: const Icon(Icons.menu_rounded, color: Colors.white),
+                        onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+                      )),
+                    ],
+                  ),
+                  Expanded(child: mainContent),
+                ])
+              : Row(children: [
+                  // Desktop: sidebar + main
+                  Builder(builder: (ctx) => buildSidebar()),
+                  Expanded(child: mainContent),
+                ]),
         );
       },
     );
   }
+
+
 
   Widget _buildBreakModeButton(BuildContext context, AppUser? user, AppState appState) {
     if (user == null) return const SizedBox.shrink();
