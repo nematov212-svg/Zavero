@@ -34,21 +34,29 @@ class ApiClient {
   static const _tokenKey = 'zavero_auth_token';
   static const _userKey = 'zavero_current_user';
 
-  /// Backend bulut API manzili
+  /// Backend bulut API manzili (Railway)
   /// --dart-define=API_BASE_URL=... orqali o'zgartirish mumkin.
-  
+  static const String _railwayBaseUrl =
+      'https://zavero-backend-production-7dc9.up.railway.app/api';
+
   static String _defaultBaseUrl() {
     const fromEnv = String.fromEnvironment('API_BASE_URL');
     if (fromEnv.isNotEmpty) return fromEnv;
     if (kIsWeb) {
       try {
         final origin = Uri.base.origin;
-        if (origin.isNotEmpty && !origin.startsWith('file:')) {
+        // Faqat Railway domeniga xizmat ko'rsatilayotgan bo'lsa o'sha manzilni ishlatamiz.
+        // localhost / file:// da har doim Railway'dan foydalanamiz.
+        if (origin.isNotEmpty &&
+            !origin.startsWith('file:') &&
+            !origin.contains('localhost') &&
+            !origin.contains('127.0.0.1') &&
+            !origin.contains('0.0.0.0')) {
           return '$origin/api';
         }
       } catch (_) {}
     }
-    return 'https://app.zavero.uz/api';
+    return _railwayBaseUrl;
   }
 
   late Dio _dio;
@@ -128,9 +136,12 @@ class ApiClient {
         final prefs = await SharedPreferences.getInstance();
         final savedUrl = prefs.getString('custom_api_base_url');
         if (savedUrl != null && savedUrl.isNotEmpty) {
-          if (savedUrl.contains('onrender.com') ||
+          // Eski (ishlamaydigan) URLlarni avtomatik tozalab Railway'ga o'tkazamiz
+          final isObsoleteUrl = savedUrl.contains('onrender.com') ||
               savedUrl.contains('localhost:3000') ||
-              savedUrl.contains('10.0.2.2:3000')) {
+              savedUrl.contains('10.0.2.2:3000') ||
+              savedUrl.contains('app.zavero.uz');
+          if (isObsoleteUrl) {
             await prefs.remove('custom_api_base_url');
             _baseUrl = _defaultBaseUrl();
           } else {

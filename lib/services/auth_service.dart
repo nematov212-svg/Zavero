@@ -75,7 +75,7 @@ class AuthService {
       final response = await _api.post('/auth/login', body: {
         'username': cleanInput,
         'password': password,
-      }).timeout(const Duration(seconds: 4));
+      }).timeout(const Duration(seconds: 25));
       final token = response['token'] as String;
       final userJson = Map<String, dynamic>.from(response['user'] as Map);
 
