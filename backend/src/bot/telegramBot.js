@@ -658,6 +658,7 @@ const setupBotProfilesAndCommands = async (botInstance) => {
 
 // Initialize Bot logic
 const initTelegramBot = () => {
+
   if (process.env.RENDER) {
     console.log('🛑 [Telegram Bot] Render aniqlandi. Bot Renderda butunlay o‘chirildi (Railwayga ko‘chirilgan).');
     return null;
@@ -862,10 +863,12 @@ const initTelegramBot = () => {
           `🙋 <b>Ism:</b> ${from.first_name || ''} ${from.last_name || ''}\n` +
           `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
           `📛 <b>Username:</b> ${from.username ? '@' + from.username : 'Yo'q'}\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol' : '❌ Faol emas'}\n` +
-          ${activeSub ? `'📅 <b>Muddati:</b> ' + formatDate(activeSub.end_date) + ' gacha\n' +
-          '⏳ <b>Qoldi:</b> ' + activeSub.daysRemaining + ' kun\n'` : `'💡 Litsenziya sotib olish uchun /start bosing\n'`} +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol' : '❌ Faol emas'}\n` +
+            ${
+          activeSub ? `'📅 <b>Muddati:</b> ' + formatDate(activeSub.end_date) + ' gacha\n' +
+          '⏳ <b>Qoldi:</b> ' + activeSub.daysRemaining + ' kun\n'` : `'💡 Litsenziya sotib olish uchun /start bosing\n'`
+        } +
           `━━━━━━━━━━━━━━━━━━━`;
 
         const buttons = [
@@ -922,7 +925,7 @@ const initTelegramBot = () => {
           : `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>! /start bosib litsenziya oling.`;
         const buttons = activeSub
           ? [[Markup.button.webApp('🚀 ZAVERO POS'NI OCHISH', webAppUrl)],
-             [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('📋 Litsenziya', 'my_license')]]
+          [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('📋 Litsenziya', 'my_license')]]
           : [[Markup.button.callback('🔄 Obunani tekshirish', 'check_channels')]];
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) { console.error('back_to_start error:', err); }
@@ -942,9 +945,9 @@ const initTelegramBot = () => {
           `🙋 <b>Ism:</b> ${from.first_name || ''} ${from.last_name || ''}\n` +
           `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
           `📛 <b>Username:</b> ${from.username ? '@' + from.username : 'Yo'q'}\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol, ' + activeSub.daysRemaining + ' kun qoldi' : '❌ Faol emas'}\n` +
-          `━━━━━━━━━━━━━━━━━━━`;
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol, ' + activeSub.daysRemaining + ' kun qoldi' : '❌ Faol emas'}\n` +
+            `━━━━━━━━━━━━━━━━━━━`;
 
         return await ctx.replyWithHTML(profileText, Markup.inlineKeyboard([
           [Markup.button.webApp('⚙️ Ilovaga kirish', webAppUrl)],
