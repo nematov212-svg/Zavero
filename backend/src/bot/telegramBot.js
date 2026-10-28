@@ -671,6 +671,7 @@ const setupBotProfilesAndCommands = async (botInstance) => {
 };
 
 // Initialize Bot logic
+
 const initTelegramBot = () => {
 
   if (process.env.RENDER) {

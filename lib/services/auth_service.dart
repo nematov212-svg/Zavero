@@ -89,6 +89,7 @@ class AuthService {
         final c = response['cafe'] as Map;
         userJson['cafeName'] = c['name']?.toString() ?? '';
         userJson['receiptName'] = c['receiptName']?.toString() ?? '';
+        userJson['cafeEndDate'] = c['endDate']?.toString();
       }
 
       await _api.setToken(token);

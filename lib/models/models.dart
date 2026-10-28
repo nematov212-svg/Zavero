@@ -96,6 +96,7 @@ class AppUser {
   String cafeId; // Workspace ID — masalan: cafe1, cafe2
   String cafeName;
   String receiptName;
+  DateTime? cafeEndDate;
   bool isActive;
   bool mustChangePassword;
   bool isBlocked;
@@ -117,6 +118,7 @@ class AppUser {
     this.cafeId = '',
     this.cafeName = '',
     this.receiptName = '',
+    this.cafeEndDate,
     this.isActive = true,
     this.mustChangePassword = false,
     this.isBlocked = false,
@@ -143,6 +145,7 @@ class AppUser {
         'cafeId': cafeId,
         'cafeName': cafeName,
         'receiptName': receiptName,
+        'cafeEndDate': cafeEndDate?.toIso8601String(),
         'isActive': isActive,
         'mustChangePassword': mustChangePassword,
         'isBlocked': isBlocked,
@@ -170,6 +173,9 @@ class AppUser {
         cafeId: j['cafeId'] as String? ?? '',
         cafeName: j['cafeName'] as String? ?? '',
         receiptName: j['receiptName'] as String? ?? '',
+        cafeEndDate: j['cafeEndDate'] != null
+            ? DateTime.tryParse(j['cafeEndDate'] as String)
+            : null,
         isActive: j['isActive'] != false,
         mustChangePassword: j['mustChangePassword'] == true,
         isBlocked: j['isBlocked'] == true,

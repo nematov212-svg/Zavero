@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html>
-
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -13,8 +12,7 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="description" content="ZAVERO - Professional Restoran va Kafe Savdo Tizimi (POS SaaS)">
   <meta name="theme-color" content="#0F172A">
 
@@ -28,7 +26,7 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="icon" type="image/png" href="favicon.png"/>
 
   <title>ZAVERO POS</title>
   <link rel="manifest" href="manifest.json">
@@ -38,9 +36,7 @@
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
     }
-
-    html,
-    body {
+    html, body {
       margin: 0;
       padding: 0;
       width: 100%;
@@ -52,7 +48,6 @@
       -webkit-user-select: none;
       touch-action: manipulation;
     }
-
     #app-loading-container {
       position: fixed;
       top: 0;
@@ -68,16 +63,14 @@
       z-index: 999999;
       transition: opacity 0.4s ease, visibility 0.4s ease;
     }
-
     .loading-logo {
       width: 84px;
       height: 84px;
       margin-bottom: 20px;
       border-radius: 20px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
       animation: pulse 2s infinite ease-in-out;
     }
-
     .loading-title {
       font-size: 22px;
       font-weight: 800;
@@ -85,14 +78,12 @@
       color: #FFA000;
       margin-bottom: 6px;
     }
-
     .loading-subtitle {
       font-size: 13px;
       color: #94A3B8;
       margin-bottom: 24px;
       letter-spacing: 0.5px;
     }
-
     .loading-spinner {
       width: 36px;
       height: 36px;
@@ -101,35 +92,20 @@
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
-
     @keyframes spin {
-      0% {
-        transform: rotate(0deg);
-      }
-
-      100% {
-        transform: rotate(360deg);
-      }
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
-
     @keyframes pulse {
-
-      0%,
-      100% {
-        transform: scale(1);
-      }
-
-      50% {
-        transform: scale(1.04);
-      }
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.04); }
     }
   </style>
 </head>
-
 <body>
   <!-- Telegram Web App Integration & Auto-expansion -->
   <script>
-    (function () {
+    (function() {
       if (window.Telegram && window.Telegram.WebApp) {
         try {
           window.Telegram.WebApp.ready();
@@ -167,7 +143,7 @@
       if (loader) {
         loader.style.opacity = '0';
         loader.style.visibility = 'hidden';
-        setTimeout(function () {
+        setTimeout(function() {
           if (loader.parentNode) loader.parentNode.removeChild(loader);
         }, 400);
       }
@@ -180,5 +156,4 @@
   <script src="sound_effects.js"></script>
   <script src="flutter_bootstrap.js?v=20261028_v2" async></script>
 </body>
-
 </html>

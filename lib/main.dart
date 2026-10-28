@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'models/models.dart';
 import 'screens/auth_screen.dart';
@@ -6215,6 +6216,324 @@ class _AnimatedHeaderLogoBadgeState extends State<_AnimatedHeaderLogoBadge>
 }
 
 // ============================================================
+// PULSING LIVE NETWORK DOT
+// ============================================================
+class _PulsingDot extends StatefulWidget {
+  final Color color;
+  const _PulsingDot({required this.color});
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _anim = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _anim,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          color: widget.color,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: widget.color.withValues(alpha: 0.5),
+              blurRadius: 4,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// DESKTOP USER DROPDOWN BUTTON (HEADER & SIDEBAR FOOTER)
+// ============================================================
+class _UserDropdownButton extends StatelessWidget {
+  final AppUser? user;
+  final bool iconOnly;
+  final bool expanded;
+
+  const _UserDropdownButton({
+    this.user,
+    this.iconOnly = false,
+    this.expanded = false,
+  });
+
+  String _roleName(UserRole? role) {
+    switch (role) {
+      case UserRole.admin:
+        return 'Administrator';
+      case UserRole.director:
+        return 'Direktor';
+      case UserRole.waiter:
+        return 'Ofitsiant';
+      case UserRole.cashier:
+        return 'Kassir';
+      case UserRole.courier:
+        return 'Kuryer';
+      default:
+        return 'Foydalanuvchi';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = (user?.name != null && user!.name.isNotEmpty)
+        ? user!.name.substring(0, 1).toUpperCase()
+        : 'U';
+    final roleStr = _roleName(user?.role);
+    final userName = user?.name ?? 'Admin';
+
+    return PopupMenuButton<String>(
+      tooltip: 'Foydalanuvchi profili',
+      offset: const Offset(0, 48),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      color: Colors.white,
+      elevation: 10,
+      shadowColor: Colors.black.withValues(alpha: 0.15),
+      onSelected: (val) async {
+        if (val == 'profile') {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+        } else if (val == 'settings') {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+        } else if (val == 'logout') {
+          await appState.logout();
+          if (context.mounted) {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const AuthScreen()),
+              (r) => false,
+            );
+          }
+        }
+      },
+      itemBuilder: (_) => [
+        // User info header
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: const Color(0xFF0F1E30),
+                  child: Text(
+                    initial,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        userName,
+                        style: const TextStyle(
+                          color: Color(0xFF0F1E30),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        roleStr,
+                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'profile',
+          child: Row(
+            children: const [
+              Icon(Icons.person_outline_rounded, color: Color(0xFF315EFB), size: 20),
+              SizedBox(width: 12),
+              Text(
+                'Profil',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'settings',
+          child: Row(
+            children: const [
+              Icon(Icons.settings_outlined, color: Color(0xFF64748B), size: 20),
+              SizedBox(width: 12),
+              Text(
+                'Sozlamalar',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(
+            children: const [
+              Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 20),
+              SizedBox(width: 12),
+              Text(
+                'Log Out',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFEF4444),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      child: iconOnly
+          ? MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF334155), width: 1.5),
+                ),
+                child: CircleAvatar(
+                  radius: 16,
+                  backgroundColor: const Color(0xFF1E293B),
+                  child: Text(
+                    initial,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ),
+            )
+          : expanded
+              ? MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B).withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF334155).withValues(alpha: 0.5)),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundColor: const Color(0xFF315EFB),
+                          child: Text(
+                            initial,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                userName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                roleStr,
+                                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.unfold_more_rounded, color: Color(0xFF94A3B8), size: 18),
+                      ],
+                    ),
+                  ),
+                )
+              : MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: const Color(0xFF0F1E30),
+                          child: Text(
+                            initial,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 120),
+                          child: Text(
+                            userName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F1E30),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF64748B), size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+    );
+  }
+}
+
+// ============================================================
 // PREMIUM HALL DROPDOWN (INLINE POPOVER - NO MODAL / BOTTOM SHEET)
 // ============================================================
 
@@ -6701,9 +7020,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _sidebarCollapsed = false;
   int _mobileNavIndex = 0;
 
+  // ── Network ping state ──────────────────────────────────────────
+  int _pingMs = 0;
+  bool _isOnline = true;
+  Timer? _pingTimer;
+
   @override
   void initState() {
     super.initState();
+    _startPingTimer();
+  }
+
+  void _startPingTimer() {
+    _pingTimer?.cancel();
+    _checkPing();
+    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) => _checkPing());
+  }
+
+  Future<void> _checkPing() async {
+    final sw = Stopwatch()..start();
+    try {
+      await ApiClient().get('/health').timeout(const Duration(seconds: 5));
+      sw.stop();
+      if (mounted) setState(() { _pingMs = sw.elapsedMilliseconds; _isOnline = true; });
+    } catch (_) {
+      sw.stop();
+      if (mounted) setState(() { _pingMs = 0; _isOnline = false; });
+    }
+  }
+
+  @override
+  void dispose() {
+    _pingTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -7174,7 +7523,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   color: isFirst ? Colors.white : const Color(0xFF8BA5BF),
                                   fontSize: 13, fontWeight: isFirst ? FontWeight.w700 : FontWeight.w500,
                                 ))),
-                                if ((t.badge ?? 0) > 0)
+                                if (t.badge > 0)
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                     decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
@@ -7192,40 +7541,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const Divider(color: Color(0xFF1A2E45), height: 1),
 
                 // ── User footer ──────────────────────────────
-                Builder(builder: (ctx) {
-                  return InkWell(
-                    onTap: () => Scaffold.of(ctx).openEndDrawer(),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 12 : 16, vertical: 14),
-                      child: Row(children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: const Color(0xFF1A2E45),
-                          child: Text(
-                            (user?.name ?? 'A').substring(0, 1).toUpperCase(),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                        ),
-                        if (!_sidebarCollapsed) ...[
-                          const SizedBox(width: 10),
-                          Expanded(child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(user?.name ?? 'Admin', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
-                              Text(
-                                isAdmin ? 'Direktor' : isWaiter ? 'Ofitsiant' : isCourier ? 'Kuryer' : 'Kassir',
-                                style: const TextStyle(color: Color(0xFF6B8BA4), fontSize: 11),
-                              ),
-                            ],
-                          )),
-                          const Icon(Icons.keyboard_arrow_right_rounded, color: Color(0xFF6B8BA4), size: 18),
-                        ],
-                      ]),
-                    ),
-                  );
-
-                }),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 12, vertical: 8),
+                  child: _sidebarCollapsed
+                    ? Center(
+                        child: _UserDropdownButton(user: user, iconOnly: true),
+                      )
+                    : _UserDropdownButton(user: user, expanded: true),
+                ),
               ],
             ),
           );
@@ -7233,7 +7556,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         Widget mainContent = Column(
           children: [
-            // ── Top bar (online, bell, avatar) - desktop only ───────────────
+            // ── Top bar (network badge + user dropdown) - desktop only ───
             if (!isMobile)
               Container(
                 height: 60,
@@ -7243,23 +7566,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   border: Border(bottom: BorderSide(color: Color(0xFFE7EBF2))),
                 ),
                 child: Row(children: [
-                  const Icon(Icons.grid_view_rounded, color: Color(0xFF142033), size: 20),
+                  // Logo badge
+                  const _AnimatedHeaderLogoBadge(size: 28),
                   const SizedBox(width: 10),
-                  const Text('Dashboard', style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF142033),
-                  )),
+                  Text(
+                    appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero POS',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF142033)),
+                  ),
                   const Spacer(),
-                  // Online
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  // Live network status badge
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 400),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE8F8F0),
+                      color: _isOnline ? const Color(0xFFE8F8F0) : const Color(0xFFFFEBEB),
                       borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: _isOnline ? const Color(0xFF16B86A).withValues(alpha: 0.35) : const Color(0xFFEF4444).withValues(alpha: 0.35),
+                      ),
                     ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: const [
-                      Icon(Icons.circle, color: Color(0xFF16B86A), size: 9),
-                      SizedBox(width: 6),
-                      Text('Online', style: TextStyle(color: Color(0xFF16B86A), fontWeight: FontWeight.w700, fontSize: 12)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      // Pulsing dot
+                      _PulsingDot(color: _isOnline ? const Color(0xFF16B86A) : const Color(0xFFEF4444)),
+                      const SizedBox(width: 6),
+                      Text(
+                        _isOnline
+                            ? (_pingMs > 0 ? 'Online  •  ${_pingMs}ms' : 'Online')
+                            : 'Offline',
+                        style: TextStyle(
+                          color: _isOnline ? const Color(0xFF16B86A) : const Color(0xFFEF4444),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
                     ]),
                   ),
                   const SizedBox(width: 12),
@@ -7269,30 +7608,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       icon: const Icon(Icons.notifications_outlined, color: Color(0xFF142033), size: 22),
                       onPressed: () {},
                     ),
-                    Positioned(right: 8, top: 8, child: Container(
-                      width: 16, height: 16,
-                      decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
-                      child: const Center(child: Text('2', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
-                    )),
+                    if (appState.pendingOrdersCount > 0)
+                      Positioned(right: 8, top: 8, child: Container(
+                        width: 16, height: 16,
+                        decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
+                        child: Center(child: Text('${appState.pendingOrdersCount}', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                      )),
                   ]),
                   const SizedBox(width: 4),
-                  // Avatar
-                  GestureDetector(
-                    onTap: () {},
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      CircleAvatar(
-                        radius: 16,
-                        backgroundColor: const Color(0xFFEEF4FF),
-                        child: Text(
-                          (user?.name ?? 'A').substring(0, 1).toUpperCase(),
-                          style: const TextStyle(color: Color(0xFF315EFB), fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Flexible(child: Text(user?.name ?? 'Admin', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF142033)), overflow: TextOverflow.ellipsis)),
-                      const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF8994A7), size: 18),
-                    ]),
-                  ),
+                  // User dropdown button
+                  _UserDropdownButton(user: user),
                 ]),
               ),
 
@@ -7471,12 +7796,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Icons.receipt_long_rounded,
                             'Buyurtmalar',
                             1 == _mobileNavIndex,
-                            tiles.length > 1
-                                ? () {
-                                    setState(() => _mobileNavIndex = 1);
-                                    tiles[1].onTap();
-                                  }
-                                : () {},
+                            () async {
+                              setState(() => _mobileNavIndex = 1);
+                              await Future.delayed(const Duration(milliseconds: 80));
+                              if (context.mounted) {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
+                                );
+                              }
+                              if (mounted) setState(() => _mobileNavIndex = 0);
+                            },
                             badge: appState.pendingOrdersCount,
                           ),
                           // 3. Cheklar
@@ -7485,12 +7815,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Icons.history_rounded,
                             'Cheklar',
                             2 == _mobileNavIndex,
-                            tiles.length > 2
-                                ? () {
-                                    setState(() => _mobileNavIndex = 2);
-                                    tiles[2].onTap();
-                                  }
-                                : () {},
+                            () async {
+                              setState(() => _mobileNavIndex = 2);
+                              await Future.delayed(const Duration(milliseconds: 80));
+                              if (context.mounted) {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
+                                );
+                              }
+                              if (mounted) setState(() => _mobileNavIndex = 0);
+                            },
                           ),
                           // 4. Profil
                           _mobileNavBtn(
@@ -7498,14 +7833,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Icons.person_rounded,
                             'Profil',
                             3 == _mobileNavIndex,
-                            () {
+                            () async {
                               setState(() => _mobileNavIndex = 3);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                              ).then((_) {
-                                if (mounted) setState(() => _mobileNavIndex = 0);
-                              });
+                              await Future.delayed(const Duration(milliseconds: 80));
+                              if (context.mounted) {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                                );
+                              }
+                              if (mounted) setState(() => _mobileNavIndex = 0);
                             },
                           ),
                         ],
@@ -17394,116 +17731,644 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _oldPwCtrl = TextEditingController();
   final _newPwCtrl = TextEditingController();
   final _confirmPwCtrl = TextEditingController();
-  final _pinCtrl = TextEditingController();
   bool _obscureOld = true;
   bool _obscureNew = true;
   bool _obscureConfirm = true;
-  bool _appLockEnabled = false;
   bool _changingPw = false;
-  bool _settingPin = false;
+  String? _avatarUrl;
+  bool _uploadingAvatar = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvatar();
+  }
+
+  Future<void> _loadAvatar() async {
+    final prefs = await SharedPreferences.getInstance();
+    final uid = appState.currentUser?.id.toString() ?? 'default';
+    if (mounted) {
+      setState(() {
+        _avatarUrl = prefs.getString('user_avatar_$uid');
+      });
+    }
+  }
+
+  Future<void> _pickAvatar() async {
+    setState(() => _uploadingAvatar = true);
+    try {
+      final url = await pickAndUploadImageFromGallery();
+      if (url != null && url.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final uid = appState.currentUser?.id.toString() ?? 'default';
+        await prefs.setString('user_avatar_$uid', url);
+        if (mounted) {
+          setState(() => _avatarUrl = url);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profil rasmi muvaffaqiyatli saqlandi!'),
+              backgroundColor: Color(0xFF10B981),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Rasm yuklashda xatolik: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
 
   @override
   void dispose() {
     _oldPwCtrl.dispose();
     _newPwCtrl.dispose();
     _confirmPwCtrl.dispose();
-    _pinCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _changePassword() async {
-    if (_newPwCtrl.text != _confirmPwCtrl.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Yangi parollar mos kelmadi!'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-    if (_newPwCtrl.text.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Parol kamida 6 ta belgi bo\'lishi kerak!'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-    setState(() => _changingPw = true);
+  Future<void> _openRenewSubscription() async {
+    final uri = Uri.parse('https://t.me/ZaveroPOS_bot');
     try {
-      // Supabase auth orqali parolni yangilash
-      await appState.updatePassword(_oldPwCtrl.text, _newPwCtrl.text);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Parol muvaffaqiyatli o\'zgartirildi!'), backgroundColor: Colors.green),
-        );
-        _oldPwCtrl.clear();
-        _newPwCtrl.clear();
-        _confirmPwCtrl.clear();
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        _showRenewDialog();
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Xatolik: $e'), backgroundColor: Colors.red),
-        );
-      }
+    } catch (_) {
+      if (mounted) _showRenewDialog();
     }
-    setState(() => _changingPw = false);
+  }
+
+  void _showRenewDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(children: const [
+          Icon(Icons.workspace_premium_rounded, color: Color(0xFF315EFB)),
+          SizedBox(width: 10),
+          Text('Obunani uzaytirish', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+        ]),
+        content: const Text(
+          'Litsenziyani uzaytirish yoki to\'lov qilish uchun ZAVERO qo\'llab-quvvatlash xizmati bilan bog\'laning:\n\nTelegram: @ZaveroSupport\nTelefon: +998 (90) 000-00-00',
+          style: TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Yopish', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(children: const [
+            Icon(Icons.lock_reset_rounded, color: Color(0xFF0F1E30)),
+            SizedBox(width: 10),
+            Text('Parolni o\'zgartirish', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+          ]),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _pwField('Eski parol', _oldPwCtrl, _obscureOld, () {
+                  setDialogState(() => _obscureOld = !_obscureOld);
+                }),
+                const SizedBox(height: 12),
+                _pwField('Yangi parol (kamida 6 ta belgi)', _newPwCtrl, _obscureNew, () {
+                  setDialogState(() => _obscureNew = !_obscureNew);
+                }),
+                const SizedBox(height: 12),
+                _pwField('Yangi parolni tasdiqlang', _confirmPwCtrl, _obscureConfirm, () {
+                  setDialogState(() => _obscureConfirm = !_obscureConfirm);
+                }),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _changingPw ? null : () => Navigator.pop(ctx),
+              child: const Text('Bekor qilish'),
+            ),
+            ElevatedButton(
+              onPressed: _changingPw ? null : () async {
+                if (_newPwCtrl.text != _confirmPwCtrl.text) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Yangi parollar mos kelmadi!'), backgroundColor: Colors.red),
+                  );
+                  return;
+                }
+                if (_newPwCtrl.text.length < 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Parol kamida 6 ta belgi bo\'lishi kerak!'), backgroundColor: Colors.red),
+                  );
+                  return;
+                }
+                setDialogState(() => _changingPw = true);
+                try {
+                  await appState.updatePassword(_oldPwCtrl.text, _newPwCtrl.text);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Parol muvaffaqiyatli o\'zgartirildi!'), backgroundColor: Color(0xFF10B981)),
+                    );
+                    _oldPwCtrl.clear();
+                    _newPwCtrl.clear();
+                    _confirmPwCtrl.clear();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Xatolik: $e'), backgroundColor: Colors.red),
+                    );
+                  }
+                } finally {
+                  if (ctx.mounted) setDialogState(() => _changingPw = false);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F1E30),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: _changingPw
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('Saqlash', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final user = appState.currentUser;
+    final initial = (user != null && user.name.isNotEmpty)
+        ? user.name.substring(0, 1).toUpperCase()
+        : 'U';
+
+    final cafeEndDate = user?.cafeEndDate;
+    final now = DateTime.now();
+    final daysLeft = cafeEndDate?.difference(now).inDays;
+    final isExpired = daysLeft != null && daysLeft <= 0;
+    final isWarning = daysLeft != null && daysLeft > 0 && daysLeft <= 7;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F7),
+      backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F1E30),
-        title: const Text('Profil', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        title: const Text(
+          'Profil',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
+        centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // ── Akkount ma'lumotlari ──────────────────────────
-          _section(
-            icon: Icons.person_rounded,
-            title: 'Akkount',
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620),
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
             children: [
-              _infoRow('Ism', user?.name ?? '-'),
-              _infoRow('Email', user?.email ?? '-'),
-              _infoRow('Rol', _roleName(user?.role)),
-            ],
-          ),
-          const SizedBox(height: 16),
+              // ── 1. AVATAR & HEADER CARD ──────────────────────────
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    // Avatar with Camera Badge
+                    Center(
+                      child: Stack(
+                        children: [
+                          GestureDetector(
+                            onTap: _pickAvatar,
+                            child: Container(
+                              width: 96,
+                              height: 96,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF315EFB), Color(0xFF0F1E30)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF315EFB).withValues(alpha: 0.25),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: _avatarUrl != null && _avatarUrl!.isNotEmpty
+                                  ? ClipOval(
+                                      child: Image.network(
+                                        _avatarUrl!,
+                                        fit: BoxFit.cover,
+                                        width: 96,
+                                        height: 96,
+                                        errorBuilder: (_, __, ___) => Center(
+                                          child: Text(
+                                            initial,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 36,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : Center(
+                                      child: Text(
+                                        initial,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 36,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          // Camera upload badge button
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: GestureDetector(
+                              onTap: _pickAvatar,
+                              child: Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF315EFB),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 2.5),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.2),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: _uploadingAvatar
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(6),
+                                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                      )
+                                    : const Icon(
+                                        Icons.camera_alt_rounded,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
 
-          // ── Sozlamalar ────────────────────────────────────
-          _section(
-            icon: Icons.settings_rounded,
-            title: 'Sozlamalar',
-            children: [
-              _navRow(context, Icons.tune_rounded, 'Ilova sozlamalari', const SettingsScreen()),
-            ],
-          ),
+                    // User name
+                    Text(
+                      user?.name ?? 'Admin',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F1E30),
+                        letterSpacing: -0.3,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 6),
 
-          const SizedBox(height: 24),
-
-          // ── Chiqish ───────────────────────────────────────
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                await appState.logout();
-                if (context.mounted) {
-                  Navigator.pushAndRemoveUntil(context,
-                    MaterialPageRoute(builder: (_) => const AuthScreen()), (r) => false);
-                }
-              },
-              icon: const Icon(Icons.logout_rounded, color: Colors.red),
-              label: const Text('Chiqish', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w700)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Colors.red),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    // Role & Restaurant chip
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF4FF),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF315EFB).withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.shield_outlined, color: Color(0xFF315EFB), size: 14),
+                              const SizedBox(width: 4),
+                              Text(
+                                _roleName(user?.role),
+                                style: const TextStyle(
+                                  color: Color(0xFF315EFB),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (appState.restaurantName.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.storefront_rounded, color: Color(0xFF64748B), size: 14),
+                                const SizedBox(width: 4),
+                                Text(
+                                  appState.restaurantName,
+                                  style: const TextStyle(
+                                    color: Color(0xFF475569),
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+              const SizedBox(height: 16),
+
+              // ── 2. SUBSCRIPTION / TARIFF CARD ─────────────────────
+              Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0F1E30), Color(0xFF1E293B)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF0F1E30).withValues(alpha: 0.3),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header of card
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFFB300), size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text(
+                                'Litsenziya va Tarif',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'ZAVERO POS Premium obunasi',
+                                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Status pill badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: isExpired
+                                ? const Color(0xFFEF4444).withValues(alpha: 0.2)
+                                : isWarning
+                                    ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
+                                    : const Color(0xFF10B981).withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isExpired
+                                  ? const Color(0xFFEF4444)
+                                  : isWarning
+                                      ? const Color(0xFFF59E0B)
+                                      : const Color(0xFF10B981),
+                              width: 1.2,
+                            ),
+                          ),
+                          child: Text(
+                            isExpired
+                                ? 'Tugagan'
+                                : (daysLeft != null ? '$daysLeft kun qoldi' : 'Faol'),
+                            style: TextStyle(
+                              color: isExpired
+                                  ? const Color(0xFFEF4444)
+                                  : isWarning
+                                      ? const Color(0xFFF59E0B)
+                                      : const Color(0xFF10B981),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Expiration date row & days remaining
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.calendar_month_rounded, color: Color(0xFF94A3B8), size: 16),
+                              SizedBox(width: 8),
+                              Text(
+                                'Tugash vaqti:',
+                                style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            cafeEndDate != null
+                                ? '${cafeEndDate.year}-${cafeEndDate.month.toString().padLeft(2, '0')}-${cafeEndDate.day.toString().padLeft(2, '0')}'
+                                : 'Doimiy (Cheksiz)',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Renew subscription button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _openRenewSubscription,
+                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                        label: const Text(
+                          'Yana 30 kun olish',
+                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF315EFB),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ── 3. AKKOUNT MA'LUMOTLARI ──────────────────────────
+              _section(
+                icon: Icons.badge_outlined,
+                title: 'Akkount ma\'lumotlari',
+                children: [
+                  _infoRow('To\'liq ism', user?.name ?? '-'),
+                  _infoRow('Email', user?.email.isNotEmpty == true ? user!.email : '-'),
+                  _infoRow('Telefon', user?.phone.isNotEmpty == true ? user!.phone : 'Kiritilmagan'),
+                  _infoRow('Rol', _roleName(user?.role)),
+                  _infoRow('Workspace / Kafe', appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero'),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ── 4. SOZLAMALAR VA XAVFSIZLIK ──────────────────────
+              _section(
+                icon: Icons.settings_outlined,
+                title: 'Sozlamalar va Xavfsizlik',
+                children: [
+                  _actionRow(
+                    icon: Icons.tune_rounded,
+                    iconColor: const Color(0xFF315EFB),
+                    title: 'Ilova sozlamalari',
+                    subtitle: 'Printer, cheklar va umumiy parametrlar',
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+                  ),
+                  const Divider(height: 16),
+                  _actionRow(
+                    icon: Icons.lock_reset_rounded,
+                    iconColor: const Color(0xFF0F1E30),
+                    title: 'Parolni o\'zgartirish',
+                    subtitle: 'Xavfsizlik uchun parolni yangilash',
+                    onTap: _showChangePasswordDialog,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // ── 5. LOG OUT BUTTON ────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                        title: const Text('Log Out', style: TextStyle(fontWeight: FontWeight.w800)),
+                        content: const Text('Haqiqatan ham akkountingizdan chiqmoqchimisiz?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Bekor qilish'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFEF4444),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Log Out', style: TextStyle(fontWeight: FontWeight.w700)),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await appState.logout();
+                      if (context.mounted) {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AuthScreen()),
+                          (r) => false,
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 18),
+                  label: const Text(
+                    'Log Out',
+                    style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFFCA5A5), width: 1.5),
+                    backgroundColor: const Color(0xFFFEF2F2),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -17512,23 +18377,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3))],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Container(
             padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(color: const Color(0xFF0F1E30).withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F1E30).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
             child: Icon(icon, color: const Color(0xFF0F1E30), size: 18),
           ),
           const SizedBox(width: 10),
           Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30))),
         ]),
-        const SizedBox(height: 14),
-        const Divider(height: 1),
         const SizedBox(height: 12),
+        const Divider(height: 1, color: Color(0xFFF1F5F9)),
+        const SizedBox(height: 10),
         ...children,
       ]),
     );
@@ -17536,26 +18410,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _infoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Color(0xFF0F1E30))),
-      ]),
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F1E30)),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _navRow(BuildContext ctx, IconData icon, String label, Widget screen) {
+  Widget _actionRow({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
     return InkWell(
-      onTap: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => screen)),
-      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(children: [
-          Icon(icon, color: const Color(0xFF0F1E30), size: 20),
-          const SizedBox(width: 12),
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
-          const Icon(Icons.chevron_right_rounded, color: Colors.grey),
-        ]),
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F1E30))),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 20),
+          ],
+        ),
       ),
     );
   }
@@ -17566,8 +18470,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       obscureText: obscure,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: const Icon(Icons.lock_outline_rounded),
-        suffixIcon: IconButton(icon: Icon(obscure ? Icons.visibility_off : Icons.visibility), onPressed: toggle),
+        prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
+        suffixIcon: IconButton(
+          icon: Icon(obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded, size: 20),
+          onPressed: toggle,
+        ),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
@@ -17576,12 +18483,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _roleName(UserRole? role) {
     switch (role) {
-      case UserRole.admin: return 'Administrator';
-      case UserRole.director: return 'Direktor';
-      case UserRole.waiter: return 'Ofitsiant';
-      case UserRole.courier: return 'Kuryer';
-      case UserRole.customer: return 'Mijoz';
-      default: return '-';
+      case UserRole.admin:
+        return 'Administrator';
+      case UserRole.director:
+        return 'Direktor';
+      case UserRole.waiter:
+        return 'Ofitsiant';
+      case UserRole.cashier:
+        return 'Kassir';
+      case UserRole.courier:
+        return 'Kuryer';
+      case UserRole.customer:
+        return 'Mijoz';
+      default:
+        return 'Foydalanuvchi';
     }
   }
 }
