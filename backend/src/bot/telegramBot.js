@@ -37,8 +37,9 @@ const getWebAppUrl = () => {
   if (!url && process.env.RAILWAY_PUBLIC_DOMAIN) {
     url = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
   }
-  url = url || 'https://app.zavero.uz';
-  return url.endsWith('/') ? url : `${url}/`;
+  url = url || 'https://zavero-backend-production-7dc9.up.railway.app';
+  const clean = url.endsWith('/') ? url.slice(0, -1) : url;
+  return `${clean}/?v=20261028_v2`;
 };
 
 // Helper: Get bot settings from DB
@@ -650,7 +651,20 @@ const setupBotProfilesAndCommands = async (botInstance) => {
       console.warn('⚠️ setMyCommands error:', e.message);
     }
 
-    console.log('✅ [Telegram Bot] Bot tavsifi (About, Description) va menyu buyruqlari muvaffaqiyatli yangilandi.');
+    // Set Default Chat Menu Button to WebApp for all users
+    try {
+      await botInstance.telegram.setChatMenuButton({
+        menu_button: {
+          type: 'web_app',
+          text: '🚀 ILOVANI OCHISH',
+          web_app: { url: getWebAppUrl() },
+        },
+      });
+    } catch (e) {
+      console.warn('⚠️ setChatMenuButton error:', e.message);
+    }
+
+    console.log('✅ [Telegram Bot] Bot tavsifi, menyu buyruqlari va ILOVANI OCHISH tugmasi yangilandi.');
   } catch (err) {
     console.warn('⚠️ [Telegram Bot] setupBotProfilesAndCommands xatosi:', err.message);
   }

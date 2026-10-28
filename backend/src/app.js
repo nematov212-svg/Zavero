@@ -86,13 +86,11 @@ app.use(
 // Serve static Flutter POS Web Application (Telegram Mini App, Web, Desktop)
 app.use(
   express.static(path.join(__dirname, 'public'), {
-    maxAge: '1h',
+    maxAge: 0,
     setHeaders: (res, filePath) => {
-      if (filePath.endsWith('.html')) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-      }
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
     },
   })
 );
