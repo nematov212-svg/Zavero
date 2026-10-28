@@ -6214,6 +6214,489 @@ class _AnimatedHeaderLogoBadgeState extends State<_AnimatedHeaderLogoBadge>
   }
 }
 
+// ============================================================
+// PREMIUM HALL DROPDOWN (INLINE POPOVER - NO MODAL / BOTTOM SHEET)
+// ============================================================
+
+class _HallDropdown extends StatefulWidget {
+  final List<Hall> halls;
+  final Hall? selectedHall;
+  final ValueChanged<Hall> onSelect;
+
+  const _HallDropdown({
+    required this.halls,
+    required this.selectedHall,
+    required this.onSelect,
+  });
+
+  @override
+  State<_HallDropdown> createState() => _HallDropdownState();
+}
+
+class _HallDropdownState extends State<_HallDropdown> {
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _overlayEntry;
+  bool _isOpen = false;
+
+  @override
+  void dispose() {
+    _closeDropdown();
+    super.dispose();
+  }
+
+  void _toggle() {
+    if (_isOpen) {
+      _closeDropdown();
+    } else {
+      _openDropdown();
+    }
+  }
+
+  void _openDropdown() {
+    _overlayEntry = _createOverlayEntry();
+    Overlay.of(context).insert(_overlayEntry!);
+    setState(() => _isOpen = true);
+  }
+
+  void _closeDropdown() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+    if (mounted) setState(() => _isOpen = false);
+  }
+
+  OverlayEntry _createOverlayEntry() {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    final size = renderBox?.size ?? Size.zero;
+
+    return OverlayEntry(
+      builder: (ctx) => Stack(
+        children: [
+          // Invisible tap area to close dropdown on outside tap without dimming the screen
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _closeDropdown,
+              child: const SizedBox.expand(),
+            ),
+          ),
+          // Positioned dropdown menu
+          Positioned(
+            width: 220,
+            child: CompositedTransformFollower(
+              link: _layerLink,
+              showWhenUnlinked: false,
+              offset: Offset(size.width > 220 ? 0 : size.width - 220, size.height + 6),
+              child: Material(
+                color: Colors.transparent,
+                child: TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                  builder: (context, val, child) {
+                    return Opacity(
+                      opacity: val,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - val) * -8),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE7EBF2), width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.10),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                          child: Row(
+                            children: const [
+                              Icon(Icons.meeting_room_outlined, size: 14, color: Color(0xFF8994A7)),
+                              SizedBox(width: 6),
+                              Text(
+                                'ZALNI TANLANG',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF8994A7),
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFE7EBF2)),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 260),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            itemCount: widget.halls.length,
+                            itemBuilder: (context, idx) {
+                              final h = widget.halls[idx];
+                              final isSel = widget.selectedHall?.id == h.id;
+                              return InkWell(
+                                onTap: () {
+                                  widget.onSelect(h);
+                                  _closeDropdown();
+                                },
+                                hoverColor: const Color(0xFFF5F7FB),
+                                splashColor: const Color(0xFFEEF4FF),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: isSel ? const Color(0xFFEEF4FF) : const Color(0xFFF5F7FB),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Icon(
+                                          h.icon,
+                                          size: 16,
+                                          color: isSel ? const Color(0xFF315EFB) : const Color(0xFF142033),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          h.name,
+                                          style: TextStyle(
+                                            fontSize: 13.5,
+                                            fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
+                                            color: isSel ? const Color(0xFF315EFB) : const Color(0xFF142033),
+                                          ),
+                                        ),
+                                      ),
+                                      if (isSel)
+                                        const Icon(
+                                          Icons.check_rounded,
+                                          color: Color(0xFF315EFB),
+                                          size: 18,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _toggle,
+          borderRadius: BorderRadius.circular(12),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _isOpen ? const Color(0xFF315EFB) : const Color(0xFFE7EBF2),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _isOpen
+                      ? const Color(0x1F315EFB)
+                      : Colors.black.withValues(alpha: 0.04),
+                  blurRadius: _isOpen ? 8 : 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  widget.selectedHall?.icon ?? Icons.table_restaurant_rounded,
+                  color: const Color(0xFF315EFB),
+                  size: 17,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  widget.selectedHall?.name ?? 'Zal 1',
+                  style: const TextStyle(
+                    color: Color(0xFF142033),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                AnimatedRotation(
+                  turns: _isOpen ? 0.5 : 0.0,
+                  duration: const Duration(milliseconds: 180),
+                  child: const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: Color(0xFF8994A7),
+                    size: 18,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// PREMIUM TABLE CARD (WHITE BG, SOFT SHADOW, ANIMATED HOVER & SCALE)
+// ============================================================
+
+class _PremiumTableCard extends StatefulWidget {
+  final TableModel table;
+  final bool isFree;
+  final double orderTotal;
+  final int index;
+  final VoidCallback onTap;
+
+  const _PremiumTableCard({
+    required this.table,
+    required this.isFree,
+    required this.orderTotal,
+    required this.index,
+    required this.onTap,
+  });
+
+  @override
+  State<_PremiumTableCard> createState() => _PremiumTableCardState();
+}
+
+class _PremiumTableCardState extends State<_PremiumTableCard> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final free = widget.isFree;
+    final t = widget.table;
+    final orderTotal = widget.orderTotal;
+    final seats = t.seats > 0 ? t.seats : 4;
+
+    const freeColor = Color(0xFF16B86A);
+    const freeBg = Color(0xFFE8F8F0);
+    const busyColor = Color(0xFFF04452);
+    const busyBg = Color(0xFFFEECEE);
+
+    final statusColor = free ? freeColor : busyColor;
+    final statusBg = free ? freeBg : busyBg;
+    final statusText = free ? "Bo'sh" : "Band";
+
+    return TweenAnimationBuilder<double>(
+      duration: Duration(milliseconds: 180 + (widget.index.clamp(0, 10) * 26)),
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      curve: Curves.easeOutCubic,
+      builder: (context, animVal, child) {
+        return Opacity(
+          opacity: animVal,
+          child: Transform.translate(
+            offset: Offset(0, (1 - animVal) * 12),
+            child: child,
+          ),
+        );
+      },
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) => setState(() => _isPressed = false),
+          onTapCancel: () => setState(() => _isPressed = false),
+          onTap: widget.onTap,
+          child: AnimatedScale(
+            scale: _isPressed ? 0.97 : (_isHovered ? 1.02 : 1.0),
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOutQuad,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: free
+                      ? (_isHovered ? const Color(0xFFCBD5E1) : const Color(0xFFE7EBF2))
+                      : (_isHovered ? const Color(0xFFF9A8B1) : const Color(0xFFFCDADF)),
+                  width: 1.3,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: free
+                        ? const Color(0x0C101828)
+                        : const Color(0x18F04452),
+                    blurRadius: _isHovered ? 16 : 8,
+                    offset: Offset(0, _isHovered ? 6 : 3),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Top row: Table Icon + Status Badge
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: statusBg,
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Icon(
+                            Icons.table_restaurant_rounded,
+                            color: statusColor,
+                            size: 21,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusBg,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6.5,
+                                height: 6.5,
+                                decoration: BoxDecoration(
+                                  color: statusColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                statusText,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: statusColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    // Table Number
+                    Text(
+                      'Stol ${t.number}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF142033),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    // Seat count
+                    Row(
+                      children: [
+                        const Icon(Icons.people_outline_rounded, size: 13.5, color: Color(0xFF8994A7)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$seats o\'rin',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF8994A7),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Bottom: Order total or action hint
+                    if (!free && orderTotal > 0)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEECEE),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          formatSum(orderTotal),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFF04452),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )
+                    else
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            free ? 'Buyurtma berish' : 'Band',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: free ? const Color(0xFF16B86A) : const Color(0xFF8994A7),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 13,
+                            color: free ? const Color(0xFF16B86A) : const Color(0xFF8994A7),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DashboardScreenState extends State<DashboardScreen> {
   bool _sidebarCollapsed = false;
   int _mobileNavIndex = 0;
@@ -6750,130 +7233,119 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         Widget mainContent = Column(
           children: [
-            // ── Top bar (online, bell, avatar) ───────────────
-            Container(
-              height: 60,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: Color(0xFFE8ECF0))),
-              ),
-              child: Row(children: [
-                // Zal tanlang title
-                const Icon(Icons.grid_view_rounded, color: Color(0xFF0F1E30), size: 20),
-                const SizedBox(width: 10),
-                const Text('Zal tanlang', style: TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30),
-                )),
-                const Spacer(),
-                // Online
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: const [
-                    Icon(Icons.circle, color: Color(0xFF4CAF50), size: 9),
-                    SizedBox(width: 6),
-                    Text('Online', style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.w700, fontSize: 12)),
-                  ]),
+            // ── Top bar (online, bell, avatar) - desktop only ───────────────
+            if (!isMobile)
+              Container(
+                height: 60,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(bottom: BorderSide(color: Color(0xFFE7EBF2))),
                 ),
-                const SizedBox(width: 12),
-                // Bell
-                Stack(children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications_outlined, color: Color(0xFF0F1E30), size: 22),
-                    onPressed: () {},
-                  ),
-                  Positioned(right: 8, top: 8, child: Container(
-                    width: 16, height: 16,
-                    decoration: const BoxDecoration(color: Color(0xFFE53935), shape: BoxShape.circle),
-                    child: const Center(child: Text('2', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                child: Row(children: [
+                  const Icon(Icons.grid_view_rounded, color: Color(0xFF142033), size: 20),
+                  const SizedBox(width: 10),
+                  const Text('Dashboard', style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF142033),
                   )),
-                ]),
-                const SizedBox(width: 4),
-                // Avatar
-                GestureDetector(
-                  onTap: () {},
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: const Color(0xFF0F1E30),
-                      child: Text(
-                        (user?.name ?? 'A').substring(0, 1).toUpperCase(),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
+                  const Spacer(),
+                  // Online
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F8F0),
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                    const SizedBox(width: 6),
-                    Flexible(child: Text(user?.name ?? 'Admin', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F1E30)), overflow: TextOverflow.ellipsis)),
-                    const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.black45, size: 18),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                      Icon(Icons.circle, color: Color(0xFF16B86A), size: 9),
+                      SizedBox(width: 6),
+                      Text('Online', style: TextStyle(color: Color(0xFF16B86A), fontWeight: FontWeight.w700, fontSize: 12)),
+                    ]),
+                  ),
+                  const SizedBox(width: 12),
+                  // Bell
+                  Stack(children: [
+                    IconButton(
+                      icon: const Icon(Icons.notifications_outlined, color: Color(0xFF142033), size: 22),
+                      onPressed: () {},
+                    ),
+                    Positioned(right: 8, top: 8, child: Container(
+                      width: 16, height: 16,
+                      decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
+                      child: const Center(child: Text('2', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                    )),
                   ]),
-                ),
-
-
-              ]),
-            ),
+                  const SizedBox(width: 4),
+                  // Avatar
+                  GestureDetector(
+                    onTap: () {},
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      CircleAvatar(
+                        radius: 16,
+                        backgroundColor: const Color(0xFFEEF4FF),
+                        child: Text(
+                          (user?.name ?? 'A').substring(0, 1).toUpperCase(),
+                          style: const TextStyle(color: Color(0xFF315EFB), fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(child: Text(user?.name ?? 'Admin', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF142033)), overflow: TextOverflow.ellipsis)),
+                      const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF8994A7), size: 18),
+                    ]),
+                  ),
+                ]),
+              ),
 
             // ── Main section: "Zal tanlang" grid ─────────────
             Expanded(
               child: Container(
-                color: const Color(0xFFF0F2F7),
+                color: const Color(0xFFF5F7FB),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Section header
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
                       child: Row(children: [
-                        const Icon(Icons.table_restaurant_rounded, color: Color(0xFF0F1E30), size: 22),
-                        const SizedBox(width: 10),
-                        const Text('Zal tanlang', style: TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30),
-                        )),
-                        const Spacer(),
-                        // Zal dropdown
-                        if (appState.halls.isNotEmpty)
-                          Material(
-                            color: const Color(0xFF0F1E30),
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF4FF),
                             borderRadius: BorderRadius.circular(10),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(10),
-                              onTap: () {
-                                showModalBottomSheet(
-                                  context: context,
-                                  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                                  builder: (_) => Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const SizedBox(height: 12),
-                                      Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-                                      const SizedBox(height: 16),
-                                      ...appState.halls.map((h) => ListTile(
-                                        leading: Icon(h.icon),
-                                        title: Text(h.name),
-                                        trailing: appState.selectedHall?.id == h.id ? const Icon(Icons.check, color: Color(0xFF0F1E30)) : null,
-                                        onTap: () {
-                                          appState.selectedHall = h;
-                                          Navigator.pop(context);
-                                        },
-                                      )),
-                                      const SizedBox(height: 16),
-                                    ],
-                                  ),
-                                );
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  Icon(appState.selectedHall?.icon ?? Icons.table_restaurant, color: Colors.white, size: 15),
-                                  const SizedBox(width: 6),
-                                  Text(appState.selectedHall?.name ?? 'Zal', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
-                                  const SizedBox(width: 4),
-                                  const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 17),
-                                ]),
+                          ),
+                          child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF315EFB), size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Stollar',
+                              style: TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF142033),
+                                letterSpacing: -0.3,
                               ),
                             ),
+                            Text(
+                              'Xizmat ko\'rsatish uchun stolni tanlang',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF8994A7),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        // Zal dropdown (inline popover, no modal bottom sheet)
+                        if (appState.halls.isNotEmpty)
+                          _HallDropdown(
+                            halls: appState.halls,
+                            selectedHall: appState.selectedHall,
+                            onSelect: (h) => setState(() => appState.selectedHall = h),
                           ),
                       ]),
                     ),
@@ -6907,10 +7379,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           }
 
                           return GridView.builder(
-                            padding: const EdgeInsets.all(20),
-                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 200,
-                              childAspectRatio: 0.90,
+                            padding: EdgeInsets.fromLTRB(16, 8, 16, isMobile ? 32 : 24),
+                            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: isMobile ? 220 : 240,
+                              childAspectRatio: 0.92,
                               crossAxisSpacing: 14,
                               mainAxisSpacing: 14,
                             ),
@@ -6919,105 +7391,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               final t = myTables[i];
                               final free = t.status == TableStatus.free;
                               final orderTotal = appState.tableOrderTotal(t);
-                              final statusColor = free ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
-                              final statusLabel = free ? "Bo'sh" : "Band";
-                              final tableColors = [
-                                const Color(0xFF6D28D9), const Color(0xFF2563EB), const Color(0xFF059669),
-                                const Color(0xFFD97706), const Color(0xFFDC2626), const Color(0xFF0891B2),
-                                const Color(0xFFDB2777), const Color(0xFF7C3AED),
-                              ];
-                              final circleColor = tableColors[i % tableColors.length];
 
-                              return GestureDetector(
+                              return _PremiumTableCard(
+                                table: t,
+                                isFree: free,
+                                orderTotal: orderTotal,
+                                index: i,
                                 onTap: () {
                                   appState.selectTable(t);
                                   if (free) {
-                                    Navigator.push(context, MaterialPageRoute(
-                                      settings: const RouteSettings(name: 'pos'),
-                                      builder: (_) => const POSScreen(),
-                                    ));
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        settings: const RouteSettings(name: 'pos'),
+                                        builder: (_) => const POSScreen(),
+                                      ),
+                                    );
                                   } else {
-                                    Navigator.push(context, MaterialPageRoute(
-                                      settings: const RouteSettings(name: 'payment'),
-                                      builder: (_) => const PaymentScreen(),
-                                    ));
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        settings: const RouteSettings(name: 'payment'),
+                                        builder: (_) => const PaymentScreen(),
+                                      ),
+                                    );
                                   }
                                 },
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(18),
-                                    border: Border(
-                                      left: BorderSide(
-                                        color: statusColor,
-                                        width: 4,
-                                      ),
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: statusColor.withValues(alpha: free ? 0.08 : 0.14),
-                                        blurRadius: 12, offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        // Icon row
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Container(
-                                              width: 50, height: 50,
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  colors: [circleColor, circleColor.withValues(alpha: 0.75)],
-                                                  begin: Alignment.topLeft, end: Alignment.bottomRight,
-                                                ),
-                                                shape: BoxShape.circle,
-                                                boxShadow: [
-                                                  BoxShadow(color: circleColor.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 3)),
-                                                ],
-                                              ),
-                                              child: const Icon(Icons.table_restaurant_rounded, color: Colors.white, size: 24),
-                                            ),
-                                            // Status chip
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: statusColor.withValues(alpha: 0.12),
-                                                borderRadius: BorderRadius.circular(20),
-                                              ),
-                                              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                                Container(width: 6, height: 6, decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle)),
-                                                const SizedBox(width: 4),
-                                                Text(statusLabel, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: statusColor)),
-                                              ]),
-                                            ),
-                                          ],
-                                        ),
-                                        const Spacer(),
-                                        // Stol raqami
-                                        Text('Stol ${t.number}', style: const TextStyle(
-                                          fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A),
-                                          letterSpacing: -0.3,
-                                        )),
-                                        const SizedBox(height: 4),
-                                        // Order total yoki bo'sh belgi
-                                        if (!free && orderTotal > 0)
-                                          Text(formatSum(orderTotal), style: const TextStyle(
-                                            fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFEF4444),
-                                          ))
-                                        else
-                                          Text('${t.seats > 0 ? t.seats : 4} o\'rin', style: const TextStyle(
-                                            fontSize: 12, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500,
-                                          )),
-                                      ],
-                                    ),
-                                  ),
-                                ),
                               );
                             },
                           );
@@ -7031,55 +7430,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         );
 
-
-
-
         return Scaffold(
-          backgroundColor: const Color(0xFFF0F2F7),
+          backgroundColor: const Color(0xFFF5F7FB),
           endDrawer: _buildDashboardEndDrawer(context, user, isAdmin, isWaiter),
-          // ── Mobile: bottom nav bar ────────────────────────────
+          // ── Mobile: bottom nav bar (Clean White, 4 Tabs, Lucide Style) ───────
           bottomNavigationBar: isMobile
-              ? ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                  child: BackdropFilter(
-                    filter: ColorFilter.mode(
-                      const Color(0xFF0A1628).withValues(alpha: 0.97),
-                      BlendMode.srcOver,
+              ? Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+                    border: const Border(
+                      top: BorderSide(color: Color(0xFFE7EBF2), width: 1.2),
                     ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0D1B2E).withValues(alpha: 0.97),
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.07), width: 1)),
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, -4)),
-                        ],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 20,
+                        offset: const Offset(0, -4),
                       ),
-                      child: SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              // 1. Stollar
-                              _mobileNavBtn(Icons.table_restaurant_rounded, 'Stollar', 0 == _mobileNavIndex, () => setState(() => _mobileNavIndex = 0)),
-                              // 2. Buyurtmalar
-                              _mobileNavBtn(Icons.receipt_long_rounded, 'Buyurtmalar', 1 == _mobileNavIndex,
-                                tiles.length > 1 ? () { setState(() => _mobileNavIndex = 1); tiles[1].onTap(); } : () {},
-                                badge: appState.pendingOrdersCount,
-                              ),
-                              // 3. Cheklar
-                              _mobileNavBtn(Icons.history_rounded, 'Cheklar', 2 == _mobileNavIndex,
-                                tiles.length > 2 ? () { setState(() => _mobileNavIndex = 2); tiles[2].onTap(); } : () {},
-                              ),
-                              // 4. Profil
-                              _mobileNavBtn(Icons.person_rounded, 'Profil', 4 == _mobileNavIndex, () {
-                                setState(() => _mobileNavIndex = 4);
-                                Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-                              }),
-                            ],
+                    ],
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          // 1. Stollar
+                          _mobileNavBtn(
+                            Icons.table_restaurant_outlined,
+                            Icons.table_restaurant_rounded,
+                            'Stollar',
+                            0 == _mobileNavIndex,
+                            () => setState(() => _mobileNavIndex = 0),
                           ),
-                        ),
+                          // 2. Buyurtmalar
+                          _mobileNavBtn(
+                            Icons.receipt_long_outlined,
+                            Icons.receipt_long_rounded,
+                            'Buyurtmalar',
+                            1 == _mobileNavIndex,
+                            tiles.length > 1
+                                ? () {
+                                    setState(() => _mobileNavIndex = 1);
+                                    tiles[1].onTap();
+                                  }
+                                : () {},
+                            badge: appState.pendingOrdersCount,
+                          ),
+                          // 3. Cheklar
+                          _mobileNavBtn(
+                            Icons.history_rounded,
+                            Icons.history_rounded,
+                            'Cheklar',
+                            2 == _mobileNavIndex,
+                            tiles.length > 2
+                                ? () {
+                                    setState(() => _mobileNavIndex = 2);
+                                    tiles[2].onTap();
+                                  }
+                                : () {},
+                          ),
+                          // 4. Profil
+                          _mobileNavBtn(
+                            Icons.person_outline_rounded,
+                            Icons.person_rounded,
+                            'Profil',
+                            3 == _mobileNavIndex,
+                            () {
+                              setState(() => _mobileNavIndex = 3);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                              ).then((_) {
+                                if (mounted) setState(() => _mobileNavIndex = 0);
+                              });
+                            },
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -7128,47 +7557,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _mobileNavBtn(
+    IconData inactiveIcon,
+    IconData activeIcon,
+    String label,
+    bool active,
+    VoidCallback onTap, {
+    int badge = 0,
+  }) {
+    const activeColor = Color(0xFF315EFB);
+    const inactiveColor = Color(0xFF8994A7);
+    const activeBg = Color(0xFFEEF4FF);
 
-
-  Widget _mobileNavBtn(IconData icon, String label, bool active, VoidCallback onTap, {int badge = 0}) {
-
-    final activeColor = const Color(0xFFFFB300);
-    final inactiveColor = Colors.white.withValues(alpha: 0.45);
-    final color = active ? activeColor : inactiveColor;
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: active ? activeColor.withValues(alpha: 0.12) : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
+          color: active ? activeBg : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
         ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(icon, color: color, size: 23),
-              if (badge > 0)
-                Positioned(
-                  right: -6, top: -4,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
-                    child: Text('$badge', style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                AnimatedScale(
+                  scale: active ? 1.08 : 1.0,
+                  duration: const Duration(milliseconds: 180),
+                  child: Icon(
+                    active ? activeIcon : inactiveIcon,
+                    color: active ? activeColor : inactiveColor,
+                    size: 23,
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: color, fontSize: 9.5, fontWeight: active ? FontWeight.w700 : FontWeight.w400, letterSpacing: 0.2)),
-          if (active)
-            Container(
-              margin: const EdgeInsets.only(top: 3),
-              width: 16, height: 2.5,
-              decoration: BoxDecoration(color: activeColor, borderRadius: BorderRadius.circular(2)),
+                if (badge > 0)
+                  Positioned(
+                    right: -8,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF04452),
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFF04452).withValues(alpha: 0.4),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        '$badge',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-        ]),
+            const SizedBox(height: 3.5),
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? activeColor : inactiveColor,
+                fontSize: 10.5,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                letterSpacing: 0.1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -7957,73 +8423,33 @@ class _TableSelectionScreenState extends State<TableSelectionScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2))],
+                  border: const Border(bottom: BorderSide(color: Color(0xFFE7EBF2), width: 1.2)),
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
                 ),
                 child: Row(
                   children: [
                     // Icon + Title
                     Container(
-                      width: 44, height: 44,
+                      width: 42, height: 42,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0F1E30),
+                        color: const Color(0xFFEEF4FF),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.table_restaurant_outlined, color: Colors.white, size: 22),
+                      child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF315EFB), size: 22),
                     ),
                     const SizedBox(width: 12),
                     Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
-                      Text('Zal tanlang', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30))),
+                      Text('Zal tanlang', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF142033))),
                       Text('Buyurtma berish uchun stollarni tanlang',
-                          style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w500)),
+                          style: TextStyle(fontSize: 12, color: Color(0xFF8994A7), fontWeight: FontWeight.w500)),
                     ]),
                     const Spacer(),
-                    // Zal dropdown button (matches Image 2 style)
+                    // Zal dropdown button (inline popover, no modal bottom sheet)
                     if (halls.isNotEmpty)
-                      Material(
-                        color: const Color(0xFF0F1E30),
-                        borderRadius: BorderRadius.circular(10),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(10),
-                          onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              shape: const RoundedRectangleBorder(
-                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                              ),
-                              builder: (_) => Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const SizedBox(height: 12),
-                                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-                                  const SizedBox(height: 16),
-                                  ...halls.map((h) => ListTile(
-                                    leading: Icon(h.icon, color: selectedHall?.id == h.id ? const Color(0xFF0F1E30) : Colors.black54),
-                                    title: Text(h.name, style: TextStyle(fontWeight: selectedHall?.id == h.id ? FontWeight.bold : FontWeight.normal)),
-                                    trailing: selectedHall?.id == h.id ? const Icon(Icons.check, color: Color(0xFF0F1E30)) : null,
-                                    onTap: () {
-                                      setState(() { appState.selectedHall = h; });
-                                      Navigator.pop(context);
-                                    },
-                                  )),
-                                  const SizedBox(height: 16),
-                                ],
-                              ),
-                            );
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(selectedHall?.icon ?? Icons.table_restaurant, color: Colors.white, size: 16),
-                              const SizedBox(width: 6),
-                              Text(
-                                selectedHall?.name ?? 'Zal 1',
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 18),
-                            ]),
-                          ),
-                        ),
+                      _HallDropdown(
+                        halls: halls,
+                        selectedHall: selectedHall,
+                        onSelect: (h) => setState(() { appState.selectedHall = h; }),
                       ),
                   ],
                 ),
@@ -8035,7 +8461,7 @@ class _TableSelectionScreenState extends State<TableSelectionScreen> {
                   color: Colors.white,
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                   child: SizedBox(
-                    height: 36,
+                    height: 38,
                     child: ListView.builder(
                       scrollDirection: Axis.horizontal,
                       itemCount: halls.length,
@@ -8045,19 +8471,19 @@ class _TableSelectionScreenState extends State<TableSelectionScreen> {
                         return Padding(
                           padding: const EdgeInsets.only(right: 8),
                           child: Material(
-                            color: isSel ? const Color(0xFF0F1E30) : const Color(0xFFF0F2F7),
-                            borderRadius: BorderRadius.circular(8),
+                            color: isSel ? const Color(0xFF315EFB) : const Color(0xFFF5F7FB),
+                            borderRadius: BorderRadius.circular(10),
                             child: InkWell(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(10),
                               onTap: () => setState(() { appState.selectedHall = h; }),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  Icon(h.icon, size: 14, color: isSel ? Colors.white : Colors.black54),
-                                  const SizedBox(width: 5),
+                                  Icon(h.icon, size: 14, color: isSel ? Colors.white : const Color(0xFF8994A7)),
+                                  const SizedBox(width: 6),
                                   Text(h.name, style: TextStyle(
                                     fontSize: 13, fontWeight: FontWeight.w600,
-                                    color: isSel ? Colors.white : Colors.black87,
+                                    color: isSel ? Colors.white : const Color(0xFF142033),
                                   )),
                                 ]),
                               ),
@@ -8083,21 +8509,22 @@ class _TableSelectionScreenState extends State<TableSelectionScreen> {
                     : GridView.builder(
                         padding: const EdgeInsets.all(16),
                         gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 200,
-                          childAspectRatio: 0.88,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
+                          maxCrossAxisExtent: 220,
+                          childAspectRatio: 0.92,
+                          crossAxisSpacing: 14,
+                          mainAxisSpacing: 14,
                         ),
                         itemCount: myTables.length,
                         itemBuilder: (context, i) {
                           final t = myTables[i];
                           final free = t.status == TableStatus.free;
                           final orderTotal = appState.tableOrderTotal(t);
-                          final glowColor = free ? const Color(0xFF4CAF50) : const Color(0xFFE53935);
-                          final statusLabel = free ? "Bo'sh" : "Band";
-                          final seats = t.seats > 0 ? t.seats : 4;
 
-                          return GestureDetector(
+                          return _PremiumTableCard(
+                            table: t,
+                            isFree: free,
+                            orderTotal: orderTotal,
+                            index: i,
                             onTap: () {
                               appState.selectTable(t);
                               if (free) {
@@ -8112,134 +8539,6 @@ class _TableSelectionScreenState extends State<TableSelectionScreen> {
                                 ));
                               }
                             },
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: free ? const Color(0xFFD4EDDA) : const Color(0xFFFAD7D7),
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.06),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    // Top row: Table number + Status badge
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          '${t.number}',
-                                          style: const TextStyle(
-                                            fontSize: 22, fontWeight: FontWeight.w800,
-                                            color: Color(0xFFBDBDBD),
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                          decoration: BoxDecoration(
-                                            color: free ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
-                                            borderRadius: BorderRadius.circular(20),
-                                          ),
-                                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                            Container(
-                                              width: 7, height: 7,
-                                              decoration: BoxDecoration(color: glowColor, shape: BoxShape.circle),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              statusLabel,
-                                              style: TextStyle(
-                                                fontSize: 11, fontWeight: FontWeight.w700,
-                                                color: glowColor,
-                                              ),
-                                            ),
-                                          ]),
-                                        ),
-                                      ],
-                                    ),
-
-                                    // Center: 3D Table Illustration with glow
-                                    Expanded(
-                                      child: Center(
-                                        child: Stack(
-                                          alignment: Alignment.center,
-                                          children: [
-                                            // Glow circle
-                                            Container(
-                                              width: 90, height: 90,
-                                              decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: glowColor.withValues(alpha: 0.10),
-                                              ),
-                                            ),
-                                            // Table illustration
-                                            SizedBox(
-                                              width: 80, height: 80,
-                                              child: CustomPaint(
-                                                painter: _TableIllustrationPainter(isFree: free),
-                                              ),
-                                            ),
-                                            // Order total overlay for band tables
-                                            if (!free && orderTotal > 0)
-                                              Positioned(
-                                                top: 8,
-                                                child: Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFFE53935),
-                                                    borderRadius: BorderRadius.circular(10),
-                                                  ),
-                                                  child: Text(
-                                                    formatSum(orderTotal),
-                                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-
-                                    // Bottom: Seat count + Arrow
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Row(children: [
-                                          Icon(Icons.people_outline_rounded, size: 14, color: Colors.grey.shade500),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            "$seats o'rin",
-                                            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
-                                          ),
-                                        ]),
-                                        Container(
-                                          width: 28, height: 28,
-                                          decoration: BoxDecoration(
-                                            color: free ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Icon(
-                                            Icons.arrow_forward_rounded,
-                                            size: 14,
-                                            color: glowColor,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
                           );
                         },
                       ),
