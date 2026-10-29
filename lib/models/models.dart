@@ -902,5 +902,42 @@ class ActivityLog {
     required this.performedBy,
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
-
 }
+
+/// Tizim va buyurtma bildirishnomalari modeli (qo'ng'iroqcha paneli uchun)
+class AppNotificationItem {
+  final String id;
+  final String title;
+  final String body;
+  final DateTime time;
+  bool isRead;
+  final String type; // 'order', 'system', 'subscription'
+
+  AppNotificationItem({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.time,
+    this.isRead = false,
+    this.type = 'order',
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'body': body,
+    'time': time.toIso8601String(),
+    'isRead': isRead,
+    'type': type,
+  };
+
+  factory AppNotificationItem.fromJson(Map<String, dynamic> json) => AppNotificationItem(
+    id: json['id']?.toString() ?? '',
+    title: json['title']?.toString() ?? '',
+    body: json['body']?.toString() ?? '',
+    time: DateTime.tryParse(json['time']?.toString() ?? '') ?? DateTime.now(),
+    isRead: json['isRead'] == true,
+    type: json['type']?.toString() ?? 'order',
+  );
+}
+

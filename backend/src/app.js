@@ -23,6 +23,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const appRoutes = require('./routes/appRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const syncRoutes = require('./routes/syncRoutes');
+const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const { getBotInstance } = require('./bot/telegramBot');
 const { generalApiLimiter } = require('./middleware/rateLimitMiddleware');
 
@@ -61,7 +62,14 @@ app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // Telegram Bot Webhook endpoint (High-performance handler, bypasses rate limit for Telegram servers)
-app.post('/api/bot/webhook', (req, res) => {
+app.post(['/api/bot/webhook', '/api/v1/telegram/webhook'], (req, res) => {
+  const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
+  const expectedSecret = process.env.WEBHOOK_SECRET;
+  if (expectedSecret && secretHeader && secretHeader !== expectedSecret) {
+    console.warn('⚠️ [Telegram Bot] Noto‘g‘ri webhook secret token rad etildi!');
+    return res.status(403).json({ success: false, message: 'Forbidden: Invalid secret token' });
+  }
+
   const bot = getBotInstance();
   if (bot && req.body) {
     bot.handleUpdate(req.body).catch((e) => {
@@ -147,28 +155,33 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'zavero-backend', time: new Date().toISOString() });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/director', directorRoutes);
-app.use('/api/devices', deviceRoutes);
-app.use('/api/cafe', cafeRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/halls', hallRoutes);
-app.use('/api/tables', tableRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/receipts', receiptRoutes);
-app.use('/api/customer-orders', customerOrderRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/activity', activityRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/app', appRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/sync', syncRoutes);
+['/api', '/api/v1'].forEach((prefix) => {
+  app.use(`${prefix}/auth`, authRoutes);
+  app.use(`${prefix}/director`, directorRoutes);
+  app.use(`${prefix}/devices`, deviceRoutes);
+  app.use(`${prefix}/cafe`, cafeRoutes);
+  app.use(`${prefix}/categories`, categoryRoutes);
+  app.use(`${prefix}/products`, productRoutes);
+  app.use(`${prefix}/halls`, hallRoutes);
+  app.use(`${prefix}/tables`, tableRoutes);
+  app.use(`${prefix}/reservations`, tableRoutes);
+  app.use(`${prefix}/customers`, customerRoutes);
+  app.use(`${prefix}/receipts`, receiptRoutes);
+  app.use(`${prefix}/customer-orders`, customerOrderRoutes);
+  app.use(`${prefix}/employees`, employeeRoutes);
+  app.use(`${prefix}/reports`, reportRoutes);
+  app.use(`${prefix}/activity`, activityRoutes);
+  app.use(`${prefix}/audit-logs`, activityRoutes);
+  app.use(`${prefix}/upload`, uploadRoutes);
+  app.use(`${prefix}/notifications`, notificationRoutes);
+  app.use(`${prefix}/app`, appRoutes);
+  app.use(`${prefix}/payments`, paymentRoutes);
+  app.use(`${prefix}/sync`, syncRoutes);
+  app.use(`${prefix}/subscription`, subscriptionRoutes);
+});
 
 // 404 for unhandled API routes
-app.use('/api', (req, res) => {
+app.use(['/api', '/api/v1'], (req, res) => {
   res.status(404).json({ success: false, message: 'API yo\'nalish topilmadi.' });
 });
 

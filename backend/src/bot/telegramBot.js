@@ -33,13 +33,14 @@ const formatDate = (date) => {
 
 // Helper: Get Base WebApp URL (Full ZAVERO POS app)
 const getWebAppUrl = () => {
-  let url = process.env.WEBAPP_URL;
+  let url = process.env.ZAVERO_MINI_APP_URL || process.env.WEBAPP_URL;
   if (!url && process.env.RAILWAY_PUBLIC_DOMAIN) {
     url = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
   }
   url = url || 'https://zavero-backend-production-7dc9.up.railway.app';
   const clean = url.endsWith('/') ? url.slice(0, -1) : url;
-  return `${clean}/?v=20261028_v2`;
+  const versionParam = process.env.APP_VERSION ? `v=${process.env.APP_VERSION}` : 'v=20261029_v3';
+  return `${clean}/?${versionParam}`;
 };
 
 // Helper: Get bot settings from DB
@@ -47,9 +48,9 @@ const getBotSettings = async () => {
   const defaultSettings = {
     required_channel_1: process.env.REQUIRED_CHANNEL_1 || '@mirzobekdev',
     required_channel_2: process.env.REQUIRED_CHANNEL_2 || '@zavero_uz',
-    subscription_price: parseInt(process.env.SUBSCRIPTION_PRICE || '250000', 10),
+    subscription_price: parseInt(process.env.SUBSCRIPTION_PRICE || '200000', 10),
     subscription_days: parseInt(process.env.SUBSCRIPTION_DAYS || '30', 10),
-    card_number: process.env.CARD_NUMBER || '9860 3501 2345 6789',
+    card_number: process.env.CARD_NUMBER || '9860 keyin qolgani chiqadi ',
     card_holder: process.env.CARD_HOLDER || 'ZAVERO POS',
     admin_contact: process.env.ADMIN_CONTACT || '@mirzobekn',
   };
@@ -606,6 +607,182 @@ const checkAntiFlood = (userId) => {
   return false;
 };
 
+// Helper: Resolve Cafe ID for a Telegram user
+const getCafeIdForTelegramUser = async (from) => {
+  if (!from) return null;
+  const telegramId = from.id || from;
+  const strId = String(telegramId);
+  try {
+    const tgUser = await db.query('SELECT cafe_id FROM telegram_users WHERE telegram_id = $1', [telegramId]);
+    if (tgUser.rows.length > 0 && tgUser.rows[0].cafe_id) {
+      return tgUser.rows[0].cafe_id;
+    }
+    const userRes = await db.query('SELECT cafe_id FROM users WHERE telegram_id = $1', [strId]);
+    if (userRes.rows.length > 0 && userRes.rows[0].cafe_id) {
+      return userRes.rows[0].cafe_id;
+    }
+    const subRes = await db.query('SELECT cafe_id FROM subscriptions WHERE telegram_id = $1 AND cafe_id IS NOT NULL ORDER BY id DESC LIMIT 1', [telegramId]);
+    if (subRes.rows.length > 0 && subRes.rows[0].cafe_id) {
+      return subRes.rows[0].cafe_id;
+    }
+    const firstCafe = await db.query("SELECT cafe_id FROM cafes WHERE status = 'active' ORDER BY created_at ASC LIMIT 1");
+    if (firstCafe.rows.length > 0) {
+      return firstCafe.rows[0].cafe_id;
+    }
+  } catch (err) {
+    console.error('getCafeIdForTelegramUser error:', err.message);
+  }
+  return null;
+};
+
+// Helper: Render Real-Time Table Status for Telegram Bot
+const renderBotTables = async (ctx, cafeId) => {
+  try {
+    const tablesRes = await db.query(
+      `SELECT t.id, t.number, t.seats, t.status, t.total, t.started_by, h.name as hall_name
+       FROM restaurant_tables t
+       LEFT JOIN halls h ON h.id = t.hall_id
+       WHERE t.cafe_id = $1
+       ORDER BY t.number ASC`,
+      [cafeId]
+    );
+
+    if (tablesRes.rows.length === 0) {
+      const emptyText =
+        `🍽 <b>STOLLAR RO'YXATI</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `🏢 Kafe: <code>${cafeId}</code>\n` +
+        `Hozircha tizimda birorta ham stol yaratilmagan.`;
+      const kb = Markup.inlineKeyboard([[Markup.button.callback('⬅️ Orqaga', 'back_to_start')]]);
+      if (ctx.callbackQuery) {
+        return await ctx.editMessageText(emptyText, { parse_mode: 'HTML', ...kb }).catch(() => ctx.replyWithHTML(emptyText, kb));
+      }
+      return await ctx.replyWithHTML(emptyText, kb);
+    }
+
+    const tables = tablesRes.rows;
+    const freeCount = tables.filter((t) => t.status === 'free').length;
+    const occupiedCount = tables.filter((t) => t.status === 'occupied').length;
+
+    let text = `🍽 <b>REAL-TIME STOLLAR HOLATI</b>\n`;
+    text += `🏢 <b>Kafe ID:</b> <code>${cafeId}</code>\n`;
+    text += `🟢 Bo'sh stollar: <b>${freeCount} ta</b> | 🔴 Band: <b>${occupiedCount} ta</b>\n`;
+    text += `━━━━━━━━━━━━━━━━━━━\n\n`;
+
+    tables.forEach((t) => {
+      const isOcc = t.status === 'occupied';
+      const hallName = t.hall_name || 'Asosiy zal';
+      if (isOcc) {
+        text += `🔴 <b>${t.number}-stol</b> (${hallName})\n   💰 Summa: ${formatSum(t.total)} so‘m\n   👤 Ofitsiant: ${t.started_by || 'Noma‘lum'}\n\n`;
+      } else {
+        text += `🟢 <b>${t.number}-stol</b> (${hallName}) — <i>Bo'sh (${t.seats} o‘rin)</i>\n\n`;
+      }
+    });
+
+    const buttons = [
+      [
+        Markup.button.callback('🔴 Band qilish', 'bot_reserve_select'),
+        Markup.button.callback('🟢 Bo‘shatish', 'bot_release_select'),
+      ],
+      [
+        Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh'),
+        Markup.button.callback('⬅️ Orqaga', 'back_to_start'),
+      ],
+    ];
+
+    const kb = Markup.inlineKeyboard(buttons);
+    if (ctx.callbackQuery) {
+      return await ctx.editMessageText(text, { parse_mode: 'HTML', ...kb }).catch(() => ctx.replyWithHTML(text, kb));
+    }
+    return await ctx.replyWithHTML(text, kb);
+  } catch (err) {
+    console.error('renderBotTables error:', err);
+    return ctx.replyWithHTML(`❌ Xatolik yuz berdi: ${err.message}`);
+  }
+};
+
+// Helper: Render Real-Time Financial & Operational Report for Telegram Bot
+const renderBotReport = async (ctx, cafeId, period = 'day') => {
+  try {
+    let dateFilter = "created_at >= CURRENT_DATE";
+    let title = "BUGUNGI MOLIYAVIY HISOBOT";
+    if (period === 'week') {
+      dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '7 days')";
+      title = "OXIRGI 7 KUNLIK HISOBOT";
+    } else if (period === 'month') {
+      dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '30 days')";
+      title = "OXIRGI 30 KUNLIK HISOBOT";
+    }
+
+    const receiptsRes = await db.query(
+      `SELECT 
+         COUNT(*) as count,
+         COALESCE(SUM(total), 0) as total,
+         COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0) as cash,
+         COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0) as card
+       FROM receipts
+       WHERE cafe_id = $1 AND ${dateFilter}`,
+      [cafeId]
+    );
+
+    const stats = receiptsRes.rows[0] || { count: 0, total: 0, cash: 0, card: 0 };
+    const avgCheck = Number(stats.count) > 0 ? Math.round(Number(stats.total) / Number(stats.count)) : 0;
+
+    const topDishesRes = await db.query(
+      `SELECT 
+         item->>'name' as name,
+         SUM((item->>'qty')::numeric) as qty,
+         SUM((item->>'price')::numeric * (item->>'qty')::numeric) as total
+       FROM receipts r,
+       LATERAL jsonb_array_elements(r.items) as item
+       WHERE r.cafe_id = $1 AND ${dateFilter}
+       GROUP BY item->>'name'
+       ORDER BY qty DESC
+       LIMIT 5`,
+      [cafeId]
+    );
+
+    let text = `📊 <b>${title}</b>\n`;
+    text += `🏢 <b>Kafe ID:</b> <code>${cafeId}</code>\n`;
+    text += `━━━━━━━━━━━━━━━━━━━\n`;
+    text += `💰 <b>Umumiy tushum:</b> ${formatSum(stats.total)} so‘m\n`;
+    text += `💵 <b>Naqd:</b> ${formatSum(stats.cash)} so‘m\n`;
+    text += `💳 <b>Karta / O‘tkazma:</b> ${formatSum(stats.card)} so‘m\n`;
+    text += `🧾 <b>Yopilgan cheklar:</b> ${stats.count} ta\n`;
+    text += `📈 <b>O‘rtacha chek:</b> ${formatSum(avgCheck)} so‘m\n`;
+    text += `━━━━━━━━━━━━━━━━━━━\n`;
+
+    if (topDishesRes.rows.length > 0) {
+      text += `🔥 <b>TOP-5 TAOMLAR VA MAHSULOTLAR:</b>\n`;
+      topDishesRes.rows.forEach((d, i) => {
+        text += `${i + 1}. <b>${d.name}</b>: ${d.qty} ta (${formatSum(d.total)} so‘m)\n`;
+      });
+      text += `━━━━━━━━━━━━━━━━━━━\n`;
+    }
+
+    const buttons = [
+      [
+        Markup.button.callback('📅 Bugun', 'bot_report_day'),
+        Markup.button.callback('📆 7 kun', 'bot_report_week'),
+        Markup.button.callback('🗓 30 kun', 'bot_report_month'),
+      ],
+      [
+        Markup.button.callback('🔄 Yangilash', `bot_report_${period}`),
+        Markup.button.callback('⬅️ Orqaga', 'back_to_start'),
+      ],
+    ];
+
+    const kb = Markup.inlineKeyboard(buttons);
+    if (ctx.callbackQuery) {
+      return await ctx.editMessageText(text, { parse_mode: 'HTML', ...kb }).catch(() => ctx.replyWithHTML(text, kb));
+    }
+    return await ctx.replyWithHTML(text, kb);
+  } catch (err) {
+    console.error('renderBotReport error:', err);
+    return ctx.replyWithHTML(`❌ Xatolik yuz berdi: ${err.message}`);
+  }
+};
+
 // Helper: Configure Bot Profile, About, Description, and Commands
 const setupBotProfilesAndCommands = async (botInstance) => {
   if (!botInstance) return;
@@ -643,9 +820,14 @@ const setupBotProfilesAndCommands = async (botInstance) => {
     // Set Public Commands Menu (Admin commands hidden from regular users)
     try {
       await botInstance.telegram.setMyCommands([
-        { command: 'start', description: '🚀 Botni ishga tushirish / Kirish' },
-        { command: 'sinov', description: '🎁 1 kunlik bepul sinov olish' },
-        { command: 'about', description: 'ℹ️ ZAVERO POS haqida ma’lumot' },
+        { command: 'start', description: '🚀 Asosiy menyu' },
+        { command: 'app', description: '📱 ZAVERO POS Mini App ilovasini ochish' },
+        { command: 'stollar', description: '📋 Stol holatlari va band qilish' },
+        { command: 'reservations', description: '📅 Joriy band qilingan stollar' },
+        { command: 'refresh', description: '🔄 Stol holatlarini qayta yangilash' },
+        { command: 'hisobot', description: '📊 Bugungi moliyaviy hisobot' },
+        { command: 'profil', description: '👤 Profil va litsenziya' },
+        { command: 'help', description: 'ℹ️ Yordam va yo‘riqnoma' },
       ]);
     } catch (e) {
       console.warn('⚠️ setMyCommands error:', e.message);
@@ -684,7 +866,7 @@ const initTelegramBot = () => {
     return null;
   }
 
-  const token = process.env.TELEGRAM_BOT_TOKEN || '8838017721:AAHMXwe9rX_6ERecTM9fHKX0ctsG6b-HOK0';
+  const token = process.env.TELEGRAM_BOT_TOKEN || '9127763453:AAH4zi7O52rbL-M6zbgWVHqggeGylhJAONo';
 
   if (!token) {
     console.warn('⚠️ [Telegram Bot] TELEGRAM_BOT_TOKEN sozlanmagan. Bot faollashtirilmadi.');
@@ -839,9 +1021,14 @@ const initTelegramBot = () => {
             `Tizimga kirish uchun quyidagi tugmani bosing:`;
 
           const buttons = [
-            [Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)],
-            [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('📋 Litsenziya', 'my_license')],
+            [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', webAppUrl)],
+            [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
+            [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
+            [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
           ];
+          if (isAdmin) {
+            buttons.push([Markup.button.callback('🛡 Admin boshqaruvi', 'admin_open_dash')]);
+          }
 
           return await ctx.replyWithHTML(welcomeBack, Markup.inlineKeyboard(buttons));
         }
@@ -877,13 +1064,12 @@ const initTelegramBot = () => {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `🙋 <b>Ism:</b> ${from.first_name || ''} ${from.last_name || ''}\n` +
           `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
-          `📛 <b>Username:</b> ${from.username ? '@' + from.username : 'Yo'q'}\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol' : '❌ Faol emas'}\n` +
-            ${
-          activeSub ? `'📅 <b>Muddati:</b> ' + formatDate(activeSub.end_date) + ' gacha\n' +
-          '⏳ <b>Qoldi:</b> ' + activeSub.daysRemaining + ' kun\n'` : `'💡 Litsenziya sotib olish uchun /start bosing\n'`
-        } +
+          `📛 <b>Username:</b> ${from.username ? '@' + from.username : "Mavjud emas"}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol' : '❌ Faol emas'}\n` +
+          (activeSub
+            ? `📅 <b>Muddati:</b> ${formatDate(activeSub.end_date)} gacha\n⏳ <b>Qoldi:</b> ${activeSub.daysRemaining} kun\n`
+            : `💡 Litsenziya sotib olish uchun /start bosing\n`) +
           `━━━━━━━━━━━━━━━━━━━`;
 
         const buttons = [
@@ -938,9 +1124,15 @@ const initTelegramBot = () => {
         const text = activeSub
           ? `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n✅ <b>Litsenziyangiz faol!</b>\n📅 ${formatDate(activeSub.end_date)} gacha\n⏳ ${activeSub.daysRemaining} kun qoldi`
           : `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>! /start bosib litsenziya oling.`;
+        const isAdmin = await isAdminUser(from);
         const buttons = activeSub
-          ? [[Markup.button.webApp('🚀 ZAVERO POS'NI OCHISH', webAppUrl)],
-          [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('📋 Litsenziya', 'my_license')]]
+          ? [
+            [Markup.button.webApp("🚀 ZAVERO POS (Mini App)", webAppUrl)],
+            [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
+            [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
+            [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
+            ...(isAdmin ? [[Markup.button.callback('🛡 Admin boshqaruvi', 'admin_open_dash')]] : []),
+          ]
           : [[Markup.button.callback('🔄 Obunani tekshirish', 'check_channels')]];
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) { console.error('back_to_start error:', err); }
@@ -959,10 +1151,10 @@ const initTelegramBot = () => {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `🙋 <b>Ism:</b> ${from.first_name || ''} ${from.last_name || ''}\n` +
           `🆔 <b>Telegram ID:</b> <code>${telegramId}</code>\n` +
-          `📛 <b>Username:</b> ${from.username ? '@' + from.username : 'Yo'q'}\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol, ' + activeSub.daysRemaining + ' kun qoldi' : '❌ Faol emas'}\n` +
-            `━━━━━━━━━━━━━━━━━━━`;
+          `📛 <b>Username:</b> ${from.username ? '@' + from.username : "Mavjud emas"}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `📦 <b>Litsenziya:</b> ${activeSub ? '✅ Faol, ' + activeSub.daysRemaining + ' kun qoldi' : '❌ Faol emas'}\n` +
+          `━━━━━━━━━━━━━━━━━━━`;
 
         return await ctx.replyWithHTML(profileText, Markup.inlineKeyboard([
           [Markup.button.webApp('⚙️ Ilovaga kirish', webAppUrl)],
@@ -970,6 +1162,515 @@ const initTelegramBot = () => {
         ]));
       } catch (err) {
         console.error('/profil error:', err);
+      }
+    });
+
+    // ============================================================
+    // REAL-TIME STOLLAR VA BAND QILISH (TELEGRAM BOT)
+    // ============================================================
+    const handleTablesCommand = async (ctx) => {
+      try {
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) {
+          return ctx.replyWithHTML(
+            `❌ <b>Kafe aniqlanmadi!</b>\n` +
+            `Akkauntingiz birorta ham kafega biriktirilmagan.\n` +
+            `Iltimos, <code>/link_cafe &lt;cafe_id&gt;</code> buyrug‘i orqali kafe ID sini kiriting.`
+          );
+        }
+        return await renderBotTables(ctx, cafeId);
+      } catch (err) {
+        console.error('handleTablesCommand error:', err);
+        return ctx.replyWithHTML(`❌ Xatolik yuz berdi: ${err.message}`);
+      }
+    };
+
+    // Command: /app (Mini App'ni ochish)
+    bot.command('app', async (ctx) => {
+      try {
+        const webAppUrl = getWebAppUrl();
+        return await ctx.replyWithHTML(
+          `📱 <b>ZAVERO POS TELEGRAM MINI APP</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `Ilovani to‘liq ekran rejimida ochish va stollarni real-time boshqarish uchun quyidagi tugmani bosing:`,
+          Markup.inlineKeyboard([
+            [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', webAppUrl)],
+            [Markup.button.callback('⬅️ Bosh menyu', 'back_to_start')],
+          ])
+        );
+      } catch (e) {
+        console.error('/app command error:', e);
+      }
+    });
+
+    // Command: /refresh & /yangilash
+    const handleRefreshCommand = async (ctx) => {
+      try {
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) return ctx.replyWithHTML('❌ Kafe aniqlanmadi.');
+        return await renderBotTables(ctx, cafeId);
+      } catch (e) {
+        console.error('handleRefreshCommand error:', e);
+      }
+    };
+    bot.command('refresh', handleRefreshCommand);
+    bot.command('yangilash', handleRefreshCommand);
+
+    // Command: /reservations & /bandlovlar
+    const handleReservationsCommand = async (ctx) => {
+      try {
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) return ctx.replyWithHTML('❌ Kafe aniqlanmadi.');
+
+        const res = await db.query(
+          `SELECT t.id, t.number, t.seats, t.total, t.started_by, t.updated_at, h.name as hall_name
+           FROM restaurant_tables t
+           LEFT JOIN halls h ON h.id = t.hall_id
+           WHERE t.cafe_id = $1 AND t.status = 'occupied'
+           ORDER BY t.number ASC`,
+          [cafeId]
+        );
+
+        if (res.rows.length === 0) {
+          const emptyText =
+            `📅 <b>JORIY BANDLOVLAR</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `🏢 Kafe ID: <code>${cafeId}</code>\n\n` +
+            `🟢 Hozirda birorta ham band qilingan stol mavjud emas. Barcha stollar bo‘sh!`;
+          const kb = Markup.inlineKeyboard([
+            [Markup.button.callback('🍽 Barcha stollar', 'bot_tables')],
+            [Markup.button.callback('⬅️ Bosh menyu', 'back_to_start')],
+          ]);
+          if (ctx.callbackQuery) {
+            return await ctx.editMessageText(emptyText, { parse_mode: 'HTML', ...kb }).catch(() => ctx.replyWithHTML(emptyText, kb));
+          }
+          return await ctx.replyWithHTML(emptyText, kb);
+        }
+
+        let text = `📅 <b>FAOL BANDLOVLAR RO'YXATI (${res.rows.length} ta stol band)</b>\n`;
+        text += `🏢 Kafe ID: <code>${cafeId}</code>\n`;
+        text += `━━━━━━━━━━━━━━━━━━━\n\n`;
+
+        res.rows.forEach((t) => {
+          const hall = t.hall_name || 'Asosiy zal';
+          const time = t.updated_at ? new Date(t.updated_at).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : '';
+          text += `🔴 <b>${t.number}-stol</b> (${hall})\n`;
+          text += `   👤 Ofitsiant: <b>${t.started_by || 'Noma‘lum'}</b>\n`;
+          text += `   💰 Joriy hisob: <b>${formatSum(t.total)} so‘m</b>\n`;
+          if (time) text += `   ⏰ Band qilingan vaqt: ${time}\n`;
+          text += `\n`;
+        });
+
+        const buttons = [
+          [
+            Markup.button.callback('🟢 Stolni bo‘shatish', 'bot_release_select'),
+            Markup.button.callback('🔄 Yangilash', 'bot_my_reservations'),
+          ],
+          [
+            Markup.button.callback('🍽 Barcha stollar', 'bot_tables'),
+            Markup.button.callback('⬅️ Bosh menyu', 'back_to_start'),
+          ],
+        ];
+
+        const kb = Markup.inlineKeyboard(buttons);
+        if (ctx.callbackQuery) {
+          return await ctx.editMessageText(text, { parse_mode: 'HTML', ...kb }).catch(() => ctx.replyWithHTML(text, kb));
+        }
+        return await ctx.replyWithHTML(text, kb);
+      } catch (err) {
+        console.error('handleReservationsCommand error:', err);
+        return ctx.replyWithHTML(`❌ Xatolik yuz berdi: ${err.message}`);
+      }
+    };
+
+    bot.command('reservations', handleReservationsCommand);
+    bot.command('bandlovlar', handleReservationsCommand);
+
+    bot.action('bot_my_reservations', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        await handleReservationsCommand(ctx);
+      } catch (e) {
+        console.error('bot_my_reservations action error:', e);
+      }
+    });
+
+    // Command: /help & /yordam & bot_help action
+    const handleHelpCommand = async (ctx) => {
+      const settings = await getBotSettings();
+      const adminContact = settings.admin_contact || '@mirzobekn';
+      const helpText =
+        `ℹ️ <b>ZAVERO POS TELEGRAM BOT YORDAM MARKAZI</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `<b>ZAVERO POS</b> — Android, iOS, kompyuter va Telegram botni yagona ma’lumotlar bazasida 0-ms sinxronlovchi kassa tizimi.\n\n` +
+        `📌 <b>ASOSIY BUYRUQLAR:</b>\n` +
+        `• /app — Telegram Mini App ilovasini ochish\n` +
+        `• /stollar — Real-time stollar holati va band qilish\n` +
+        `• /reservations — Joriy faol bandlovlarni ko‘rish\n` +
+        `• /refresh — Ma’lumotlarni majburiy yangilash\n` +
+        `• /hisobot — Bugungi tushum va kassa hisoboti\n` +
+        `• /link_cafe &lt;cafe_id&gt; — Akkauntni kafega biriktirish\n` +
+        `• /profil — Mening profilim va litsenziyam\n` +
+        `• /about — Tizim haqida to‘liq ma’lumot\n\n` +
+        `💬 Qo‘llab-quvvatlash xizmati: ${adminContact}`;
+
+      const kb = Markup.inlineKeyboard([
+        [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', getWebAppUrl())],
+        [Markup.button.callback('⬅️ Bosh menyu', 'back_to_start')],
+      ]);
+      if (ctx.callbackQuery) {
+        await ctx.answerCbQuery();
+        return await ctx.editMessageText(helpText, { parse_mode: 'HTML', ...kb }).catch(() => ctx.replyWithHTML(helpText, kb));
+      }
+      return await ctx.replyWithHTML(helpText, kb);
+    };
+
+    bot.command('help', handleHelpCommand);
+    bot.command('yordam', handleHelpCommand);
+    bot.action('bot_help', handleHelpCommand);
+
+    // Admin open dashboard action
+    bot.action('admin_open_dash', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        if (!(await isAdminUser(ctx.from))) {
+          return ctx.replyWithHTML('🔒 Kechirasiz, ushbu bo‘lim faqat tasdiqlangan administratorlar uchun.');
+        }
+        return await sendAdminDashboard(ctx);
+      } catch (e) {
+        console.error('admin_open_dash error:', e);
+      }
+    });
+
+    bot.command('stollar', handleTablesCommand);
+    bot.command('tables', handleTablesCommand);
+
+    bot.action('bot_tables', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        await handleTablesCommand(ctx);
+      } catch (e) {
+        console.error('bot_tables action error:', e);
+      }
+    });
+
+    bot.action('bot_tables_refresh', async (ctx) => {
+      try {
+        await ctx.answerCbQuery('🔄 Maʼlumotlar yangilandi');
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (cafeId) await renderBotTables(ctx, cafeId);
+      } catch (e) {
+        console.error('bot_tables_refresh error:', e);
+      }
+    });
+
+    // Bo'sh stollarni ko'rsatish
+    bot.action('bot_reserve_select', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) return ctx.replyWithHTML('❌ Kafe topilmadi.');
+
+        const res = await db.query(
+          "SELECT id, number, seats FROM restaurant_tables WHERE cafe_id = $1 AND status = 'free' ORDER BY number ASC",
+          [cafeId]
+        );
+        if (res.rows.length === 0) {
+          return ctx.replyWithHTML(
+            '⚠️ Hozirda barcha stollar band!',
+            Markup.inlineKeyboard([[Markup.button.callback('🍽 Stollarni ko‘rish', 'bot_tables')]])
+          );
+        }
+
+        const buttons = [];
+        let row = [];
+        res.rows.forEach((t) => {
+          row.push(Markup.button.callback(`🟢 ${t.number}-stol (${t.seats} kishi)`, `band_table_${t.id}`));
+          if (row.length === 2) {
+            buttons.push(row);
+            row = [];
+          }
+        });
+        if (row.length > 0) buttons.push(row);
+        buttons.push([Markup.button.callback('⬅️ Orqaga', 'bot_tables')]);
+
+        const text = '🔴 <b>Qaysi stolni band qilmoqchisiz?</b>\n<i>Quyidagi bo‘sh stollardan birini tanlang:</i>';
+        if (ctx.callbackQuery) {
+          return await ctx.editMessageText(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }).catch(() => ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons)));
+        }
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+      } catch (err) {
+        console.error('bot_reserve_select error:', err);
+      }
+    });
+
+    // Stolni band qilish
+    bot.action(/^band_table_(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const tableId = parseInt(ctx.match[1], 10);
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) {
+          return ctx.replyWithHTML('❌ Kafe topilmadi. Avval /link_cafe <cafeId> buyrug‘i orqali kafengizni biriktiring.');
+        }
+
+        const from = ctx.from;
+        const waiterName = [from.first_name, from.last_name].filter(Boolean).join(' ') || from.username || `Telegram (${from.id})`;
+
+        let updatedTable = null;
+        await db.withTransaction(async (client) => {
+          const checkRes = await client.query(
+            'SELECT * FROM restaurant_tables WHERE id = $1 AND cafe_id = $2 FOR UPDATE',
+            [tableId, cafeId]
+          );
+          if (checkRes.rows.length === 0) {
+            throw new Error('Stol topilmadi');
+          }
+          const tbl = checkRes.rows[0];
+          if (tbl.status === 'occupied') {
+            throw Object.assign(new Error(`Bu stol hozir band (${tbl.started_by || 'boshqa qurilma'} tomonidan band qilingan)`), {
+              code: 'TABLE_BUSY',
+              tableNumber: tbl.number,
+              occupiedBy: tbl.started_by,
+            });
+          }
+
+          const upRes = await client.query(
+            `UPDATE restaurant_tables 
+             SET status = 'occupied', order_id = $1, total = 0, started_by = $2, updated_at = CURRENT_TIMESTAMP 
+             WHERE id = $3 AND cafe_id = $4 
+             RETURNING *`,
+            [`${tableId}`, waiterName, tableId, cafeId]
+          );
+          updatedTable = upRes.rows[0];
+
+          await client.query(
+            `INSERT INTO table_orders (table_id, cafe_id, items, note, started_by, updated_at)
+             VALUES ($1, $2, '[]', 'Telegram bot orqali band qilindi', $3, CURRENT_TIMESTAMP)
+             ON CONFLICT (table_id) DO UPDATE SET started_by = $3, updated_at = CURRENT_TIMESTAMP`,
+            [tableId, cafeId, waiterName]
+          );
+
+          await client.query(
+            `INSERT INTO activity_logs (cafe_id, action, details, performed_by)
+             VALUES ($1, 'TABLE_OCCUPIED', $2, $3)`,
+            [cafeId, `Stol #${tbl.number} Telegram orqali band qilindi`, waiterName]
+          );
+        });
+
+        // Real-time broadcast to all connected devices (Android, iOS, Web, Tablet)
+        const { notifyCafe } = require('../socket/socketHandler');
+        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', {
+          tableId,
+          tableNumber: updatedTable.number,
+          status: 'occupied',
+          table: {
+            id: updatedTable.id,
+            cafeId: updatedTable.cafe_id,
+            hallId: updatedTable.hall_id,
+            number: updatedTable.number,
+            seats: updatedTable.seats,
+            status: updatedTable.status,
+            total: parseFloat(updatedTable.total || 0),
+            startedBy: updatedTable.started_by,
+          },
+        });
+        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', {
+          tableId,
+          tableNumber: updatedTable.number,
+          items: [],
+          note: 'Telegram bot orqali band qilindi',
+        });
+
+        const successText =
+          `✅ <b>${updatedTable.number}-stol muvaffaqiyatli band qilindi!</b>\n` +
+          `👤 Band qiluvchi: <b>${waiterName}</b>\n` +
+          `📡 Holat barcha planshet, telefon va kompyuterlarga darhol uzatildi (0-ms sinxronizatsiya).`;
+
+        await ctx.replyWithHTML(successText, Markup.inlineKeyboard([
+          [Markup.button.callback('🍽 Stollar ro‘yxati', 'bot_tables')],
+          [Markup.button.callback('⬅️ Bosh menyu', 'back_to_start')],
+        ]));
+      } catch (err) {
+        if (err.code === 'TABLE_BUSY') {
+          return ctx.replyWithHTML(
+            `⚠️ <b>DIQQAT: Stol band!</b>\n` +
+            `${err.message}\n` +
+            `Iltimos, boshqa bo‘sh stolni tanlang.`,
+            Markup.inlineKeyboard([[Markup.button.callback('🔄 Stollarni ko‘rish', 'bot_tables')]])
+          );
+        }
+        console.error('band_table error:', err.message);
+        return ctx.replyWithHTML(`❌ Xatolik yuz berdi: ${err.message}`);
+      }
+    });
+
+    // Band stollarni tanlash (bo'shatish uchun)
+    bot.action('bot_release_select', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) return ctx.replyWithHTML('❌ Kafe topilmadi.');
+
+        const res = await db.query(
+          "SELECT id, number, total, started_by FROM restaurant_tables WHERE cafe_id = $1 AND status = 'occupied' ORDER BY number ASC",
+          [cafeId]
+        );
+        if (res.rows.length === 0) {
+          return ctx.replyWithHTML(
+            '🟢 Hozirda band stollar mavjud emas.',
+            Markup.inlineKeyboard([[Markup.button.callback('🍽 Stollarni ko‘rish', 'bot_tables')]])
+          );
+        }
+
+        const buttons = [];
+        let row = [];
+        res.rows.forEach((t) => {
+          row.push(Markup.button.callback(`🔴 ${t.number}-stol (${formatSum(t.total)} so‘m)`, `free_table_${t.id}`));
+          if (row.length === 2) {
+            buttons.push(row);
+            row = [];
+          }
+        });
+        if (row.length > 0) buttons.push(row);
+        buttons.push([Markup.button.callback('⬅️ Orqaga', 'bot_tables')]);
+
+        const text = '🟢 <b>Qaysi stolni bo‘shatmoqchisiz?</b>\n<i>Quyidagi band stollardan birini tanlang:</i>';
+        if (ctx.callbackQuery) {
+          return await ctx.editMessageText(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }).catch(() => ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons)));
+        }
+        return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+      } catch (err) {
+        console.error('bot_release_select error:', err);
+      }
+    });
+
+    // Stolni bo'shatish
+    bot.action(/^free_table_(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const tableId = parseInt(ctx.match[1], 10);
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) {
+          return ctx.replyWithHTML('❌ Kafe topilmadi. Avval /link_cafe <cafeId> buyrug‘i orqali kafengizni biriktiring.');
+        }
+
+        const from = ctx.from;
+        const operatorName = [from.first_name, from.last_name].filter(Boolean).join(' ') || from.username || `Telegram (${from.id})`;
+
+        let releasedNumber = null;
+        await db.withTransaction(async (client) => {
+          const up = await client.query(
+            `UPDATE restaurant_tables 
+             SET status = 'free', order_id = NULL, total = 0, started_by = NULL, updated_at = CURRENT_TIMESTAMP 
+             WHERE id = $1 AND cafe_id = $2 
+             RETURNING number`,
+            [tableId, cafeId]
+          );
+          if (up.rows.length > 0) releasedNumber = up.rows[0].number;
+          await client.query('DELETE FROM table_orders WHERE table_id = $1', [tableId]);
+
+          await client.query(
+            `INSERT INTO activity_logs (cafe_id, action, details, performed_by)
+             VALUES ($1, 'TABLE_RELEASED', $2, $3)`,
+            [cafeId, `Stol #${releasedNumber || tableId} Telegram orqali bo'shatildi`, operatorName]
+          );
+        });
+
+        // Real-time broadcast to all connected devices (Android, iOS, Web, Tablet)
+        const { notifyCafe } = require('../socket/socketHandler');
+        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: releasedNumber });
+        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: releasedNumber, status: 'free' });
+        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: releasedNumber, items: [], note: '' });
+
+        const successText =
+          `🟢 <b>${releasedNumber}-stol muvaffaqiyatli bo‘shatildi!</b>\n` +
+          `👤 Bo‘shatgan: <b>${operatorName}</b>\n` +
+          `📡 Stol holati barcha qurilmalarda bo‘sh deb belgilandi.`;
+
+        await ctx.replyWithHTML(successText, Markup.inlineKeyboard([
+          [Markup.button.callback('🍽 Stollar ro‘yxati', 'bot_tables')],
+          [Markup.button.callback('⬅️ Bosh menyu', 'back_to_start')],
+        ]));
+      } catch (err) {
+        console.error('free_table error:', err.message);
+        return ctx.replyWithHTML(`❌ Xatolik yuz berdi: ${err.message}`);
+      }
+    });
+
+    // ============================================================
+    // REAL-TIME FINANCIAL REPORT (TELEGRAM BOT)
+    // ============================================================
+    const handleReportCommand = async (ctx, period = 'day') => {
+      try {
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) {
+          return ctx.replyWithHTML(
+            `❌ <b>Kafe aniqlanmadi!</b>\n` +
+            `Iltimos, <code>/link_cafe &lt;cafe_id&gt;</code> buyrug‘i orqali kafe ID sini kiriting.`
+          );
+        }
+        return await renderBotReport(ctx, cafeId, period);
+      } catch (err) {
+        console.error('handleReportCommand error:', err);
+        return ctx.replyWithHTML(`❌ Xatolik yuz berdi: ${err.message}`);
+      }
+    };
+
+    bot.command('hisobot', (ctx) => handleReportCommand(ctx, 'day'));
+    bot.command('report', (ctx) => handleReportCommand(ctx, 'day'));
+
+    bot.action('bot_report', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        await handleReportCommand(ctx, 'day');
+      } catch (e) {
+        console.error('bot_report action error:', e);
+      }
+    });
+
+    bot.action(/^bot_report_(day|week|month)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery('📊 Hisobot yangilandi');
+        const period = ctx.match[1];
+        await handleReportCommand(ctx, period);
+      } catch (e) {
+        console.error('bot_report_period error:', e);
+      }
+    });
+
+    // Command: /link_cafe <cafe_id> (Kafega biriktirish)
+    bot.command('link_cafe', async (ctx) => {
+      try {
+        const parts = (ctx.message.text || '').trim().split(/\s+/);
+        if (parts.length < 2) {
+          return ctx.replyWithHTML('Foydalanish: <code>/link_cafe &lt;cafe_id&gt;</code>\nMasalan: <code>/link_cafe cafe1</code>');
+        }
+        const targetCafeId = parts[1].trim();
+        const checkCafe = await db.query('SELECT cafe_id, cafe_name FROM cafes WHERE cafe_id = $1', [targetCafeId]);
+        if (checkCafe.rows.length === 0) {
+          return ctx.replyWithHTML(`❌ <b>${targetCafeId}</b> nomli kafe topilmadi!`);
+        }
+
+        await db.query(
+          `INSERT INTO telegram_users (telegram_id, username, first_name, last_name, cafe_id, updated_at)
+           VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+           ON CONFLICT (telegram_id) DO UPDATE SET cafe_id = $5, updated_at = CURRENT_TIMESTAMP`,
+          [ctx.from.id, ctx.from.username || '', ctx.from.first_name || '', ctx.from.last_name || '', targetCafeId]
+        );
+
+        return ctx.replyWithHTML(
+          `✅ <b>Muvaffaqiyatli biriktirildi!</b>\n` +
+          `🏢 Kafe: <b>${checkCafe.rows[0].cafe_name || targetCafeId}</b> (<code>${targetCafeId}</code>)\n\n` +
+          `Endi /stollar va /hisobot buyruqlaridan bemalol foydalanishingiz mumkin.`,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('🍽 Stollarni ko‘rish', 'bot_tables')],
+            [Markup.button.callback('📊 Hisobotni ochish', 'bot_report')],
+          ])
+        );
+      } catch (err) {
+        console.error('link_cafe error:', err);
+        return ctx.replyWithHTML(`❌ Xatolik: ${err.message}`);
       }
     });
 
@@ -2835,7 +3536,11 @@ const initTelegramBot = () => {
     if (useWebhook && webhookDomain) {
       const webhookPath = '/api/bot/webhook';
       const fullUrl = `${webhookDomain.endsWith('/') ? webhookDomain.slice(0, -1) : webhookDomain}${webhookPath}`;
-      bot.telegram.setWebhook(fullUrl, { drop_pending_updates: true }).then(() => {
+      const webhookOptions = { drop_pending_updates: true };
+      if (process.env.WEBHOOK_SECRET) {
+        webhookOptions.secret_token = process.env.WEBHOOK_SECRET;
+      }
+      bot.telegram.setWebhook(fullUrl, webhookOptions).then(() => {
         console.log(`🤖 [Telegram Bot] Webhook 100% muvaffaqiyatli o‘rnatildi: ${fullUrl}`);
       }).catch((e) => {
         console.warn('⚠️ [Telegram Bot] Webhook o‘rnatishda xatolik:', e.message);
@@ -3010,6 +3715,61 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
   }
 };
 
+/**
+ * Send general updates to cafe owners and admin telegrams (e.g. staff break, new receipt, subscription)
+ */
+const sendGeneralTelegramNotification = async ({ cafeId, title, message }) => {
+  try {
+    if (!bot) return;
+    const recipientIds = new Set();
+
+    // 1. Admin telegram IDs
+    try {
+      const adminRes = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_telegram_ids'");
+      if (adminRes.rows.length > 0 && adminRes.rows[0].value) {
+        adminRes.rows[0].value.split(',').forEach((id) => id.trim() && recipientIds.add(id.trim()));
+      }
+    } catch (_) { }
+    if (process.env.ADMIN_TELEGRAM_IDS) {
+      process.env.ADMIN_TELEGRAM_IDS.split(',').forEach((id) => id.trim() && recipientIds.add(id.trim()));
+    }
+
+    // 2. Cafe staff/owners
+    if (cafeId) {
+      try {
+        const usersRes = await db.query(
+          `SELECT telegram_id FROM users WHERE cafe_id = $1 AND telegram_id IS NOT NULL AND telegram_id != ''`,
+          [cafeId]
+        );
+        for (const u of usersRes.rows) {
+          if (u.telegram_id) recipientIds.add(String(u.telegram_id).trim());
+        }
+      } catch (_) { }
+      try {
+        const sRes = await db.query('SELECT settings_data FROM cafes WHERE cafe_id = $1', [cafeId]);
+        if (sRes.rows.length > 0 && sRes.rows[0].settings_data) {
+          const s = sRes.rows[0].settings_data;
+          if (s.telegramChatId || s.telegramNotificationId) {
+            recipientIds.add(String(s.telegramChatId || s.telegramNotificationId).trim());
+          }
+        }
+      } catch (_) { }
+    }
+
+    if (recipientIds.size === 0) return;
+
+    const fullMsg = `<b>${title}</b>\n━━━━━━━━━━━━━━━━━━━\n${message}\n\n<i>ZAVERO POS tizimi</i>`;
+
+    for (const tId of recipientIds) {
+      try {
+        await bot.telegram.sendMessage(tId, fullMsg, { parse_mode: 'HTML' });
+      } catch (_) { }
+    }
+  } catch (err) {
+    console.warn('⚠️ [Telegram Bot] sendGeneralTelegramNotification xatosi:', err.message);
+  }
+};
+
 module.exports = {
   initTelegramBot,
   getBotInstance,
@@ -3018,4 +3778,5 @@ module.exports = {
   getBotSettings,
   isAdminUser,
   sendCustomerOrderNotification,
+  sendGeneralTelegramNotification,
 };

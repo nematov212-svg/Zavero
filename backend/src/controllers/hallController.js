@@ -45,6 +45,12 @@ const save = async (req, res) => {
 
     const mapped = mapHall(row);
     notifyCafe(cafeId, 'HALLS_UPDATED', { hall: mapped });
+
+    await db.query(
+      'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+      [cafeId, 'HALL_SAVED', `Zal '${cleanName}' saqlandi`, req.user?.name || req.user?.username || 'Admin']
+    ).catch(() => {});
+
     return res.status(201).json({ success: true, hall: mapped });
   } catch (error) {
     console.error('save hall error:', error);
@@ -79,6 +85,12 @@ const remove = async (req, res) => {
 
     notifyCafe(cafeId, 'HALLS_UPDATED', { deletedId: hallId });
     notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { hallDeleted: hallId });
+
+    await db.query(
+      'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+      [cafeId, 'HALL_DELETED', `Zal (ID: ${hallId}) o'chirildi`, req.user?.name || req.user?.username || 'Admin']
+    ).catch(() => {});
+
     return res.json({ success: true, hallId });
   } catch (error) {
     console.error('remove hall error:', error);

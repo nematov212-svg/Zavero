@@ -44,9 +44,11 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS cafe_id VARCHAR(64);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(64);
 CREATE INDEX IF NOT EXISTS idx_users_cafe ON users(cafe_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 
 -- 2b. EMPLOYEES
 CREATE TABLE IF NOT EXISTS employees (
@@ -457,3 +459,19 @@ CREATE TABLE IF NOT EXISTS bot_blocked_spammers (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_bot_blocked_spammers_tid ON bot_blocked_spammers(telegram_id);
+
+-- 26. OUTBOX EVENTS (Ishonchli Real-Time Hodisalar va audit qatori)
+CREATE TABLE IF NOT EXISTS outbox_events (
+    id SERIAL PRIMARY KEY,
+    event_id VARCHAR(64) UNIQUE NOT NULL,
+    event_type VARCHAR(80) NOT NULL,
+    entity_id VARCHAR(64) NOT NULL,
+    entity_version INTEGER NOT NULL DEFAULT 1,
+    payload JSONB NOT NULL DEFAULT '{}',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending, processed, failed
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox_events(status, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_outbox_entity ON outbox_events(entity_id);

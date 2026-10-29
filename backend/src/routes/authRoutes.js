@@ -14,5 +14,6 @@ router.post('/password', authMiddleware, authRateLimiter, authController.changeP
 router.put('/change-credentials', authMiddleware, authRateLimiter, authController.changeCredentials);
 router.post('/change-credentials', authMiddleware, authRateLimiter, authController.changeCredentials);
 router.post('/telegram-verify', authRateLimiter, authController.telegramVerify);
+router.post('/telegram-webapp', authRateLimiter, authController.telegramVerify);
 
 module.exports = router;

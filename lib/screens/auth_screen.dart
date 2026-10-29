@@ -290,8 +290,8 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
-            settings: const RouteSettings(name: 'tableSelection'),
-            builder: (_) => const TableSelectionScreen(),
+            settings: const RouteSettings(name: 'dashboard'),
+            builder: (_) => const DashboardScreen(),
           ),
           (r) => false,
         );
@@ -389,8 +389,8 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
-          settings: const RouteSettings(name: 'tableSelection'),
-          builder: (_) => const TableSelectionScreen(),
+          settings: const RouteSettings(name: 'dashboard'),
+          builder: (_) => const DashboardScreen(),
         ),
         (r) => false,
       );

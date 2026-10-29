@@ -106,11 +106,27 @@ const checkout = async (req, res) => {
         [cafeId, dateId, totalRev, orderCount, JSON.stringify(qty), JSON.stringify(rev), topProduct, JSON.stringify(tableRev)]
       );
 
-      let effectiveTableId = tableId;
-      if (!effectiveTableId && receipt.tableNumber) {
-        const tCheck = await client.query('SELECT id FROM restaurant_tables WHERE cafe_id = $1 AND number = $2 LIMIT 1', [cafeId, parseInt(receipt.tableNumber, 10)]);
-        if (tCheck.rows.length > 0) {
-          effectiveTableId = tCheck.rows[0].id;
+      let effectiveTableId = null;
+      let effectiveTableNumber = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
+
+      if (tableId) {
+        const idCheck = await client.query(
+          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND id = $2 LIMIT 1',
+          [cafeId, parseInt(tableId, 10)]
+        );
+        if (idCheck.rows.length > 0) {
+          effectiveTableId = idCheck.rows[0].id;
+          if (!effectiveTableNumber) effectiveTableNumber = idCheck.rows[0].number;
+        }
+      }
+
+      if (!effectiveTableId && effectiveTableNumber) {
+        const numCheck = await client.query(
+          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND number = $2 LIMIT 1',
+          [cafeId, effectiveTableNumber]
+        );
+        if (numCheck.rows.length > 0) {
+          effectiveTableId = numCheck.rows[0].id;
         }
       }
 
@@ -122,6 +138,17 @@ const checkout = async (req, res) => {
         );
         await client.query('DELETE FROM table_orders WHERE table_id = $1', [effectiveTableId]);
       }
+      if (effectiveTableNumber) {
+        await client.query(
+          `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL, updated_at=CURRENT_TIMESTAMP
+           WHERE number=$1 AND cafe_id=$2`,
+          [effectiveTableNumber, cafeId]
+        );
+        await client.query(
+          `DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number = $1 AND cafe_id = $2)`,
+          [effectiveTableNumber, cafeId]
+        );
+      }
 
       await client.query(
         'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
@@ -132,15 +159,25 @@ const checkout = async (req, res) => {
         ]
       );
 
-      return { receiptRow, reportRow: reportResult.rows[0], effectiveTableId };
+      return { receiptRow, reportRow: reportResult.rows[0], effectiveTableId, effectiveTableNumber };
     });
 
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
     notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow) });
-    if (effectiveTableId) {
-      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: receipt.tableNumber });
-      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: receipt.tableNumber, status: 'free' });
-      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: receipt.tableNumber, items: [], note: '' });
+    try {
+      const { sendGeneralTelegramNotification } = require('../bot/telegramBot');
+      const methodLabel = receipt.method === 'card' ? '💳 Karta' : '💵 Naqd';
+      const tbl = receipt.tableNumber ? `${receipt.tableNumber}-stol` : (receipt.hallName || 'Stol');
+      sendGeneralTelegramNotification({
+        cafeId,
+        title: `🧾 YANGI TO'LOV / CHEK #${receiptRow.id}`,
+        message: `💵 <b>Summa:</b> ${(receipt.total || 0).toLocaleString()} so'm\n💳 <b>To'lov:</b> ${methodLabel}\n🪑 <b>Joy:</b> ${tbl}\n👤 <b>Kassir/Ofitsiant:</b> ${receipt.cashierName || 'Admin'}\n⏰ <b>Vaqt:</b> ${new Date().toLocaleTimeString('uz-UZ')}`,
+      }).catch(() => {});
+    } catch (_) {}
+    if (effectiveTableId || effectiveTableNumber) {
+      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, status: 'free' });
+      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, items: [], note: '' });
     }
 
     return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow) });

@@ -9,6 +9,7 @@ const { initSocket } = require('./socket/socketHandler');
 const { runMigrations } = require('./migrations/migrate');
 const { ensureCafeSeeded } = require('./utils/seedCafe');
 const { initTelegramBot } = require('./bot/telegramBot');
+const { initSubscriptionBot } = require('./bot/subscriptionBot');
 
 const PORT = process.env.PORT || 3000;
 
@@ -71,6 +72,7 @@ const start = async () => {
 
   try {
     initTelegramBot();
+    initSubscriptionBot();
   } catch (botErr) {
     console.error('⚠️  Telegram botni ishga tushirishda xatolik:', botErr.message);
   }

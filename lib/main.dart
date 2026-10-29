@@ -258,6 +258,31 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _socketReceiptAddedSub;
   StreamSubscription? _socketReportUpdatedSub;
   StreamSubscription? _settingsSub;
+  StreamSubscription? _subscriptionExtendedSub;
+
+  final List<AppNotificationItem> notifications = [];
+  int get unreadNotificationsCount => notifications.where((n) => !n.isRead).length;
+
+  void addAppNotification(AppNotificationItem item) {
+    notifications.insert(0, item);
+    if (notifications.length > 60) {
+      notifications.removeLast();
+    }
+    notifyListeners();
+  }
+
+  void markAllNotificationsAsRead() {
+    for (final n in notifications) {
+      n.isRead = true;
+    }
+    notifyListeners();
+  }
+
+  void clearNotifications() {
+    notifications.clear();
+    notifyListeners();
+  }
+
   bool isUnderMaintenance = false;
   Timer? _cartSaveTimer;
   bool isCloudSynced = false;
@@ -971,8 +996,45 @@ class AppState extends ChangeNotifier {
     // REAL-TIME STOLLAR VA OFITSIANT/KAFE SINXRONIZATSIYASI (0-MS)
     // ============================================================
     _socketTableStatusSub?.cancel();
-    _socketTableStatusSub?.cancel();
     _socketTableStatusSub = SocketService().on(CafeSocketEvent.tableStatusUpdated).listen((data) {
+      if (data['resync'] == true) {
+        if (currentCafeId.isNotEmpty) {
+          loadCloudDataForCafe(currentCafeId);
+        }
+        return;
+      }
+      if (data['clearedAll'] == true) {
+        tables.clear();
+        tableOrders.clear();
+        tableNotes.clear();
+        notifyListeners();
+        return;
+      }
+      final tableDeletedId = (data['tableDeleted'] as num?)?.toInt();
+      if (tableDeletedId != null) {
+        tables.removeWhere((t) => t.id == tableDeletedId);
+        tableOrders.remove(tableDeletedId);
+        tableNotes.remove(tableDeletedId);
+        if (selectedTable?.id == tableDeletedId) {
+          selectedTable = null;
+          cart.clear();
+        }
+        notifyListeners();
+        return;
+      }
+      final tableMap = data['table'];
+      if (tableMap is Map) {
+        try {
+          final updatedT = TableModel.fromJson(Map<String, dynamic>.from(tableMap));
+          final existingIdx = tables.indexWhere((t) => t.id == updatedT.id);
+          if (existingIdx != -1) {
+            tables[existingIdx] = updatedT;
+          } else {
+            tables.add(updatedT);
+          }
+          notifyListeners();
+        } catch (_) {}
+      }
       final tId = (data['tableId'] as num?)?.toInt();
       final tNum = (data['tableNumber'] as num?)?.toInt();
       final st = data['status'] as String?;
@@ -992,6 +1054,12 @@ class AppState extends ChangeNotifier {
 
     _socketTableOrderSub?.cancel();
     _socketTableOrderSub = SocketService().on(CafeSocketEvent.tableOrderUpdated).listen((data) {
+      if (data['resync'] == true) {
+        if (currentCafeId.isNotEmpty) {
+          loadCloudDataForCafe(currentCafeId);
+        }
+        return;
+      }
       final tId = (data['tableId'] as num?)?.toInt();
       final tNum = (data['tableNumber'] as num?)?.toInt();
       int idx = -1;
@@ -1018,6 +1086,12 @@ class AppState extends ChangeNotifier {
 
     _socketTableReleasedSub?.cancel();
     _socketTableReleasedSub = SocketService().on(CafeSocketEvent.tableReleased).listen((data) {
+      if (data['resync'] == true) {
+        if (currentCafeId.isNotEmpty) {
+          loadCloudDataForCafe(currentCafeId);
+        }
+        return;
+      }
       final tId = (data['tableId'] as num?)?.toInt();
       final tNum = (data['tableNumber'] as num?)?.toInt();
       int idx = -1;
@@ -1040,6 +1114,14 @@ class AppState extends ChangeNotifier {
         final r = Receipt.fromJson(Map<String, dynamic>.from(rRaw));
         if (!receipts.any((x) => x.id == r.id)) {
           receipts.insert(0, r);
+
+    addAppNotification(AppNotificationItem(
+      id: 'receipt_${r.id}',
+      title: "Chek to'landi #${r.id}",
+      body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} (${r.tableNumber != null ? '${r.tableNumber}-stol' : (r.hallName ?? 'Kassa')})",
+      time: DateTime.now(),
+      type: 'receipt',
+    ));
           notifyListeners();
         }
       }
@@ -1087,6 +1169,27 @@ class AppState extends ChangeNotifier {
           notifyListeners();
         }
       }
+    });
+
+    // Real-time obuna uzaytirilganda (Telegram bot tasdiqlaganda)
+    _subscriptionExtendedSub?.cancel();
+    _subscriptionExtendedSub = SocketService().on(CafeSocketEvent.subscriptionExtended).listen((data) {
+      if (currentUser != null) {
+        currentUser!.isBlocked = false;
+        currentUser!.isExpired = false;
+        if (data['endDate'] != null) {
+          currentUser!.cafeEndDate = DateTime.tryParse(data['endDate'].toString());
+        }
+        unawaited(saveUserSession(currentUser!));
+      }
+      addAppNotification(AppNotificationItem(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: "Obuna 30 kunga uzaytirildi! 🎉",
+        body: "Admin obunangizni tasdiqladi. Barcha imkoniyatlar faol holatga keltirildi.",
+        time: DateTime.now(),
+        type: 'subscription',
+      ));
+      notifyListeners();
     });
 
     // Xodimlar ro'yxatini kuzatuv xizmatiga sinxronlash
@@ -1339,6 +1442,16 @@ class AppState extends ChangeNotifier {
       }
     } on TableBusyException catch (e) {
       debugPrint('_saveCartRemoteOnly stol band: $e');
+      if (currentCafeId.isNotEmpty) {
+        loadCloudDataForCafe(currentCafeId);
+      }
+      addAppNotification(AppNotificationItem(
+        id: 'table_busy_${DateTime.now().millisecondsSinceEpoch}',
+        title: "⚠️ Stol allaqachon band!",
+        body: e.message,
+        time: DateTime.now(),
+        type: 'table_busy',
+      ));
     } catch (e) {
       debugPrint('_saveCartRemoteOnly xatoligi: $e');
     }
@@ -1704,7 +1817,16 @@ class AppState extends ChangeNotifier {
     );
     receipts.insert(0, r);
 
+    addAppNotification(AppNotificationItem(
+      id: 'receipt_${r.id}',
+      title: "Chek to'landi #${r.id}",
+      body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} (${r.tableNumber != null ? '${r.tableNumber}-stol' : (r.hallName ?? 'Kassa')})",
+      time: DateTime.now(),
+      type: 'receipt',
+    ));
+
     final tableIdToRelease = selectedTable?.id;
+    final tableNumToRelease = selectedTable?.number;
     _cloudService.completeCheckout(
       cafeId: currentCafeId,
       receipt: r,
@@ -1714,18 +1836,28 @@ class AppState extends ChangeNotifier {
       ownerId: '',
     );
 
-    // for (final item in cart) {
-    //   final pList = products.where((pr) => pr.id == item.product.id);
-    //   if (pList.isNotEmpty) {
-    //     pList.first.stock =
-    //         (pList.first.stock - item.qty).clamp(0, 1000000).toInt();
-    //   }
-    // }
+    // Stolni to'liq bo'shatish va diskka/bulutga saqlash
+    if (tableIdToRelease != null) {
+      final tIdx = tables.indexWhere((t) => t.id == tableIdToRelease);
+      if (tIdx != -1) {
+        tables[tIdx].status = TableStatus.free;
+      }
+      tableOrders.remove(tableIdToRelease);
+      tableNotes.remove(tableIdToRelease);
+      unawaited(_persistTableStatus(tableIdToRelease, false));
+    } else if (tableNumToRelease != null) {
+      final tIdx = tables.indexWhere((t) => t.number == tableNumToRelease);
+      if (tIdx != -1) {
+        tables[tIdx].status = TableStatus.free;
+        final actId = tables[tIdx].id;
+        tableOrders.remove(actId);
+        tableNotes.remove(actId);
+        unawaited(_persistTableStatus(actId, false));
+      }
+    }
 
     if (selectedTable != null) {
       selectedTable!.status = TableStatus.free;
-      tableOrders.remove(selectedTable!.id);
-      tableNotes.remove(selectedTable!.id);
     }
     selectedTable = null;
     selectedHall = null;
@@ -1823,6 +1955,13 @@ class AppState extends ChangeNotifier {
 
       if (o.status == OrderStatus.pending && !_notifiedOrderIds.contains(o.id)) {
         _notifiedOrderIds.add(o.id);
+        addAppNotification(AppNotificationItem(
+          id: 'order_${o.id}',
+          title: "Yangi buyurtma #${o.id}",
+          body: "${o.tableNumber != null ? '${o.tableNumber}-stol: ' : ''}${o.items.map((e) => '${e.product.name} x${e.qty}').join(', ')}",
+          time: DateTime.now(),
+          type: 'order',
+        ));
         InAppNotificationService().showNewOrderNotification(
           order: o,
           onAcceptOrder: () {
@@ -6325,6 +6464,17 @@ class _UserDropdownButton extends StatelessWidget {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
         } else if (val == 'settings') {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+        } else if (val == 'lock') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              settings: const RouteSettings(name: 'pin_lock'),
+              builder: (_) => PinLockScreen(
+                isModal: true,
+                onUnlocked: () => Navigator.pop(context),
+              ),
+            ),
+          );
         } else if (val == 'logout') {
           await appState.logout();
           if (context.mounted) {
@@ -6380,6 +6530,7 @@ class _UserDropdownButton extends StatelessWidget {
         ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
+          
           value: 'profile',
           child: Row(
             children: const [
@@ -6400,6 +6551,19 @@ class _UserDropdownButton extends StatelessWidget {
               SizedBox(width: 12),
               Text(
                 'Sozlamalar',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'lock',
+          child: Row(
+            children: const [
+              Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 20),
+              SizedBox(width: 12),
+              Text(
+                'Ekran bloklash (PIN)',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
               ),
             ],
@@ -7016,7 +7180,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
   }
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   bool _sidebarCollapsed = false;
   int _mobileNavIndex = 0;
 
@@ -7028,7 +7192,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startPingTimer();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPing();
+      final cafeId = appState.currentCafeId;
+      if (cafeId.isNotEmpty) {
+        if (!SocketService().isConnected) {
+          SocketService().connect(cafeId: cafeId);
+        }
+        appState.loadCloudDataForCafe(cafeId);
+      }
+    }
   }
 
   void _startPingTimer() {
@@ -7051,8 +7230,233 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pingTimer?.cancel();
     super.dispose();
+  }
+
+  void _showNotificationsModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => AnimatedBuilder(
+        animation: appState,
+        builder: (ctx, _) {
+          final items = appState.notifications;
+          final unreadCount = appState.unreadNotificationsCount;
+
+          return Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.75,
+              maxWidth: 540,
+            ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Drag handle
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 6),
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 16, 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF4FF),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.notifications_active_rounded, color: Color(0xFF315EFB), size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Bildirishnomalar',
+                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: Color(0xFF0F1E30)),
+                          ),
+                          Text(
+                            unreadCount > 0 ? '$unreadCount ta yangi xabar' : 'Barcha xabarlar o\'qilgan',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      if (items.isNotEmpty) ...[
+                        TextButton(
+                          onPressed: () {
+                            appState.markAllNotificationsAsRead();
+                          },
+                          child: const Text('O\'qilgan', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF315EFB))),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_sweep_rounded, size: 20, color: Color(0xFF94A3B8)),
+                          tooltip: 'Tozalash',
+                          onPressed: () {
+                            appState.clearNotifications();
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+                // Body
+                Expanded(
+                  child: items.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(18),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFF1F5F9),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.notifications_none_rounded, size: 40, color: Color(0xFF94A3B8)),
+                                ),
+                                const SizedBox(height: 14),
+                                const Text(
+                                  'Hozircha bildirishnomalar yo\'q',
+                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF334155)),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Yangi buyurtma, to\'lov yoki obuna yangilanishlari shu yerda ko\'rsatiladi',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          itemCount: items.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (ctx, i) {
+                            final n = items[i];
+                            final timeStr = '${n.time.hour.toString().padLeft(2, '0')}:${n.time.minute.toString().padLeft(2, '0')}';
+
+                            IconData iconData = Icons.info_outline_rounded;
+                            Color iconColor = const Color(0xFF315EFB);
+                            Color bgIconColor = const Color(0xFFEEF4FF);
+
+                            if (n.type == 'order') {
+                              iconData = Icons.shopping_bag_rounded;
+                              iconColor = const Color(0xFFF59E0B);
+                              bgIconColor = const Color(0xFFFEF3C7);
+                            } else if (n.type == 'receipt') {
+                              iconData = Icons.check_circle_rounded;
+                              iconColor = const Color(0xFF10B981);
+                              bgIconColor = const Color(0xFFECFDF5);
+                            } else if (n.type == 'subscription') {
+                              iconData = Icons.workspace_premium_rounded;
+                              iconColor = const Color(0xFF8B5CF6);
+                              bgIconColor = const Color(0xFFF3E8FF);
+                            }
+
+                            return InkWell(
+                              onTap: () {
+                                n.isRead = true;
+                                appState.notifyListeners();
+                                Navigator.pop(ctx);
+                                if (n.type == 'order') {
+                                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
+                                } else if (n.type == 'receipt') {
+                                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()));
+                                } else if (n.type == 'subscription') {
+                                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: n.isRead ? Colors.white : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: n.isRead ? const Color(0xFFE2E8F0) : const Color(0xFF315EFB).withValues(alpha: 0.35),
+                                    width: n.isRead ? 1 : 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: bgIconColor,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Icon(iconData, color: iconColor, size: 18),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  n.title,
+                                                  style: TextStyle(
+                                                    fontWeight: n.isRead ? FontWeight.w600 : FontWeight.w800,
+                                                    fontSize: 13.5,
+                                                    color: const Color(0xFF0F1E30),
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              Text(
+                                                timeStr,
+                                                style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            n.body,
+                                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -7606,13 +8010,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Stack(children: [
                     IconButton(
                       icon: const Icon(Icons.notifications_outlined, color: Color(0xFF142033), size: 22),
-                      onPressed: () {},
+                      tooltip: 'Bildirishnomalar',
+                      onPressed: () => _showNotificationsModal(context),
                     ),
-                    if (appState.pendingOrdersCount > 0)
+                    if (appState.pendingOrdersCount > 0 || appState.unreadNotificationsCount > 0)
                       Positioned(right: 8, top: 8, child: Container(
                         width: 16, height: 16,
                         decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
-                        child: Center(child: Text('${appState.pendingOrdersCount}', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                        child: Center(
+                          child: Text(
+                            '${appState.unreadNotificationsCount > 0 ? appState.unreadNotificationsCount : appState.pendingOrdersCount}',
+                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       )),
                   ]),
                   const SizedBox(width: 4),
@@ -7867,6 +8277,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(width: 10),
                           const Text('ZAVERO POS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5)),
                           const Spacer(),
+                          // Mobile Bell:
+                          Stack(children: [
+                            IconButton(
+                              icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
+                              tooltip: 'Bildirishnomalar',
+                              onPressed: () => _showNotificationsModal(context),
+                            ),
+                            if (appState.pendingOrdersCount > 0 || appState.unreadNotificationsCount > 0)
+                              Positioned(right: 6, top: 6, child: Container(
+                                width: 16, height: 16,
+                                decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
+                                child: Center(
+                                  child: Text(
+                                    '${appState.unreadNotificationsCount > 0 ? appState.unreadNotificationsCount : appState.pendingOrdersCount}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              )),
+                          ]),
+                          const SizedBox(width: 4),
                           // Animated Menu button
                           Builder(builder: (ctx) => _AnimatedMenuBtn(onTap: () => Scaffold.of(ctx).openEndDrawer())),
                         ]),
@@ -8608,283 +9038,12 @@ class HallSelectionScreen extends StatelessWidget {
 // TABLE SELECTION SCREEN (IMAGE 3 DASHBOARD - MOBILE & TABLET 1-TO-1)
 // ============================================================
 
-class TableSelectionScreen extends StatefulWidget {
+class TableSelectionScreen extends StatelessWidget {
   const TableSelectionScreen({super.key});
-  @override
-  State<TableSelectionScreen> createState() => _TableSelectionScreenState();
-}
-
-class _TableSelectionScreenState extends State<TableSelectionScreen> {
-  @override
-  void initState() {
-    super.initState();
-    if (appState.halls.isEmpty || appState.tables.isEmpty) {
-      appState.loadCloudDataForCafe(appState.currentCafeId);
-    }
-    if (appState.selectedHall == null && appState.halls.isNotEmpty) {
-      try {
-        appState.selectedHall = appState.halls.firstWhere(
-          (h) => h.name.trim().toLowerCase() == 'zal',
-        );
-      } catch (_) {
-        appState.selectedHall = appState.halls.first;
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: appState,
-      builder: (context, _) {
-        final halls = appState.halls;
-        if (appState.selectedHall == null && halls.isNotEmpty) {
-          try {
-            appState.selectedHall = halls.firstWhere(
-              (h) => h.name.trim().toLowerCase() == 'zal',
-            );
-          } catch (_) {
-            appState.selectedHall = halls.first;
-          }
-        }
-
-        final selectedHall = appState.selectedHall;
-        final myTables = selectedHall != null
-            ? (appState.tables.where((t) {
-                if (t.hallId == selectedHall.id) return true;
-                final h = appState.halls.firstWhere(
-                  (h) => h.id == t.hallId,
-                  orElse: () => Hall(id: -1, name: '', icon: Icons.home),
-                );
-                return h.name.trim().toLowerCase() == selectedHall.name.trim().toLowerCase();
-              }).toList()..sort((a, b) => a.number.compareTo(b.number)))
-            : <TableModel>[];
-
-        return Scaffold(
-          backgroundColor: const Color(0xFFF0F2F7),
-          appBar: AppBar(
-            backgroundColor: const Color(0xFF0F1E30),
-            foregroundColor: Colors.white,
-            elevation: 0,
-            leadingWidth: 60,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
-              onPressed: () {
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                } else {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DashboardScreen()),
-                  );
-                }
-              },
-            ),
-            title: const Text(
-              'ZAVERO POS',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                color: Colors.white,
-                letterSpacing: 1.0,
-              ),
-            ),
-            actions: [
-              // Online status
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFF4CAF50), shape: BoxShape.circle)),
-                  const SizedBox(width: 6),
-                  const Text('Online', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                ]),
-              ),
-              // Notification bell
-              Stack(children: [
-                IconButton(
-                  icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
-                  onPressed: () {},
-                ),
-                Positioned(
-                  right: 8, top: 8,
-                  child: Container(
-                    width: 16, height: 16,
-                    decoration: const BoxDecoration(color: Color(0xFFE53935), shape: BoxShape.circle),
-                    child: const Center(child: Text('2', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
-                  ),
-                ),
-              ]),
-              // Avatar
-              Padding(
-                padding: const EdgeInsets.only(right: 12, left: 2),
-                child: GestureDetector(
-                  onTap: () {},
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: const Color(0xFF1E3A5F),
-                      child: Text(
-                        (appState.currentUser?.name ?? 'A').substring(0, 1).toUpperCase(),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      appState.currentUser?.name ?? 'Admin',
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 18),
-                  ]),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
-                tooltip: 'Yangilash',
-                onPressed: () async {
-                  await appState.loadCloudDataForCafe(appState.currentCafeId);
-                  if (mounted) setState(() {});
-                },
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              // ── ZALTANLANG HEADER ─────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: const Border(bottom: BorderSide(color: Color(0xFFE7EBF2), width: 1.2)),
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
-                ),
-                child: Row(
-                  children: [
-                    // Icon + Title
-                    Container(
-                      width: 42, height: 42,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEEF4FF),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF315EFB), size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
-                      Text('Zal tanlang', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF142033))),
-                      Text('Buyurtma berish uchun stollarni tanlang',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF8994A7), fontWeight: FontWeight.w500)),
-                    ]),
-                    const Spacer(),
-                    // Zal dropdown button (inline popover, no modal bottom sheet)
-                    if (halls.isNotEmpty)
-                      _HallDropdown(
-                        halls: halls,
-                        selectedHall: selectedHall,
-                        onSelect: (h) => setState(() { appState.selectedHall = h; }),
-                      ),
-                  ],
-                ),
-              ),
-
-              // ── HALL TABS ──────────────────────────────────────────────────
-              if (halls.length > 1)
-                Container(
-                  color: Colors.white,
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: SizedBox(
-                    height: 38,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: halls.length,
-                      itemBuilder: (context, idx) {
-                        final h = halls[idx];
-                        final isSel = selectedHall?.id == h.id;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Material(
-                            color: isSel ? const Color(0xFF315EFB) : const Color(0xFFF5F7FB),
-                            borderRadius: BorderRadius.circular(10),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(10),
-                              onTap: () => setState(() { appState.selectedHall = h; }),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  Icon(h.icon, size: 14, color: isSel ? Colors.white : const Color(0xFF8994A7)),
-                                  const SizedBox(width: 6),
-                                  Text(h.name, style: TextStyle(
-                                    fontSize: 13, fontWeight: FontWeight.w600,
-                                    color: isSel ? Colors.white : const Color(0xFF142033),
-                                  )),
-                                ]),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-
-              // ── TABLE CARDS GRID ──────────────────────────────────────────
-              Expanded(
-                child: myTables.isEmpty
-                    ? Center(
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.table_restaurant_outlined, size: 64, color: Colors.grey.shade300),
-                          const SizedBox(height: 12),
-                          Text("Bu zalda stollar yo'q",
-                              style: TextStyle(fontSize: 16, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-                        ]),
-                      )
-                    : GridView.builder(
-                        padding: const EdgeInsets.all(16),
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 220,
-                          childAspectRatio: 0.92,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
-                        ),
-                        itemCount: myTables.length,
-                        itemBuilder: (context, i) {
-                          final t = myTables[i];
-                          final free = t.status == TableStatus.free;
-                          final orderTotal = appState.tableOrderTotal(t);
-
-                          return _PremiumTableCard(
-                            table: t,
-                            isFree: free,
-                            orderTotal: orderTotal,
-                            index: i,
-                            onTap: () {
-                              appState.selectTable(t);
-                              if (free) {
-                                Navigator.push(context, MaterialPageRoute(
-                                  settings: const RouteSettings(name: 'pos'),
-                                  builder: (_) => const POSScreen(),
-                                ));
-                              } else {
-                                Navigator.push(context, MaterialPageRoute(
-                                  settings: const RouteSettings(name: 'payment'),
-                                  builder: (_) => const PaymentScreen(),
-                                ));
-                              }
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    return const DashboardScreen();
   }
 }
 
@@ -12989,7 +13148,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         settings: const RouteSettings(name: 'dashboard'),
         builder: (_) => const DashboardScreen(),
       ),
-      (r) => r.isFirst,
+      (r) => false,
     );
   }
 
@@ -13091,36 +13250,33 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 ),
               ],
             ),
-            floatingActionButton: FloatingActionButton(
-              heroTag: 'payment_add_fab',
-              backgroundColor: kDarkYellow,
-              onPressed: _addMoreItems,
-              tooltip: 'Taom qo\'shish',
-              child: const Icon(Icons.add),
-            ),
+            floatingActionButton: appState.cart.isEmpty
+                ? null
+                : FloatingActionButton(
+                    heroTag: 'payment_add_fab',
+                    backgroundColor: kDarkYellow,
+                    onPressed: _addMoreItems,
+                    tooltip: 'Taom qo\'shish',
+                    child: const Icon(Icons.add),
+                  ),
             body: appState.cart.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.receipt_long_outlined,
-                          size: 60,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Bu stolda hali buyurtma yo\'q',
-                          style: TextStyle(color: Colors.grey.shade500),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _addMoreItems,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Taom qo\'shish'),
-                        ),
-                      ],
-                    ),
+                ? Builder(
+                    builder: (ctx) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (ctx.mounted) {
+                          Navigator.of(ctx).pushAndRemoveUntil(
+                            MaterialPageRoute(
+                              settings: const RouteSettings(name: 'dashboard'),
+                              builder: (_) => const DashboardScreen(),
+                            ),
+                            (r) => false,
+                          );
+                        }
+                      });
+                      return const Center(
+                        child: CircularProgressIndicator(),
+                      );
+                    },
                   )
                 : SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
@@ -13708,19 +13864,54 @@ class ReceiptScreen extends StatefulWidget {
 
 class _ReceiptScreenState extends State<ReceiptScreen> {
   bool _printing = false;
+  bool _printingKitchen = false;
 
   Future<void> _print() async {
     setState(() => _printing = true);
     try {
       await printReceipt(widget.receipt);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mijoz cheki muvaffaqiyatli chop etildi!'),
+            backgroundColor: Color(0xFF10B981),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Chop etishda xatolik: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Chop etishda xatolik: $e'), backgroundColor: Colors.red),
+        );
       }
     } finally {
       if (mounted) setState(() => _printing = false);
+    }
+  }
+
+  Future<void> _printKitchen() async {
+    setState(() => _printingKitchen = true);
+    try {
+      await printKitchenTicket(
+        items: widget.receipt.items,
+        hallName: widget.receipt.hallName,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Oshpaz cheki muvaffaqiyatli chop etildi!'),
+            backgroundColor: Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Chop etishda xatolik: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _printingKitchen = false);
     }
   }
 
@@ -13731,17 +13922,32 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     final timeStr = '${receipt.date.hour.toString().padLeft(2, '0')}:${receipt.date.minute.toString().padLeft(2, '0')}';
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
-        title: const Text('80mm Chek'),
+        backgroundColor: const Color(0xFF0F1E30),
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'Chek #${receipt.id}',
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: Colors.white),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.print),
-            tooltip: 'Chop etish',
+            icon: const Icon(Icons.print_rounded, color: Colors.white),
+            tooltip: 'Mijoz chekini chop etish',
             onPressed: _printing ? null : _print,
+          ),
+          IconButton(
+            icon: const Icon(Icons.restaurant_rounded, color: Colors.white),
+            tooltip: 'Oshpaz chekini chop etish',
+            onPressed: _printingKitchen ? null : _printKitchen,
           ),
           PopupMenuButton<String>(
             tooltip: 'Ko\'proq',
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {
               if (value == 'printer_settings') {
                 showPrinterQuickSettingsSheet(context).then((_) {
@@ -13764,67 +13970,90 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       ),
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ReceiptWidget(
-                checkId: '${receipt.id}',
-                waiter: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
-                hallName: receipt.hallName ?? 'Zal',
-                table: receipt.tableNumber != null ? '${receipt.tableNumber}' : '',
-                dateTime: receipt.date.toIso8601String(),
-                dateOnly: dateTimeStr,
-                timeOnly: timeStr,
-                customTotal: receipt.total,
-                items: receipt.items
-                    .map(
-                      (c) => ReceiptItem(
-                        name: c.product.name,
-                        quantity: '${c.qty} dona',
-                        price: '${c.product.price.round()}',
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: 370,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black87,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  onPressed: _printing ? null : _print,
-                  icon: _printing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.print),
-                  label: const Text('Chekni chop etish (80mm)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ReceiptWidget(
+                  checkId: '${receipt.id}',
+                  waiter: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
+                  hallName: receipt.hallName ?? 'Zal',
+                  table: receipt.tableNumber != null ? '${receipt.tableNumber}' : '',
+                  dateTime: receipt.date.toIso8601String(),
+                  dateOnly: dateTimeStr,
+                  timeOnly: timeStr,
+                  customTotal: receipt.total,
+                  paymentMethod: receipt.method == PaymentMethod.card ? 'Karta' : 'Naqd',
+                  items: receipt.items
+                      .map(
+                        (c) => ReceiptItem(
+                          name: c.product.name,
+                          quantity: '${c.qty} dona',
+                          price: '${c.product.price.round()}',
+                        ),
+                      )
+                      .toList(),
                 ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: 370,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(
-                      settings: const RouteSettings(name: 'dashboard'),
-                      builder: (_) => const DashboardScreen(),
+                const SizedBox(height: 20),
+                // Qayta chop etish (Mijoz cheki)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF315EFB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 2,
                     ),
-                    (r) => false,
+                    onPressed: _printing ? null : _print,
+                    icon: _printing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.print_rounded, size: 20),
+                    label: const Text('Mijoz chekini qayta chiqarish (80mm)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
                   ),
-                  icon: const Icon(Icons.done),
-                  label: const Text('Tayyor'),
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                // Oshpaz chekini chiqarish
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0F1E30),
+                      backgroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _printingKitchen ? null : _printKitchen,
+                    icon: _printingKitchen
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0F1E30)),
+                          )
+                        : const Icon(Icons.restaurant_rounded, size: 20),
+                    label: const Text('Oshpaz chekini qayta chiqarish', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Yopish
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18, color: Color(0xFF64748B)),
+                    label: const Text('Cheklar tarixiga qaytish', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600, fontSize: 14)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -13836,6 +14065,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 // RECEIPT HISTORY SCREEN
 // ============================================================
 
+enum HistoryPeriodFilter { today, yesterday, week7, month, all, custom }
+
 class ReceiptHistoryScreen extends StatefulWidget {
   const ReceiptHistoryScreen({super.key});
 
@@ -13844,276 +14075,660 @@ class ReceiptHistoryScreen extends StatefulWidget {
 }
 
 class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
+  HistoryPeriodFilter _period = HistoryPeriodFilter.today;
   DateTime _selectedDate = DateTime.now();
+  final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
   Timer? _searchDebounce;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        appState.loadCloudDataForCafe(appState.currentCafeId);
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _searchCtrl.dispose();
     _searchDebounce?.cancel();
     super.dispose();
   }
 
+  bool _matchesPeriod(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+
+    switch (_period) {
+      case HistoryPeriodFilter.today:
+        return target.isAtSameMomentAs(today);
+      case HistoryPeriodFilter.yesterday:
+        final yesterday = today.subtract(const Duration(days: 1));
+        return target.isAtSameMomentAs(yesterday);
+      case HistoryPeriodFilter.week7:
+        final weekAgo = today.subtract(const Duration(days: 7));
+        return target.isAfter(weekAgo.subtract(const Duration(seconds: 1))) &&
+            target.isBefore(today.add(const Duration(days: 1)));
+      case HistoryPeriodFilter.month:
+        return date.year == now.year && date.month == now.month;
+      case HistoryPeriodFilter.all:
+        return true;
+      case HistoryPeriodFilter.custom:
+        return target.year == _selectedDate.year &&
+            target.month == _selectedDate.month &&
+            target.day == _selectedDate.day;
+    }
+  }
+
+  String get _periodLabel {
+    final now = DateTime.now();
+    switch (_period) {
+      case HistoryPeriodFilter.today:
+        return 'Bugun, ${now.day.toString().padLeft(2, '0')}.${now.month.toString().padLeft(2, '0')}.${now.year}';
+      case HistoryPeriodFilter.yesterday:
+        final y = now.subtract(const Duration(days: 1));
+        return 'Kecha, ${y.day.toString().padLeft(2, '0')}.${y.month.toString().padLeft(2, '0')}.${y.year}';
+      case HistoryPeriodFilter.week7:
+        return 'Oxirgi 7 kun';
+      case HistoryPeriodFilter.month:
+        return 'Shu oy (${now.month.toString().padLeft(2, '0')}.${now.year})';
+      case HistoryPeriodFilter.all:
+        return 'Barcha cheklar';
+      case HistoryPeriodFilter.custom:
+        return '${_selectedDate.day.toString().padLeft(2, '0')}.${_selectedDate.month.toString().padLeft(2, '0')}.${_selectedDate.year}';
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2022),
+      lastDate: DateTime(2035),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF0F1E30),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Color(0xFF0F1E30),
+            ),
+            datePickerTheme: DatePickerThemeData(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+        _period = HistoryPeriodFilter.custom;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final formattedDate =
-        '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-    final dateRangeStr = '$formattedDate / $formattedDate';
+    return AnimatedBuilder(
+      animation: appState,
+      builder: (context, _) {
+        final filtered = appState.receipts.where((r) {
+          final matchesDate = _matchesPeriod(r.date);
+          final q = _searchQuery.trim().toLowerCase();
+          final matchesQuery = q.isEmpty ||
+              r.id.toString().contains(q) ||
+              r.cashierName.toLowerCase().contains(q) ||
+              (r.tableNumber?.toString() ?? '').contains(q) ||
+              (r.hallName ?? '').toLowerCase().contains(q) ||
+              r.items.any((it) => it.product.name.toLowerCase().contains(q));
+          return matchesDate && matchesQuery;
+        }).toList();
 
-    final filtered = appState.receipts.reversed.where((r) {
-      final matchesDate = r.date.year == _selectedDate.year &&
-          r.date.month == _selectedDate.month &&
-          r.date.day == _selectedDate.day;
+        final totalRevenue = filtered.fold(0.0, (s, r) => s + r.total);
+        final totalReceiptsCount = filtered.length;
+        double cashSum = 0;
+        double cardSum = 0;
+        for (final r in filtered) {
+          if (r.cashPaid > 0 || r.cardPaid > 0) {
+            cashSum += r.cashPaid;
+            cardSum += r.cardPaid;
+          } else if (r.method == PaymentMethod.cash) {
+            cashSum += r.total;
+          } else {
+            cardSum += r.total;
+          }
+        }
 
-      final matchesQuery = _searchQuery.isEmpty ||
-          r.id.toString().contains(_searchQuery) ||
-          r.cashierName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          (r.hallName ?? '').toLowerCase().contains(_searchQuery.toLowerCase());
-
-      return matchesDate && matchesQuery;
-    }).toList();
-
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Cheklar tarixi',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-            fontSize: 18,
-          ),
-        ),
-        centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          // 1. Search input bar: "Chekni qidirish"
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Chekni qidirish',
-                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                filled: true,
-                fillColor: const Color(0xFFF4F5F7),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              onChanged: (v) {
-                _searchDebounce?.cancel();
-                _searchDebounce = Timer(const Duration(milliseconds: 180), () {
-                  if (mounted) setState(() => _searchQuery = v);
-                });
-              },
+        return Scaffold(
+          backgroundColor: const Color(0xFFF8FAFC),
+          appBar: AppBar(
+            backgroundColor: const Color(0xFF0F172A),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+              onPressed: () => Navigator.pop(context),
             ),
+            title: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Cheklar tarixi',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: Colors.white, fontSize: 17),
+                ),
+                Text(
+                  '$totalReceiptsCount ta chek • ${_periodLabel.split(',').first}',
+                  style: TextStyle(fontSize: 11.5, color: Colors.grey.shade400, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+            centerTitle: true,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 22),
+                tooltip: 'Yangilash',
+                onPressed: () async {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Cheklar yangilanmoqda...'),
+                      duration: Duration(milliseconds: 900),
+                    ),
+                  );
+                  await appState.loadCloudDataForCafe(appState.currentCafeId);
+                  if (mounted) setState(() {});
+                },
+              ),
+            ],
           ),
-
-          // 2. Calendar / Date Range Picker container bar
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2035),
-                  builder: (context, child) {
-                    return Theme(
-                      data: Theme.of(context).copyWith(
-                        colorScheme: const ColorScheme.light(
-                          primary: Color(0xFFFBC02D),
-                          onPrimary: Colors.black,
+          body: Column(
+            children: [
+              // ── 1. QIDIRUV VA TEZKOR FILTRLAR ────────────────────────
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Search bar
+                    TextField(
+                      controller: _searchCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Chek raqami, xodim, stol yoki taom nomi...',
+                        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B), size: 22),
+                        suffixIcon: _searchCtrl.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear_rounded, size: 18, color: Colors.grey),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: const Color(0xFFF1F5F9),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
                         ),
                       ),
-                      child: child!,
-                    );
-                  },
-                );
-                if (picked != null) {
-                  setState(() => _selectedDate = picked);
-                }
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Center(
-                  child: Text(
-                    dateRangeStr,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      onChanged: (v) {
+                        _searchDebounce?.cancel();
+                        _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+                          if (mounted) setState(() => _searchQuery = v);
+                        });
+                      },
                     ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
+                    const SizedBox(height: 10),
 
-          // 3. Grid of Receipt Cards (Matching Image 3!)
-          Expanded(
-            child: filtered.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.receipt_long, size: 64, color: Colors.grey.shade400),
-                        const SizedBox(height: 12),
-                        Text(
-                          '$formattedDate kuni uchun cheklar topilmadi',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  )
-                : GridView.builder(
-                    padding: const EdgeInsets.all(14),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 260,
-                      childAspectRatio: 0.83,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                    ),
-                    itemCount: filtered.length,
-                    itemBuilder: (context, i) {
-                      final r = filtered[i];
-                      final codeStr = '-P-u${r.id}BXLVU_yqPV';
-                      final timeStr =
-                          '${r.date.year}.${r.date.month.toString().padLeft(2, '0')}.${r.date.day.toString().padLeft(2, '0')} - ${r.date.hour.toString().padLeft(2, '0')}:${r.date.minute.toString().padLeft(2, '0')}';
-
-                      return Card(
-                        elevation: 1.5,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          side: BorderSide(color: Colors.grey.shade200),
-                        ),
-                        color: Colors.white,
-                        child: InkWell(
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ReceiptScreen(receipt: r),
+                    // Quick filters row
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterChip('Bugun', HistoryPeriodFilter.today),
+                          _buildFilterChip('Kecha', HistoryPeriodFilter.yesterday),
+                          _buildFilterChip('7 kun', HistoryPeriodFilter.week7),
+                          _buildFilterChip('Bu oy', HistoryPeriodFilter.month),
+                          _buildFilterChip('Barchasi', HistoryPeriodFilter.all),
+                          const SizedBox(width: 4),
+                          // Calendar button
+                          InkWell(
+                            onTap: _pickDate,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: _period == HistoryPeriodFilter.custom
+                                    ? const Color(0xFF0F1E30)
+                                    : const Color(0xFFEEF4FF),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: _period == HistoryPeriodFilter.custom
+                                      ? const Color(0xFF0F1E30)
+                                      : const Color(0xFF315EFB).withValues(alpha: 0.3),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.calendar_month_rounded,
+                                    size: 16,
+                                    color: _period == HistoryPeriodFilter.custom
+                                        ? Colors.white
+                                        : const Color(0xFF315EFB),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _period == HistoryPeriodFilter.custom
+                                        ? '${_selectedDate.day.toString().padLeft(2, '0')}.${_selectedDate.month.toString().padLeft(2, '0')}'
+                                        : 'Kalendar',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: _period == HistoryPeriodFilter.custom
+                                          ? Colors.white
+                                          : const Color(0xFF315EFB),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          borderRadius: BorderRadius.circular(16),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // ── 2. KPI XULOSA BLOKLARI (Jami cheklar va Jami tushum) ──
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    // Jami cheklar
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEEF4FF),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF315EFB), size: 20),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Jami cheklar', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                              Text('$totalReceiptsCount ta', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F1E30))),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(height: 32, width: 1, color: const Color(0xFFE2E8F0)),
+                    const SizedBox(width: 12),
+                    // Jami tushum
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.payments_rounded, color: Color(0xFF10B981), size: 20),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Code Header
+                                const Text('Jami tushum', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
                                 Text(
-                                  codeStr,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black87,
-                                  ),
+                                  "${formatSum(totalRevenue)} so'm",
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF10B981)),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 8),
-
-                                // Row: Xo'randalar soni | Foiz
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Xo\'randalar soni',
-                                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                                        Text('${r.tableNumber ?? 1}',
-                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text('Foiz',
-                                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                                        const Text('0%',
-                                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-
-                                // Hisoblangan
-                                Text('Hisoblangan',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                                Text('${formatSum(r.total)} UZS',
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 6),
-
-                                // To'langan
-                                Text('To\'langan',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                                Text(
-                                  '${formatSum(r.cashPaid + r.cardPaid > 0 ? (r.cashPaid + r.cardPaid) : r.total)} UZS',
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 6),
-
-                                // Foiz
-                                Text('Foiz',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                                const Text('0 UZS',
-                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-
-                                const Spacer(),
-
-                                // Waiter/Staff Name (Centered)
-                                Center(
-                                  child: Text(
-                                    r.cashierName.isNotEmpty ? r.cashierName : 'Ozod',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-
-                                // Timestamp
-                                Text(
-                                  timeStr,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.blue.shade700,
-                                  ),
                                 ),
                               ],
                             ),
                           ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // ── 3. CHEKLAR RO'YXATI / KARTALAR ────────────────────────
+              Expanded(
+                child: filtered.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 16),
+                                  ],
+                                ),
+                                child: Icon(Icons.receipt_long_outlined, size: 48, color: Colors.grey.shade400),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                'Cheklar topilmadi',
+                                style: TextStyle(color: Colors.grey.shade700, fontSize: 16, fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                "Tanlangan davrda to'langan cheklar mavjud emas",
+                                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
                         ),
-                      );
-                    },
-                  ),
+                      )
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                          final isWide = constraints.maxWidth >= 720;
+
+                          if (isWide) {
+                            return GridView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 420,
+                                mainAxisExtent: 180,
+                                crossAxisSpacing: 14,
+                                mainAxisSpacing: 14,
+                              ),
+                              itemCount: filtered.length,
+                              itemBuilder: (context, i) => _buildReceiptCard(filtered[i]),
+                            );
+                          }
+
+                          return ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (context, i) => _buildReceiptCard(filtered[i]),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip(String label, HistoryPeriodFilter filter) {
+    final isSelected = _period == filter;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: InkWell(
+        onTap: () => setState(() => _period = filter),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF0F1E30) : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+              color: isSelected ? Colors.white : const Color(0xFF475569),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReceiptCard(Receipt r) {
+    final isCard = r.method == PaymentMethod.card;
+    final timeStr =
+        '${r.date.hour.toString().padLeft(2, '0')}:${r.date.minute.toString().padLeft(2, '0')}';
+    final dateStr =
+        '${r.date.day.toString().padLeft(2, '0')}.${r.date.month.toString().padLeft(2, '0')}.${r.date.year}';
+    final staffName = r.cashierName.isNotEmpty ? r.cashierName : 'Xodim';
+    final placeStr = r.tableNumber != null
+        ? 'Stol ${r.tableNumber}'
+        : (r.hallName != null && r.hallName!.isNotEmpty ? r.hallName! : 'Olib ketish');
+
+    final itemsSummary = r.items.isNotEmpty
+        ? r.items.take(3).map((it) => '${it.product.name} × ${it.qty}').join(', ') +
+            (r.items.length > 3 ? '...' : '')
+        : 'Buyurtma elementlari mavjud emas';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ReceiptScreen(receipt: r),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 1. Qator: Chek ID + Joy + To'langan holat
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF4FF),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '#${r.id}',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF315EFB),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            placeStr,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF475569),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF10B981)),
+                          SizedBox(width: 4),
+                          Text(
+                            "To'langan",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF059669),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // 2. Qator: Taomlar ro'yxati qisqacha
+                Text(
+                  itemsSummary,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 8),
+
+                // 3. Qator: Jami summa va to'lov usuli
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      "${formatSum(r.total)} so'm",
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F1E30),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                      decoration: BoxDecoration(
+                        color: isCard ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isCard ? Icons.credit_card_rounded : Icons.payments_rounded,
+                            size: 13,
+                            color: isCard ? const Color(0xFFD97706) : const Color(0xFF15803D),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isCard ? 'Karta' : 'Naqd',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: isCard ? const Color(0xFFD97706) : const Color(0xFF15803D),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // 4. Qator: Xodim va Vaqt + Ko'rish
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline_rounded, size: 13, color: Color(0xFF94A3B8)),
+                        const SizedBox(width: 4),
+                        Text(
+                          staffName,
+                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(width: 10),
+                        const Icon(Icons.access_time_rounded, size: 12, color: Color(0xFF94A3B8)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$dateStr $timeStr',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                    const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "Chekni ko'rish",
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Color(0xFF315EFB),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(width: 3),
+                        Icon(Icons.arrow_forward_ios_rounded, size: 10, color: Color(0xFF315EFB)),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -17804,23 +18419,153 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showRenewDialog() {
+    bool requesting = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(children: const [
+            Icon(Icons.workspace_premium_rounded, color: Color(0xFF315EFB)),
+            SizedBox(width: 10),
+            Text('Obunani uzaytirish', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+          ]),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'Litsenziyani uzaytirish yoki to\'lov qilish uchun adminga 30 kunlik so\'rov yuboring yoki ZAVERO qo\'llab-quvvatlash boti bilan bog\'laning.',
+                style: TextStyle(fontSize: 13.5, height: 1.5, color: Color(0xFF475569)),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Telegram Bot: @ZaveroPOS_bot\nAdmin: @ZaveroSupport',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF0F1E30)),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Yopish', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF315EFB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: requesting
+                  ? null
+                  : () async {
+                      setDialogState(() => requesting = true);
+                      try {
+                        final user = appState.currentUser;
+                        final res = await ApiClient().post('/subscription/request-30days', body: {
+                          'cafeName': appState.restaurantName,
+                          'currentEndDate': user?.cafeEndDate?.toIso8601String(),
+                        });
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(res['message'] ?? "30 kunlik obuna so'rovi adminga yuborildi!"),
+                              backgroundColor: const Color(0xFF10B981),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Xatolik: $e'), backgroundColor: Colors.red),
+                          );
+                        }
+                      } finally {
+                        if (ctx.mounted) setDialogState(() => requesting = false);
+                      }
+                    },
+              icon: requesting
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.rocket_launch_rounded, size: 16),
+              label: Text(requesting ? "Yuborilmoqda..." : "30 kunlik so'rov yuborish", style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSetPinDialog() {
+    final pinCtrl = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(children: const [
-          Icon(Icons.workspace_premium_rounded, color: Color(0xFF315EFB)),
-          SizedBox(width: 10),
-          Text('Obunani uzaytirish', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-        ]),
-        content: const Text(
-          'Litsenziyani uzaytirish yoki to\'lov qilish uchun ZAVERO qo\'llab-quvvatlash xizmati bilan bog\'laning:\n\nTelegram: @ZaveroSupport\nTelefon: +998 (90) 000-00-00',
-          style: TextStyle(fontSize: 14, height: 1.5),
+        title: Row(
+          children: const [
+            Icon(Icons.password_rounded, color: Color(0xFFF59E0B)),
+            SizedBox(width: 10),
+            Text('4 xonali PIN kod', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Ilovaga tezkor kirish va ekranni bloklash uchun 4 xonali PIN kod kiriting:',
+              style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: pinCtrl,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              obscureText: true,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 8),
+              decoration: InputDecoration(
+                hintText: '••••',
+                filled: true,
+                fillColor: const Color(0xFFF1F5F9),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                counterText: '',
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Yopish', style: TextStyle(fontWeight: FontWeight.w700)),
+            child: const Text('Bekor qilish'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F1E30),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              final pin = pinCtrl.text.trim();
+              if (pin.length != 4 || int.tryParse(pin) == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('PIN kod roppa-rosa 4 ta raqam bo\'lishi kerak!'), backgroundColor: Colors.red),
+                );
+                return;
+              }
+              final user = appState.currentUser;
+              if (user != null) {
+                await PinSecurityService().saveUserPin(pin, user);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('PIN kod muvaffaqiyatli saqlandi!'), backgroundColor: Color(0xFF10B981)),
+                  );
+                }
+              }
+            },
+            child: const Text('Saqlash', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -18308,6 +19053,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title: 'Parolni o\'zgartirish',
                     subtitle: 'Xavfsizlik uchun parolni yangilash',
                     onTap: _showChangePasswordDialog,
+                  ),
+                  const Divider(height: 16),
+                  _actionRow(
+                    icon: Icons.password_rounded,
+                    iconColor: const Color(0xFFF59E0B),
+                    title: '4 xonali PIN kod o\'rnatish',
+                    subtitle: 'Tezkor kirish va ekranni bloklash uchun',
+                    onTap: _showSetPinDialog,
                   ),
                 ],
               ),

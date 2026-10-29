@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../main.dart';
 import '../models/models.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/socket_service.dart';
 import 'auth_screen.dart';
 
 class BlockedScreen extends StatefulWidget {
@@ -14,7 +17,62 @@ class BlockedScreen extends StatefulWidget {
 
 class _BlockedScreenState extends State<BlockedScreen> {
   bool _isChecking = false;
+  bool _isRequestingSub = false;
   String? _message;
+  StreamSubscription? _subExtSub;
+
+  @override
+  void initState() {
+    super.initState();
+    final cafeId = widget.user.workspaceId;
+    if (cafeId.isNotEmpty) {
+      SocketService().connect(cafeId: cafeId);
+      _subExtSub = SocketService().on(CafeSocketEvent.subscriptionExtended).listen((data) {
+        if (mounted) {
+          _checkStatus();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _subExtSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _request30Days() async {
+    setState(() {
+      _isRequestingSub = true;
+      _message = null;
+    });
+    try {
+      final cafeTitle = widget.user.cafeName.isNotEmpty
+          ? widget.user.cafeName
+          : (widget.user.cafeId.isNotEmpty ? widget.user.cafeId : 'ZAVERO Cafe');
+      final res = await ApiClient().post('/subscription/request-30days', body: {
+        'cafeName': cafeTitle,
+        'currentEndDate': widget.user.cafeEndDate?.toIso8601String(),
+      });
+      if (!mounted) return;
+      if (res['success'] == true) {
+        setState(() {
+          _message = "✅ 30 kunlik obuna so'rovi adminga yuborildi!\nAdmin tasdiqlashi bilan tizim avtomatik ochiladi.";
+        });
+      } else {
+        setState(() {
+          _message = res['message'] ?? "So'rov yuborishda xatolik yuz berdi.";
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _message = "So'rov yuborishda xatolik: $e";
+      });
+    } finally {
+      if (mounted) setState(() => _isRequestingSub = false);
+    }
+  }
 
   Future<void> _checkStatus() async {
     setState(() {
@@ -198,6 +256,34 @@ class _BlockedScreenState extends State<BlockedScreen> {
                       ],
 
                       // Buttons
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF315EFB),
+                            foregroundColor: Colors.white,
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          onPressed: _isRequestingSub ? null : _request30Days,
+                          icon: _isRequestingSub
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.rocket_launch_rounded),
+                          label: Text(
+                            _isRequestingSub ? "So'rov yuborilmoqda..." : "30 kunlik obuna so'rash",
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
                       SizedBox(
                         width: double.infinity,
                         height: 48,

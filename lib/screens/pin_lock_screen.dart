@@ -8,7 +8,15 @@ import 'blocked_screen.dart';
 import 'director_screen.dart';
 
 class PinLockScreen extends StatefulWidget {
-  const PinLockScreen({super.key});
+  final bool isModal;
+  final VoidCallback? onUnlocked;
+  static bool isShowing = false;
+
+  const PinLockScreen({
+    super.key,
+    this.isModal = false,
+    this.onUnlocked,
+  });
 
   @override
   State<PinLockScreen> createState() => _PinLockScreenState();
@@ -25,6 +33,7 @@ class _PinLockScreenState extends State<PinLockScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+    PinLockScreen.isShowing = true;
     _shakeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -36,6 +45,7 @@ class _PinLockScreenState extends State<PinLockScreen> with SingleTickerProvider
 
   @override
   void dispose() {
+    PinLockScreen.isShowing = false;
     _shakeController.dispose();
     super.dispose();
   }
@@ -76,12 +86,36 @@ class _PinLockScreenState extends State<PinLockScreen> with SingleTickerProvider
       await appState.saveUserSession(user);
       if (!mounted) return;
 
+      PinLockScreen.isShowing = false;
+
+      if (widget.onUnlocked != null) {
+        widget.onUnlocked!();
+        return;
+      }
+
+      if (widget.isModal && Navigator.canPop(context)) {
+        Navigator.pop(context, true);
+        return;
+      }
+
       if (user.role == UserRole.director) {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
             settings: const RouteSettings(name: 'director'),
             builder: (_) => DirectorScreen(directorUser: user),
+          ),
+          (r) => false,
+        );
+        return;
+      }
+
+      if (user.role == UserRole.waiter) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'dashboard'),
+            builder: (_) => const DashboardScreen(),
           ),
           (r) => false,
         );
@@ -261,46 +295,48 @@ class _PinLockScreenState extends State<PinLockScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 380),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(height: 10),
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 380),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 10),
 
-                  // 3D Padlock matching Image 3
-                  _build3DLockIcon(),
-                  const SizedBox(height: 28),
+                    // 3D Padlock
+                    _build3DLockIcon(),
+                    const SizedBox(height: 28),
 
-                  // Title: "Enter your MPIN"
-                  const Text(
-                    'Enter your MPIN',
-                    style: TextStyle(
-                      color: Color(0xFF111827),
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.4,
+                    // Title
+                    const Text(
+                      'PIN kodni kiriting',
+                      style: TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
+                    const SizedBox(height: 8),
 
-                  // Subtitle: "Please enter your 4-digit security pin."
-                  const Text(
-                    'Please enter your 4-digit security pin.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Color(0xFF6B7280),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
+                    // Subtitle
+                    const Text(
+                      'Ilovaga kirish uchun 4 xonali PIN kodni tering',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 32),
+                    const SizedBox(height: 32),
 
                   // 4 MPIN indicator dots (Filled vs Empty)
                   AnimatedBuilder(
@@ -461,6 +497,7 @@ class _PinLockScreenState extends State<PinLockScreen> with SingleTickerProvider
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

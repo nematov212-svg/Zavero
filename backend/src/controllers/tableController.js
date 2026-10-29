@@ -56,7 +56,12 @@ const saveOrder = async (req, res) => {
 
       if (table.status === 'occupied' && existingOrder && existingOrder.started_by &&
         existingOrder.started_by !== username && !forceOccupy) {
-        throw Object.assign(new Error('Bu stol hozir band'), { status: 409, code: 'TABLE_BUSY' });
+        throw Object.assign(new Error(`Bu stol hozir band (${existingOrder.started_by} tomonidan band qilingan)`), {
+          status: 409,
+          code: 'TABLE_BUSY',
+          tableNumber: table.number,
+          occupiedBy: existingOrder.started_by,
+        });
       }
 
       const total = items.reduce((s, i) => s + (i.product.price * i.qty), 0);
@@ -73,6 +78,11 @@ const saveOrder = async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,CURRENT_TIMESTAMP)
          ON CONFLICT (table_id) DO UPDATE SET items=$3, note=$4, started_by=$5, updated_at=CURRENT_TIMESTAMP`,
         [tableId, cafeId, JSON.stringify(items), note || '', startedBy]
+      );
+
+      await client.query(
+        'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+        [cafeId, 'TABLE_ORDER_SAVED', `Stol #${table.number} buyurtmasi saqlandi (${startedBy})`, startedBy]
       );
 
       const updatedTable = await client.query('SELECT * FROM restaurant_tables WHERE id = $1', [tableId]);
@@ -95,7 +105,13 @@ const saveOrder = async (req, res) => {
     return res.json({ success: true, table: mapTable(result) });
   } catch (error) {
     if (error.code === 'TABLE_BUSY') {
-      return res.status(409).json({ success: false, code: 'TABLE_BUSY', message: error.message });
+      return res.status(409).json({
+        success: false,
+        code: 'TABLE_BUSY',
+        message: error.message,
+        tableNumber: error.tableNumber,
+        occupiedBy: error.occupiedBy,
+      });
     }
     console.error('saveOrder error:', error);
     return res.status(error.status || 500).json({ success: false, message: error.message });
@@ -116,6 +132,10 @@ const release = async (req, res) => {
       );
       if (up.rows.length > 0) releasedTableNumber = up.rows[0].number;
       await client.query('DELETE FROM table_orders WHERE table_id = $1', [tableId]);
+      await client.query(
+        'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+        [cafeId, 'TABLE_RELEASED', `Stol #${releasedTableNumber || tableId} bo'shatildi`, req.user?.username || 'Ofitsiant']
+      );
     });
 
     notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: releasedTableNumber });
@@ -140,8 +160,22 @@ const updateStatus = async (req, res) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Stol topilmadi' });
 
-    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, status });
-    return res.json({ success: true, table: mapTable(result.rows[0]) });
+    const row = result.rows[0];
+    const mapped = mapTable(row);
+
+    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', {
+      tableId,
+      tableNumber: row.number,
+      status: row.status,
+      table: mapped,
+    });
+
+    await db.query(
+      'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+      [cafeId, 'TABLE_STATUS_CHANGE', `${row.number}-stol holati '${status}' ga o'zgartirildi`, req.user?.name || req.user?.username || 'Foydalanuvchi']
+    ).catch(() => {});
+
+    return res.json({ success: true, table: mapped });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -162,7 +196,13 @@ const createTable = async (req, res) => {
       [cafeId, hId, num, s]
     );
     const newTable = mapTable(result.rows[0]);
-    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { table: newTable });
+    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { table: newTable, tableId: newTable.id, tableNumber: newTable.number });
+
+    await db.query(
+      'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+      [cafeId, 'TABLE_CREATED', `Yangi ${num}-stol yaratildi (${s} o'rinlik)`, req.user?.name || req.user?.username || 'Admin']
+    ).catch(() => {});
+
     return res.status(201).json({ success: true, table: newTable });
   } catch (error) {
     console.error('createTable error:', error);
@@ -205,7 +245,13 @@ const updateTable = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Stol topilmadi' });
     }
     const updated = mapTable(result.rows[0]);
-    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { table: updated });
+    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { table: updated, tableId: updated.id, tableNumber: updated.number });
+
+    await db.query(
+      'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+      [cafeId, 'TABLE_UPDATED', `${updated.number}-stol ma'lumotlari tahrirlandi`, req.user?.name || req.user?.username || 'Admin']
+    ).catch(() => {});
+
     return res.json({ success: true, table: updated });
   } catch (error) {
     console.error('updateTable error:', error);
@@ -234,7 +280,12 @@ const removeTable = async (req, res) => {
 
     if (cafeId) {
       notifyCafe(cafeId, 'TABLE_RELEASED', { tableId });
-      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableDeleted: tableId });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableDeleted: tableId, tableId });
+
+      await db.query(
+        'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
+        [cafeId, 'TABLE_DELETED', `Stol (ID: ${tableId}) o'chirildi`, req.user?.name || req.user?.username || 'Admin']
+      ).catch(() => {});
     }
     return res.json({ success: true, tableId });
   } catch (error) {

@@ -389,6 +389,10 @@ const telegramVerify = async (req, res) => {
     let hasActiveSubscription = false;
     let subscriptionInfo = null;
 
+    let userRow = null;
+    let cafeId = 'zavero';
+    let isAdmin = false;
+
     if (tgUser && tgUser.id) {
       try {
         const subRes = await db.query(
@@ -409,6 +413,7 @@ const telegramVerify = async (req, res) => {
             end_date: sub.end_date,
             daysRemaining,
           };
+          if (sub.cafe_id) cafeId = sub.cafe_id;
         }
 
         // Check if user is an Administrator (Admin always has full access)
@@ -428,20 +433,52 @@ const telegramVerify = async (req, res) => {
 
         if (adminUsernames.includes(username) || adminIds.includes(tgIdStr) || isDbAdmin || tgIdStr === '8413914382' || tgIdStr === '8873925517' || tgIdStr === '8989763161') {
           hasActiveSubscription = true;
+          isAdmin = true;
           subscriptionInfo = subscriptionInfo || {
             id: 0,
             plan_name: 'Administrator (Cheksiz)',
             daysRemaining: 9999,
           };
         }
+
+        // Link with internal user table
+        const uRes = await db.query(
+          'SELECT * FROM users WHERE telegram_id = $1 LIMIT 1',
+          [tgIdStr]
+        );
+        if (uRes.rows.length > 0) {
+          userRow = uRes.rows[0];
+          cafeId = userRow.cafe_id || cafeId;
+          if (userRow.role === 'admin' || userRow.role === 'director') isAdmin = true;
+        } else {
+          const tgUserRes = await db.query(
+            'SELECT cafe_id FROM telegram_users WHERE telegram_id = $1',
+            [tgUser.id]
+          );
+          if (tgUserRes.rows.length > 0 && tgUserRes.rows[0].cafe_id) {
+            cafeId = tgUserRes.rows[0].cafe_id;
+          }
+        }
       } catch (dbErr) {
         console.warn('⚠️ [telegramVerify] Subscriptions tekshirish xatosi:', dbErr.message);
       }
     }
 
+    const sessionPayload = {
+      id: userRow?.id || tgUser?.id || 1,
+      username: userRow?.username || tgUser?.username || `tg_${tgUser?.id}`,
+      role: userRow?.role || (isAdmin ? 'admin' : 'waiter'),
+      cafeId: userRow?.cafe_id || cafeId,
+      telegramId: tgUser?.id,
+    };
+    const token = jwt.sign(sessionPayload, getJwtSecret(), { expiresIn: '7d' });
+
     return res.json({
       success: true,
       verified: true,
+      token,
+      user: userRow ? toClientUser(userRow) : sessionPayload,
+      cafeId,
       telegramUser: tgUser,
       hasActiveSubscription,
       subscription: subscriptionInfo,

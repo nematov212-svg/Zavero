@@ -23,6 +23,7 @@ enum CafeSocketEvent {
   hallsUpdated,
   staffStatusUpdated,
   staffMovementUpdated,
+  subscriptionExtended,
 }
 
 const Map<CafeSocketEvent, String> _eventNames = {
@@ -44,6 +45,7 @@ const Map<CafeSocketEvent, String> _eventNames = {
   CafeSocketEvent.hallsUpdated: 'HALLS_UPDATED',
   CafeSocketEvent.staffStatusUpdated: 'STAFF_STATUS_UPDATED',
   CafeSocketEvent.staffMovementUpdated: 'STAFF_MOVEMENT_UPDATED',
+  CafeSocketEvent.subscriptionExtended: 'SUBSCRIPTION_EXTENDED',
 };
 
 /// socket_io_client ustidan qatlam: JWT bilan ulanish, JOIN_CAFE,

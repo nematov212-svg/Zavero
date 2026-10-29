@@ -426,7 +426,7 @@ class ReceiptWidget extends StatelessWidget {
               bottom: BorderSide(color: Colors.black26, width: 0.8),
             ),
           ),
-          child: Row(children: const [
+          child: const Row(children: [
             SizedBox(width: 22, child: Text('No', style: headerStyle)),
             Expanded(child: Text('Nomi', style: headerStyle)),
             SizedBox(

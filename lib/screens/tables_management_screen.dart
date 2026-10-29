@@ -806,9 +806,12 @@ class _TablesManagementScreenState extends State<TablesManagementScreen> {
                           ],
                         ),
                       )
-                    : GridView.builder(
-                        padding: const EdgeInsets.all(16),
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                          return GridView.builder(
+                            padding: const EdgeInsets.all(16),
+                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 220,
                           crossAxisSpacing: 14,
                           mainAxisSpacing: 14,
@@ -917,7 +920,9 @@ class _TablesManagementScreenState extends State<TablesManagementScreen> {
                             ),
                           );
                         },
-                      ),
+                      );
+                    },
+                  ),
               ),
             ],
           ),
