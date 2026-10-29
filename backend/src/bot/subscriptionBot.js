@@ -3,8 +3,8 @@ const db = require('../config/db');
 const { notifyCafe } = require('../socket/socketHandler');
 const { getBotInstance } = require('./telegramBot');
 
-const ORDER_BOT_TOKEN = process.env.ORDER_BOT_TOKEN || '';
-const MAIN_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '9127763453:AAH4zi7O52rbL-M6zbgWVHqggeGylhJAONo';
+const ORDER_BOT_TOKEN = process.env.ORDER_BOT_TOKEN || '8701521409:AAGSj1eWEk_QLIH7eMUKzxxXn5LK0ED38oY';
+const MAIN_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8659015604:AAGKb_U9IsIA-sfq-GyIvti-D3_mdZcLFh4';
 
 let subBot = null;
 let lastPendingRequest = null;

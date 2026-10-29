@@ -866,7 +866,7 @@ const initTelegramBot = () => {
     return null;
   }
 
-  const token = process.env.TELEGRAM_BOT_TOKEN || '9127763453:AAH4zi7O52rbL-M6zbgWVHqggeGylhJAONo';
+  const token = process.env.TELEGRAM_BOT_TOKEN || '8659015604:AAGKb_U9IsIA-sfq-GyIvti-D3_mdZcLFh4';
 
   if (!token) {
     console.warn('⚠️ [Telegram Bot] TELEGRAM_BOT_TOKEN sozlanmagan. Bot faollashtirilmadi.');
