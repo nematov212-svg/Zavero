@@ -11,6 +11,9 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="description" content="ZAVERO - Professional Restoran va Kafe Savdo Tizimi (POS SaaS)">
@@ -152,8 +155,22 @@
     setTimeout(hideLoader, 6000);
   </script>
 
+  <!-- Force clear old service workers and storage caches -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(regs) {
+        for (var r of regs) { r.unregister(); }
+      }).catch(function(){});
+    }
+    if ('caches' in window) {
+      caches.keys().then(function(names) {
+        for (var n of names) { caches.delete(n); }
+      }).catch(function(){});
+    }
+  </script>
+
   <script src="mac_touch_id.js"></script>
   <script src="sound_effects.js"></script>
-  <script src="flutter_bootstrap.js?v=20261029_v3" async></script>
+  <script src="flutter_bootstrap.js?v=20261029_v99" async></script>
 </body>
 </html>
