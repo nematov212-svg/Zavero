@@ -772,7 +772,7 @@ class AppState extends ChangeNotifier {
 
       final cloudTableOrders =
           cloudData['tableOrders'] as Map<int, List<CartItem>>?;
-      if (cloudTableOrders != null && cloudTableOrders.isNotEmpty) {
+      if (cloudTableOrders != null) {
         tableOrders
           ..clear()
           ..addAll(cloudTableOrders);
@@ -1800,6 +1800,7 @@ class AppState extends ChangeNotifier {
     required PaymentMethod method,
     double cashPaid = 0,
     double cardPaid = 0,
+    String? idempotencyKey,
   }) {
     final r = Receipt(
       id: nextId(),
@@ -1827,6 +1828,8 @@ class AppState extends ChangeNotifier {
 
     final tableIdToRelease = selectedTable?.id;
     final tableNumToRelease = selectedTable?.number;
+    final effIdemKey = idempotencyKey ??
+        'rcpt_${r.id}_${DateTime.now().millisecondsSinceEpoch}_${tableIdToRelease ?? tableNumToRelease ?? 0}';
     _cloudService.completeCheckout(
       cafeId: currentCafeId,
       receipt: r,
@@ -1834,26 +1837,22 @@ class AppState extends ChangeNotifier {
       items: List<CartItem>.from(cart),
       allProducts: products,
       ownerId: '',
+      idempotencyKey: effIdemKey,
     );
 
-    // Stolni to'liq bo'shatish va diskka/bulutga saqlash
-    if (tableIdToRelease != null) {
-      final tIdx = tables.indexWhere((t) => t.id == tableIdToRelease);
-      if (tIdx != -1) {
-        tables[tIdx].status = TableStatus.free;
+    // Stolni to'liq bo'shatish va diskka/bulutga saqlash (ID va raqam bo'yicha)
+    for (var i = 0; i < tables.length; i++) {
+      if ((tableIdToRelease != null && tables[i].id == tableIdToRelease) ||
+          (tableNumToRelease != null && tables[i].number == tableNumToRelease)) {
+        tables[i].status = TableStatus.free;
+        tableOrders.remove(tables[i].id);
+        tableNotes.remove(tables[i].id);
+        unawaited(_persistTableStatus(tables[i].id, false));
       }
+    }
+    if (tableIdToRelease != null) {
       tableOrders.remove(tableIdToRelease);
       tableNotes.remove(tableIdToRelease);
-      unawaited(_persistTableStatus(tableIdToRelease, false));
-    } else if (tableNumToRelease != null) {
-      final tIdx = tables.indexWhere((t) => t.number == tableNumToRelease);
-      if (tIdx != -1) {
-        tables[tIdx].status = TableStatus.free;
-        final actId = tables[tIdx].id;
-        tableOrders.remove(actId);
-        tableNotes.remove(actId);
-        unawaited(_persistTableStatus(actId, false));
-      }
     }
 
     if (selectedTable != null) {
@@ -13087,6 +13086,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Future<void> _confirmPaid() async {
+    if (confirming) return;
     if (appState.cart.isEmpty) return;
     // Agar to'lov turi belgilanmagan bo'lsa, standart Naqd pul sifatida qabul qilamiz
     if (!payByCash && !payByCard) {
@@ -13124,7 +13124,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
 
     // 1. To'lovni qayd qilish va chek obyektini olish
-    final receipt = appState.checkout(method: method, cashPaid: cash, cardPaid: card);
+    final selTable = appState.selectedTable;
+    final ik = 'chk_${selTable?.id ?? selTable?.number ?? 0}_${DateTime.now().millisecondsSinceEpoch}';
+    final receipt = appState.checkout(
+      method: method,
+      cashPaid: cash,
+      cardPaid: card,
+      idempotencyKey: ik,
+    );
 
     // 2. AVTOMATIK CHEK CHIQARISH: "Xarid cheki" alohida bosilmagan bo'lsa ham, "To'landi" bosilganda chek avtomatik chiqadi!
     try {

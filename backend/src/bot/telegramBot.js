@@ -39,7 +39,7 @@ const getWebAppUrl = () => {
   }
   url = url || 'https://zavero-backend-production-7dc9.up.railway.app';
   const clean = url.endsWith('/') ? url.slice(0, -1) : url;
-  const versionParam = process.env.APP_VERSION ? `v=${process.env.APP_VERSION}` : 'v=20261029_v99';
+  const versionParam = process.env.APP_VERSION ? `v=${process.env.APP_VERSION}` : 'v=20261029_v100';
   return `${clean}/?${versionParam}`;
 };
 
@@ -169,26 +169,59 @@ const getUserSubscription = async (telegramId) => {
   }
 };
 
+// Helper: Calculate Exact Subscription Expiry (1 day, 30 days, 3 calendar months, 9 calendar months, 1 calendar year)
+const calculateSubscriptionExpiry = (baseDate, plan) => {
+  const result = new Date(baseDate);
+  const planStr = String(plan).toLowerCase();
+
+  if (planStr === '1' || planStr === '1_day' || planStr === 'trial' || planStr === 'trial_1') {
+    result.setDate(result.getDate() + 1);
+  } else if (planStr === '30' || planStr === '30_days' || planStr === 'month_1') {
+    result.setDate(result.getDate() + 30);
+  } else if (planStr === '3m' || planStr === '3_months' || planStr === 'month_3' || planStr === '90') {
+    result.setMonth(result.getMonth() + 3);
+  } else if (planStr === '9m' || planStr === '9_months' || planStr === 'month_9' || planStr === '270') {
+    result.setMonth(result.getMonth() + 9);
+  } else if (planStr === '1y' || planStr === '1_year' || planStr === 'year_1' || planStr === '365') {
+    result.setFullYear(result.getFullYear() + 1);
+  } else {
+    const num = parseInt(plan, 10);
+    result.setDate(result.getDate() + (isNaN(num) ? 30 : num));
+  }
+  return result;
+};
+
 // Helper: Activate or Extend Subscription
-const activateSubscription = async (telegramId, { days = 30, amount = 250000, provider = 'admin_manual', transactionId = null, notifyUser = true }) => {
+const activateSubscription = async (telegramId, { days = 30, planKey = null, amount = 250000, provider = 'admin_manual', transactionId = null, notifyUser = true }) => {
   try {
     const currentSub = await getUserSubscription(telegramId);
     let newStartDate = new Date();
-    let newEndDate;
+    let baseDate = new Date();
 
     if (currentSub && new Date(currentSub.end_date) > new Date()) {
       newStartDate = new Date(currentSub.start_date);
-      newEndDate = new Date(currentSub.end_date);
-      newEndDate.setDate(newEndDate.getDate() + days);
-    } else {
-      newEndDate = new Date();
-      newEndDate.setDate(newEndDate.getDate() + days);
+      baseDate = new Date(currentSub.end_date);
+    }
+
+    const effectivePlan = planKey || days;
+    const newEndDate = calculateSubscriptionExpiry(baseDate, effectivePlan);
+
+    const isTrial = String(effectivePlan) === '1' || String(effectivePlan) === 'trial' || days === 1;
+    let planName = `${days} kunlik obuna`;
+    const planStr = String(effectivePlan).toLowerCase();
+    if (isTrial) {
+      planName = '1 kunlik sinov';
+    } else if (planStr === '3m' || planStr === 'month_3' || days === 90) {
+      planName = '3 oylik obuna';
+    } else if (planStr === '9m' || planStr === 'month_9' || days === 270) {
+      planName = '9 oylik obuna';
+    } else if (planStr === '1y' || planStr === 'year_1' || days === 365) {
+      planName = '1 yillik obuna';
+    } else if (planStr === '30' || planStr === 'month_1' || days === 30) {
+      planName = '30 kunlik obuna';
     }
 
     const txId = transactionId || `${provider}_${Date.now()}_${telegramId}`;
-
-    const isTrial = days === 1;
-    const planName = isTrial ? '1 kunlik sinov' : `${days} kunlik obuna`;
 
     // 1. subscriptions jadvaliga yozish
     const subRes = await db.query(
@@ -204,7 +237,7 @@ const activateSubscription = async (telegramId, { days = 30, amount = 250000, pr
        VALUES ($1, $2, $3, $4, 'completed', $5)
        ON CONFLICT (transaction_id) 
        DO UPDATE SET status = 'completed', updated_at = CURRENT_TIMESTAMP`,
-      [telegramId, txId, provider, amount, JSON.stringify({ days, activated_at: new Date().toISOString() })]
+      [telegramId, txId, provider, amount, JSON.stringify({ days, planKey: effectivePlan, activated_at: new Date().toISOString() })]
     );
 
     // 3. Telegram chat menu tugmasini ILOVANI OCHISH qilib yangilash
@@ -2084,17 +2117,19 @@ const initTelegramBot = () => {
     });
 
     // Action: Admin approves subscription from Cheque or User Card
-    bot.action(/^admin_approve_(\d+)_(\d+)$/, async (ctx) => {
+    bot.action(/^admin_approve_(\d+)_([0-9a-zA-Z_]+)$/, async (ctx) => {
       try {
         if (!(await isAdminUser(ctx.from))) return ctx.answerCbQuery('⛔️ Ruxsat yo‘q! Avval /admin orqali parol tering.');
         await ctx.answerCbQuery('Faollashtirilmoqda...');
 
         const targetId = parseInt(ctx.match[1], 10);
-        const days = parseInt(ctx.match[2], 10) || 30;
-        const isTrial = days === 1;
+        const planKey = ctx.match[2];
+        const days = parseInt(planKey, 10) || 30;
+        const isTrial = planKey === '1' || planKey === '1_day';
 
         const result = await activateSubscription(targetId, {
           days,
+          planKey,
           amount: isTrial ? 0 : 250000,
           provider: isTrial ? 'admin_panel_trial' : 'admin_panel',
           transactionId: `admin_${Date.now()}_${targetId}`,
@@ -2109,7 +2144,7 @@ const initTelegramBot = () => {
           `<i>Mijozga avtomatik tarzda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`
           : `✅ <b>Mijozga muvaffaqiyatli ruxsat berildi!</b>\n\n` +
           `👤 Mijoz ID: <code>${targetId}</code>\n` +
-          `⏳ Berilgan muddat: <b>${days} kun</b>\n` +
+          `⏳ Reja: <b>${result.planName || (days + ' kun')}</b>\n` +
           `📅 Tugash vaqti: <b>${formatDate(result.endDate)}</b>\n\n` +
           `<i>Mijozga avtomatik tarzda tabrik xabari va «ZAVERO POS’NI OCHISH» tugmasi yuborildi.</i>`;
 
@@ -2427,18 +2462,19 @@ const initTelegramBot = () => {
 
         const buttons = [
           [
-            Markup.button.callback('🎁 1 kun sinov berish', `admin_approve_${targetId}_1`),
-            Markup.button.callback('➕ 30 kun berish', `admin_approve_${targetId}_30`),
+            Markup.button.callback('🎁 1 kun sinov', `admin_approve_${targetId}_1`),
+            Markup.button.callback('➕ 30 kun', `admin_approve_${targetId}_30`),
           ],
           [
-            Markup.button.callback('➕ 60 kun berish', `admin_approve_${targetId}_60`),
-            Markup.button.callback('➕ 365 kun (1 yil)', `admin_approve_${targetId}_365`),
+            Markup.button.callback('➕ 3 oy', `admin_approve_${targetId}_3m`),
+            Markup.button.callback('➕ 9 oy', `admin_approve_${targetId}_9m`),
           ],
           [
+            Markup.button.callback('➕ 1 yil', `admin_approve_${targetId}_1y`),
             Markup.button.callback('🚫 Obunani to‘xtatish', `admin_revoke_${targetId}`),
-            Markup.button.callback('👥 Mijozlar ro‘yxati', 'admin_view_clients_1'),
           ],
           [
+            Markup.button.callback('👥 Mijozlar ro‘yxati', 'admin_view_clients_1'),
             Markup.button.callback('⬅️ Asosiy panelga qaytish', 'open_admin_panel'),
           ],
         ];
@@ -3121,17 +3157,6 @@ const initTelegramBot = () => {
       );
     };
 
-    // Command: /admin
-    bot.command('admin', async (ctx) => {
-      try {
-        if (!(await isAdminUser(ctx.from))) {
-          return replyUnauthorized(ctx);
-        }
-        return await sendAdminDashboard(ctx);
-      } catch (e) {
-        console.error('admin command error:', e.message);
-      }
-    });
 
     // Command: /users
     bot.command('users', async (ctx) => {
@@ -3306,14 +3331,15 @@ const initTelegramBot = () => {
 
           const buttons = [
             [
-              Markup.button.callback('🎁 1 kun sinov berish', `admin_approve_${targetId}_1`),
-              Markup.button.callback('➕ 30 kun berish', `admin_approve_${targetId}_30`),
+              Markup.button.callback('🎁 1 kun sinov', `admin_approve_${targetId}_1`),
+              Markup.button.callback('➕ 30 kun', `admin_approve_${targetId}_30`),
             ],
             [
-              Markup.button.callback('➕ 60 kun berish', `admin_approve_${targetId}_60`),
-              Markup.button.callback('➕ 365 kun (1 yil)', `admin_approve_${targetId}_365`),
+              Markup.button.callback('➕ 3 oy', `admin_approve_${targetId}_3m`),
+              Markup.button.callback('➕ 9 oy', `admin_approve_${targetId}_9m`),
             ],
             [
+              Markup.button.callback('➕ 1 yil', `admin_approve_${targetId}_1y`),
               Markup.button.callback('🚫 Bekor qilish', 'open_admin_panel'),
             ],
           ];

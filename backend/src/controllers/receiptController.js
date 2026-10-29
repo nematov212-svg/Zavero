@@ -23,11 +23,12 @@ const checkout = async (req, res) => {
   }
 
   // IDEMPOTENCY: Takroriy so'rov bo'lsa darhol mavjud chekni qaytaramiz (dublikat to'lovning oldi olinadi)
-  if (idempotencyKey) {
+  const effectiveIdempotencyKey = idempotencyKey || (receipt.id ? `rcpt_${receipt.id}` : null);
+  if (effectiveIdempotencyKey) {
     try {
       const existing = await db.query(
         'SELECT * FROM receipts WHERE cafe_id = $1 AND idempotency_key = $2 LIMIT 1',
-        [cafeId, idempotencyKey]
+        [cafeId, effectiveIdempotencyKey]
       );
       if (existing.rows.length > 0) {
         return res.json({
@@ -40,8 +41,32 @@ const checkout = async (req, res) => {
     } catch (_) {}
   }
 
+  // RECENT CHECK DEDUPLICATION: 15 soniya ichida aynan shu stol va summaga chek urilgan bo'lsa qaytaramiz
   try {
-    const { receiptRow, reportRow, effectiveTableId } = await db.withTransaction(async (client) => {
+    const tblNum = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
+    const rTotal = parseFloat(receipt.total) || 0;
+    if (tblNum && rTotal > 0) {
+      const recent = await db.query(
+        `SELECT * FROM receipts 
+         WHERE cafe_id = $1 AND table_number = $2 AND ABS(total - $3) < 0.01 
+           AND date >= NOW() - INTERVAL '15 seconds' 
+         ORDER BY id DESC LIMIT 1`,
+        [cafeId, tblNum, rTotal]
+      );
+      if (recent.rows.length > 0) {
+        console.log(`⚠️ [Checkout] Takroriy bosish aniqlandi (Stol #${tblNum}, Summa: ${rTotal}). Dublikat rad etildi.`);
+        return res.json({
+          success: true,
+          message: 'To‘lov allaqachon qayd etilgan (takroriy bosish oldi olindi)',
+          receipt: mapReceipt(recent.rows[0]),
+          isDuplicate: true,
+        });
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const { receiptRow, reportRow, effectiveTableId, effectiveTableNumber } = await db.withTransaction(async (client) => {
 
       const date = receipt.date ? new Date(receipt.date) : new Date();
       const dateId = dateIdFrom(date);
@@ -52,7 +77,7 @@ const checkout = async (req, res) => {
         [
           cafeId, date, JSON.stringify(items), receipt.total || 0, receipt.method || 'cash',
           receipt.cashierName || '', receipt.tableNumber ?? null, receipt.hallName ?? null,
-          receipt.cashPaid || 0, receipt.cardPaid || 0, idempotencyKey || null,
+          receipt.cashPaid || 0, receipt.cardPaid || 0, effectiveIdempotencyKey || null,
         ]
       );
       const receiptRow = receiptResult.rows[0];
@@ -182,6 +207,22 @@ const checkout = async (req, res) => {
 
     return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow) });
   } catch (error) {
+    if (error.code === '23505' && effectiveIdempotencyKey) {
+      try {
+        const existing = await db.query(
+          'SELECT * FROM receipts WHERE cafe_id = $1 AND idempotency_key = $2 LIMIT 1',
+          [cafeId, effectiveIdempotencyKey]
+        );
+        if (existing.rows.length > 0) {
+          return res.json({
+            success: true,
+            message: 'To‘lov allaqachon qayd etilgan (idempotent conflict resolved)',
+            receipt: mapReceipt(existing.rows[0]),
+            isDuplicate: true,
+          });
+        }
+      } catch (_) {}
+    }
     console.error('checkout error:', error);
     return res.status(500).json({ success: false, message: "To'lovni yakunlashda xatolik: " + error.message });
   }

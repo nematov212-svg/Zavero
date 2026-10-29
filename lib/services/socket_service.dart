@@ -59,6 +59,8 @@ class SocketService {
   String? _connectedCafeId;
   Timer? _heartbeatTimer;
 
+  final Map<String, int> _lastEventTimestamps = {};
+
   final Map<CafeSocketEvent, StreamController<Map<String, dynamic>>>
       _controllers = {
     for (final e in CafeSocketEvent.values)
@@ -131,11 +133,19 @@ class SocketService {
 
       for (final entry in _eventNames.entries) {
         _socket!.on(entry.value, (data) {
-          if (data is Map) {
-            _controllers[entry.key]!.add(Map<String, dynamic>.from(data));
-          } else {
-            _controllers[entry.key]!.add(<String, dynamic>{});
+          final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+          // Event deduplication within 120ms to prevent duplicate rapid trigger
+          final eventSignature = '${entry.value}_${map['id'] ?? map['tableId'] ?? map['receipt']?['id'] ?? ''}_${map['status'] ?? ''}';
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final lastTime = _lastEventTimestamps[eventSignature] ?? 0;
+          if (now - lastTime < 120 && eventSignature != '${entry.value}__') {
+            return;
           }
+          _lastEventTimestamps[eventSignature] = now;
+          if (_lastEventTimestamps.length > 500) {
+            _lastEventTimestamps.clear();
+          }
+          _controllers[entry.key]!.add(map);
         });
       }
     } catch (e) {

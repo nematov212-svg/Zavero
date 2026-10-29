@@ -564,12 +564,15 @@ class CloudService {
     required List<CartItem> items,
     required List<Product> allProducts,
     required String ownerId,
+    String? idempotencyKey,
   }) async {
+    final effectiveKey = idempotencyKey ?? 'rcpt_${receipt.id}_${receipt.date.millisecondsSinceEpoch}';
     try {
       await _api.post('/receipts/checkout', body: {
         'receipt': receipt.toJson(),
         'tableId': tableId,
         'items': items.map((e) => e.toJson()).toList(),
+        'idempotencyKey': effectiveKey,
       });
       return true;
     } catch (e) {
