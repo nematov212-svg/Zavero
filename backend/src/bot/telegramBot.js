@@ -39,7 +39,7 @@ const getWebAppUrl = () => {
   }
   url = url || 'https://zavero-backend-production-7dc9.up.railway.app';
   const clean = url.endsWith('/') ? url.slice(0, -1) : url;
-  const versionParam = process.env.APP_VERSION ? `v=${process.env.APP_VERSION}` : 'v=20261029_v100';
+  const versionParam = process.env.APP_VERSION ? `v=${process.env.APP_VERSION}` : 'v=20261029_v101';
   return `${clean}/?${versionParam}`;
 };
 

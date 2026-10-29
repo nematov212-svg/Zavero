@@ -241,16 +241,16 @@ class ReceiptWidget extends StatelessWidget {
                   ),
 
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 14),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // ── 1. HEADER: Logo + Cafe nomi + Slogan ─────
                       _buildHeader(logoUrl, cafeName, slogan),
-                      const SizedBox(height: 12),
-                      Container(height: 0.8, color: Colors.black26),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
+                      Container(height: 0.9, color: Colors.black87),
+                      const SizedBox(height: 6),
 
                       // ── 2. INFO BLOK (2 ustun) ─────────────────
                       _buildInfoBlock(
@@ -262,15 +262,15 @@ class ReceiptWidget extends StatelessWidget {
                         checkId: formattedCheckId,
                         cashier: cashier,
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
                       _buildDashedLine(),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
 
                       // ── 3. MAHSULOTLAR JADVAL ──────────────────
                       _buildItemsTable(items),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       _buildDashedLine(),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
 
                       // ── 4. JAMI / CHEGIRMA / TO'LOV ───────────
                       _buildTotals(
@@ -278,14 +278,14 @@ class ReceiptWidget extends StatelessWidget {
                         discountVal: finalDiscount,
                         grandTotalVal: finalTotal,
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
 
                       // ── 5. QR KOD ─────────────────────────────
                       if (showQr) _buildQrSection(),
 
                       // ── 6. FOOTER ─────────────────────────────
                       _buildFooter(footerText: footerText, cafeName: cafeName),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
                     ],
                   ),
                 ),
@@ -306,41 +306,42 @@ class ReceiptWidget extends StatelessWidget {
         if (logoUrl != null && logoUrl.trim().isNotEmpty)
           _buildLogoImage(logoUrl.trim())
         else
-          SizedBox(width: 68, height: 68, child: CustomPaint(painter: ChefHatPainter())),
-        const SizedBox(height: 6),
+          SizedBox(width: 58, height: 58, child: CustomPaint(painter: ChefHatPainter())),
+        const SizedBox(height: 4),
         Text(
-          cafeName,
+          cafeName.toUpperCase(),
           textAlign: TextAlign.center,
           style: const TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.w800,
-            fontStyle: FontStyle.italic,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
             color: Colors.black,
-            letterSpacing: 0.4,
+            letterSpacing: 0.8,
             height: 1.1,
           ),
         ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(width: 28, height: 0.8, color: Colors.black45),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                slogan,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black54,
-                    letterSpacing: 0.3),
+        if (slogan.trim().isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(width: 24, height: 0.8, color: Colors.black),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  slogan,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                      letterSpacing: 0.3),
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Container(width: 28, height: 0.8, color: Colors.black45),
-          ],
-        ),
+              const SizedBox(width: 6),
+              Container(width: 24, height: 0.8, color: Colors.black),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -523,32 +524,43 @@ class ReceiptWidget extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Column(children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Jami:',
-              style: TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
-          Text("${money(subtotalVal)} so'm",
-              style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
-        ]),
-        const SizedBox(height: 5),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Chegirma:',
-              style: TextStyle(
-                  fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.black87)),
-          Text("${money(discountVal)} so'm",
-              style: const TextStyle(
-                  fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.black87)),
-        ]),
-        const SizedBox(height: 5),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text("To'lov:",
-              style: TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
-          Text("${money(grandTotalVal)} so'm",
-              style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
-        ]),
+        if (discountVal > 0) ...[
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('Jami:',
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87)),
+            Text("${money(subtotalVal)} so'm",
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87)),
+          ]),
+          const SizedBox(height: 3),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('Chegirma:',
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+            Text("-${money(discountVal)} so'm",
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+          ]),
+          const SizedBox(height: 4),
+        ],
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+          decoration: const BoxDecoration(
+            border: Border(
+              top: BorderSide(color: Colors.black, width: 1.2),
+              bottom: BorderSide(color: Colors.black, width: 1.2),
+            ),
+          ),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text("TO'LOV:",
+                style: TextStyle(
+                    fontSize: 16.5, fontWeight: FontWeight.w900, color: Colors.black)),
+            Text("${money(grandTotalVal)} so'm",
+                style: const TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w900, color: Colors.black)),
+          ]),
+        ),
       ]),
     );
   }
@@ -560,14 +572,12 @@ class ReceiptWidget extends StatelessWidget {
     return Column(children: [
       Center(
         child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-              border: Border.all(color: Colors.black26, width: 0.8),
-              borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.all(4),
+          color: Colors.white,
           child: QrImageView(
             data: 'https://zavero-backend-production-7dc9.up.railway.app',
             version: QrVersions.auto,
-            size: 110.0,
+            size: 72.0,
             padding: EdgeInsets.zero,
             backgroundColor: Colors.white,
             eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
@@ -576,17 +586,16 @@ class ReceiptWidget extends StatelessWidget {
           ),
         ),
       ),
-      const SizedBox(height: 10),
+      const SizedBox(height: 3),
       const Text(
-        'QR skaner qiling va\nZavero web saytiga o\'ting!',
+        'QR kodni skaner qiling',
         textAlign: TextAlign.center,
         style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w500,
-            color: Colors.black54,
-            height: 1.5),
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: Colors.black87),
       ),
-      const SizedBox(height: 16),
+      const SizedBox(height: 6),
     ]);
   }
 
@@ -595,34 +604,29 @@ class ReceiptWidget extends StatelessWidget {
   // ─────────────────────────────────────────────────────────
   Widget _buildFooter({required String footerText, required String cafeName}) {
     return Column(children: [
-      Container(height: 0.8, color: Colors.black26),
-      const SizedBox(height: 12),
+      Container(height: 0.9, color: Colors.black),
+      const SizedBox(height: 6),
       Text(
         footerText,
         textAlign: TextAlign.center,
         style: const TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
           fontStyle: FontStyle.italic,
           color: Colors.black,
-          letterSpacing: 0.3,
         ),
       ),
-      const SizedBox(height: 10),
-      const Text('\u2661', style: TextStyle(fontSize: 20, color: Colors.black54)),
-      const SizedBox(height: 8),
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(width: 22, height: 0.8, color: Colors.black45),
-        const SizedBox(width: 8),
-        Text(cafeName,
-            style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-                letterSpacing: 0.5)),
-        const SizedBox(width: 8),
-        Container(width: 22, height: 0.8, color: Colors.black45),
-      ]),
+      const SizedBox(height: 4),
+      Text(
+        cafeName.toUpperCase(),
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: Colors.black,
+          letterSpacing: 0.5,
+        ),
+      ),
     ]);
   }
 
@@ -641,7 +645,7 @@ class ReceiptWidget extends StatelessWidget {
             (_) => const SizedBox(
                   width: dashWidth,
                   height: 0.8,
-                  child: DecoratedBox(decoration: BoxDecoration(color: Colors.black26)),
+                  child: DecoratedBox(decoration: BoxDecoration(color: Colors.black)),
                 )),
       );
     });

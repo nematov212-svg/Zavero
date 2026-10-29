@@ -41,7 +41,7 @@ const checkout = async (req, res) => {
     } catch (_) {}
   }
 
-  // RECENT CHECK DEDUPLICATION: 15 soniya ichida aynan shu stol va summaga chek urilgan bo'lsa qaytaramiz
+  // RECENT CHECK DEDUPLICATION: 30 soniya ichida aynan shu stol va summaga chek urilgan bo'lsa qaytaramiz
   try {
     const tblNum = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
     const rTotal = parseFloat(receipt.total) || 0;
@@ -49,7 +49,7 @@ const checkout = async (req, res) => {
       const recent = await db.query(
         `SELECT * FROM receipts 
          WHERE cafe_id = $1 AND table_number = $2 AND ABS(total - $3) < 0.01 
-           AND date >= NOW() - INTERVAL '15 seconds' 
+           AND (created_at >= NOW() - INTERVAL '30 seconds' OR date >= NOW() - INTERVAL '30 seconds')
          ORDER BY id DESC LIMIT 1`,
         [cafeId, tblNum, rTotal]
       );
