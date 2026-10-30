@@ -13238,6 +13238,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
+  bool _isTelegramWebApp() {
+    if (!kIsWeb) return false;
+    try {
+      final uri = Uri.base;
+      if (uri.queryParameters.containsKey('tgWebAppData') ||
+          uri.fragment.contains('tgWebAppData') ||
+          uri.toString().contains('tgWebApp')) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -13246,7 +13259,30 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _ensurePayingInitialized();
         final table = appState.selectedTable;
         final hall = appState.selectedHall;
-        final narrow = MediaQuery.of(context).size.width < 700;
+
+        if (appState.cart.isEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                  settings: const RouteSettings(name: 'dashboard'),
+                  builder: (_) => const DashboardScreen(),
+                ),
+                (r) => false,
+              );
+            }
+          });
+          return const Scaffold(
+            backgroundColor: Color(0xFFF8F9FA),
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final screenWidth = MediaQuery.of(context).size.width;
+        final isTelegram = _isTelegramWebApp();
+        final isDesktop = !isTelegram && screenWidth >= 1024;
+        final isTablet = !isTelegram && screenWidth >= 700 && screenWidth < 1024;
+
         return PopScope(
           canPop: false,
           onPopInvokedWithResult: (didPop, result) {
@@ -13254,691 +13290,1232 @@ class _PaymentScreenState extends State<PaymentScreen> {
             _backToTableSelection();
           },
           child: Scaffold(
-            appBar: AppBar(
-              leading: BackButton(onPressed: _backToTableSelection),
-              title: Text(
-                table != null
-                    ? '${hall?.name ?? ''} - stol ${table.number}'
-                    : 'To\'lov',
+            backgroundColor: const Color(0xFFF8F9FA),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  _buildTopHeader(context),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isDesktop ? 40 : (isTablet ? 24 : 16),
+                        vertical: isDesktop ? 24 : 16,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1200),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _buildSubHeader(context, table, hall),
+                              const SizedBox(height: 20),
+                              if (isDesktop)
+                                _buildDesktopLayout(table, hall)
+                              else if (isTablet)
+                                _buildTabletLayout(table, hall)
+                              else
+                                _buildMobileLayout(table, hall, isTelegram: isTelegram),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              actions: [
-                IconButton(
-                  tooltip: 'Yangilash',
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () async {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Ma\'lumotlar yangilanmoqda...'),
-                        duration: Duration(seconds: 1),
-                      ),
-                    );
-                    await appState.loadCloudDataForCafe(appState.currentCafeId);
-                    if (mounted) setState(() {});
-                  },
-                ),
-                PopupMenuButton<String>(
-                  tooltip: 'Chek va Printer sozlamalari',
-                  icon: const Icon(Icons.more_vert),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'edit_text':
-                        showEditReceiptTemplateDialog(context);
-                        break;
-                      case 'layout_font':
-                        showPrinterQuickSettingsSheet(context);
-                        break;
-                      case 'visibility':
-                        showReceiptVisibilityDialog(context);
-                        break;
-                      case 'printer_settings':
-                        showPrinterSettingsModal(context);
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: 'edit_text',
-                      child: ListTile(
-                        leading:
-                            Icon(Icons.edit_note, color: Color(0xFF3B6E91)),
-                        title: Text('Chek yozuvlarini tahrirlash'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'layout_font',
-                      child: ListTile(
-                        leading: Icon(Icons.format_align_center,
-                            color: Color(0xFF3B6E91)),
-                        title: Text('Joylashuv va shrift'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'visibility',
-                      child: ListTile(
-                        leading: Icon(Icons.visibility_outlined,
-                            color: Color(0xFF3B6E91)),
-                        title: Text('Elementlarni ko\'rsatish/yashirish'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: 'printer_settings',
-                      child: ListTile(
-                        leading: Icon(Icons.print_outlined),
-                        title: Text('Printer sozlamalari (IP/Port)'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
             ),
-            floatingActionButton: appState.cart.isEmpty
-                ? null
-                : FloatingActionButton(
-                    heroTag: 'payment_add_fab',
-                    backgroundColor: kDarkYellow,
-                    onPressed: _addMoreItems,
-                    tooltip: 'Taom qo\'shish',
-                    child: const Icon(Icons.add),
-                  ),
-            body: appState.cart.isEmpty
-                ? Builder(
-                    builder: (ctx) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (ctx.mounted) {
-                          Navigator.of(ctx).pushAndRemoveUntil(
-                            MaterialPageRoute(
-                              settings: const RouteSettings(name: 'dashboard'),
-                              builder: (_) => const DashboardScreen(),
-                            ),
-                            (r) => false,
-                          );
-                        }
-                      });
-                      return const Center(
-                        child: CircularProgressIndicator(),
-                      );
-                    },
-                  )
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // ---- TAOMLAR JADVALI ----
-                        Card(
-                          margin: EdgeInsets.zero,
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                narrow
-                                    ? const Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              'Menyu',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey,
-                                              ),
-                                            ),
-                                          ),
-                                          Text(
-                                            'Summa',
-                                            textAlign: TextAlign.right,
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.grey,
-                                            ),
-                                          ),
-                                        ],
-                                      )
-                                    : const Row(
-                                        children: [
-                                          Expanded(
-                                            flex: 3,
-                                            child: Text(
-                                              'Menyu',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey,
-                                              ),
-                                            ),
-                                          ),
-                                          Expanded(
-                                            flex: 2,
-                                            child: Text(
-                                              'Summa',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey,
-                                              ),
-                                            ),
-                                          ),
-                                          Expanded(
-                                            child: Text(
-                                              'Soni',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey,
-                                              ),
-                                            ),
-                                          ),
-                                          Expanded(
-                                            child: Text(
-                                              'Xizmat',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey,
-                                              ),
-                                            ),
-                                          ),
-                                          Expanded(
-                                            flex: 2,
-                                            child: Text(
-                                              'Barchasi',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey,
-                                              ),
-                                            ),
-                                          ),
-                                          SizedBox(
-                                            width: 40,
-                                            child: Text(
-                                              '',
-                                              textAlign: TextAlign.center,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                const Divider(height: 18),
-                                for (final item in appState.cart)
-                                  narrow
-                                      ? Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 6,
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.stretch,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      item.product.name,
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    formatSum(item.total),
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Row(
-                                                children: [
-                                                  Text(
-                                                    '${formatSum(item.product.price)} · ${servicePercent.round()}% xizmat',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color:
-                                                          Colors.grey.shade600,
-                                                    ),
-                                                  ),
-                                                  const Spacer(),
-                                                  _qtyMiniBtn(
-                                                    Icons.remove,
-                                                    () => appState.changeQty(
-                                                      item,
-                                                      -1,
-                                                    ),
-                                                  ),
-                                                  Padding(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                      horizontal: 4,
-                                                    ),
-                                                    child: Text(
-                                                      '${item.qty}',
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  _qtyMiniBtn(
-                                                    Icons.add,
-                                                    () => appState.changeQty(
-                                                      item,
-                                                      1,
-                                                    ),
-                                                  ),
-                                                  IconButton(
-                                                    padding: EdgeInsets.zero,
-                                                    constraints:
-                                                        const BoxConstraints(),
-                                                    icon: const Icon(
-                                                      Icons.delete_outline,
-                                                      color: Colors.red,
-                                                      size: 20,
-                                                    ),
-                                                    onPressed: () => appState
-                                                        .removeFromCart(item),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        )
-                                      : Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 6,
-                                          ),
-                                          child: Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.center,
-                                            children: [
-                                              Expanded(
-                                                flex: 3,
-                                                child: Text(
-                                                  item.product.name,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ),
-                                              Expanded(
-                                                flex: 2,
-                                                child: Text(
-                                                  formatSum(item.product.price),
-                                                  textAlign: TextAlign.center,
-                                                ),
-                                              ),
-                                              Expanded(
-                                                child: Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.center,
-                                                  children: [
-                                                    _qtyMiniBtn(
-                                                      Icons.remove,
-                                                      () => appState.changeQty(
-                                                        item,
-                                                        -1,
-                                                      ),
-                                                    ),
-                                                    Padding(
-                                                      padding: const EdgeInsets
-                                                          .symmetric(
-                                                        horizontal: 4,
-                                                      ),
-                                                      child: Text(
-                                                        '${item.qty}',
-                                                        style: const TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    _qtyMiniBtn(
-                                                      Icons.add,
-                                                      () => appState.changeQty(
-                                                        item,
-                                                        1,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              Expanded(
-                                                child: Text(
-                                                  '${servicePercent.round()} %',
-                                                  textAlign: TextAlign.center,
-                                                ),
-                                              ),
-                                              Expanded(
-                                                flex: 2,
-                                                child: Text(
-                                                  formatSum(item.total),
-                                                  textAlign: TextAlign.center,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                              SizedBox(
-                                                width: 40,
-                                                child: IconButton(
-                                                  padding: EdgeInsets.zero,
-                                                  icon: const Icon(
-                                                    Icons.delete_outline,
-                                                    color: Colors.red,
-                                                    size: 20,
-                                                  ),
-                                                  onPressed: () => appState
-                                                      .removeFromCart(item),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // ---- JAMI VA TO'LANMOQDA ----
-                        Card(
-                          margin: EdgeInsets.zero,
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _summaryRow(
-                                  'Mahsulotlar qiymati:',
-                                  formatSum(_productsTotal),
-                                ),
-                                _summaryRow(
-                                  'Xizmat:',
-                                  formatSum(_serviceTotal),
-                                ),
-                                _summaryRow(
-                                  'Hammasi:',
-                                  formatSum(_grandTotal),
-                                  bold: true,
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    const Expanded(
-                                      child: Text(
-                                        'To\'lanmoqda:',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        border: Border.all(
-                                          color: Colors.grey.shade300,
-                                        ),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.remove),
-                                            color: Colors.blueGrey,
-                                            onPressed: () =>
-                                                _changePaying(-1000),
-                                          ),
-                                          SizedBox(
-                                            width: 90,
-                                            child: TextField(
-                                              controller: _payingCtrl,
-                                              textAlign: TextAlign.center,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              decoration: const InputDecoration(
-                                                border: InputBorder.none,
-                                              ),
-                                              onChanged: (_) => setState(() {}),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(Icons.add),
-                                            color: Colors.blueGrey,
-                                            onPressed: () =>
-                                                _changePaying(1000),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                TextField(
-                                  controller: _noteCtrl,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Izoh kiritish',
-                                    border: OutlineInputBorder(),
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 10,
-                                    ),
-                                  ),
-                                  onChanged: (v) => appState.setTableNote(v),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        // ---- CHEKNI EKRANDA KO'RISH (ReceiptWidget) ----
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF3B6E91),
-                              side: const BorderSide(color: Color(0xFF3B6E91)),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            onPressed: _showReceiptPreview,
-                            icon: const Icon(Icons.receipt_long_outlined),
-                            label: const Text('Chekni ko\'rish'),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // ---- CHOP ETISH TUGMALARI ----
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF3B6E91),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                ),
-                                onPressed: printingBill ? null : _printBill,
-                                icon: printingBill
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.print),
-                                label: const Text('Xarid cheki'),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF3B6E91),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                ),
-                                onPressed:
-                                    printingKitchen ? null : _printKitchen,
-                                icon: printingKitchen
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.print),
-                                label: const Text('Oshpaz cheki'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        // ---- NAQD / KARTA / OLIB KETISH BELGILARI ----
-                        Row(
-                          children: [
-                            Expanded(
-                              child: CheckboxListTile(
-                                contentPadding: EdgeInsets.zero,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                value: payByCash,
-                                onChanged: (v) => setState(() {
-                                  payByCash = v ?? false;
-                                }),
-                                title: const Text(
-                                  'Naqd pul',
-                                  style: TextStyle(fontSize: 13),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: CheckboxListTile(
-                                contentPadding: EdgeInsets.zero,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                value: payByCard,
-                                onChanged: (v) => setState(() {
-                                  payByCard = v ?? false;
-                                }),
-                                title: const Text(
-                                  'Karta',
-                                  style: TextStyle(fontSize: 13),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: CheckboxListTile(
-                                contentPadding: EdgeInsets.zero,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                value: isTakeaway,
-                                onChanged: (v) => setState(() {
-                                  isTakeaway = v ?? false;
-                                }),
-                                title: const Text(
-                                  'Olib ketish',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.deepOrange,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kDarkYellow,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            onPressed: confirming ? null : _confirmPaid,
-                            icon: confirming
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.check_circle_outline),
-                            label: const Text(
-                              'To\'landi',
-                              style: TextStyle(fontSize: 16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 70),
-                      ],
-                    ),
-                  ),
           ),
         );
       },
     );
   }
 
-  // ---- "Soni" ustunidagi kichik +/- tugmasi (taom sonini ko'paytirish/
-  // kamaytirish uchun) ----
-  Widget _qtyMiniBtn(IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: kYellow.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+  Widget _buildTopHeader(BuildContext context) {
+    return Container(
+      height: 60,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1),
         ),
-        child: Icon(icon, size: 13, color: kDarkYellow),
       ),
-    );
-  }
-
-  Widget _summaryRow(String label, String value, {bool bold = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-              fontSize: bold ? 16 : 14,
+          // Logo & Name
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE25C1D),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: const Text(
+              'z',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+                height: 1.1,
+              ),
             ),
           ),
-          Text(
-            value,
+          const SizedBox(width: 10),
+          const Text(
+            'zavero',
             style: TextStyle(
-              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-              fontSize: bold ? 16 : 14,
-              color: bold ? kDarkYellow : null,
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const Spacer(),
+          // Center title
+          const Text(
+            "To'lov",
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w500,
+              fontSize: 14,
+            ),
+          ),
+          const Spacer(),
+          // Settings Popup Menu
+          PopupMenuButton<String>(
+            tooltip: 'Chek va Printer sozlamalari',
+            icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF64748B)),
+            onSelected: (value) {
+              switch (value) {
+                case 'edit_text':
+                  showEditReceiptTemplateDialog(context);
+                  break;
+                case 'layout_font':
+                  showPrinterQuickSettingsSheet(context);
+                  break;
+                case 'visibility':
+                  showReceiptVisibilityDialog(context);
+                  break;
+                case 'printer_settings':
+                  showPrinterSettingsModal(context);
+                  break;
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'edit_text',
+                child: ListTile(
+                  leading: Icon(Icons.edit_note, color: Color(0xFFE25C1D)),
+                  title: Text('Chek yozuvlarini tahrirlash'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'layout_font',
+                child: ListTile(
+                  leading: Icon(Icons.format_align_center, color: Color(0xFFE25C1D)),
+                  title: Text('Joylashuv va shrift'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'visibility',
+                child: ListTile(
+                  leading: Icon(Icons.visibility_outlined, color: Color(0xFFE25C1D)),
+                  title: Text("Elementlarni ko'rsatish/yashirish"),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'printer_settings',
+                child: ListTile(
+                  leading: Icon(Icons.print_outlined),
+                  title: Text('Printer sozlamalari (IP/Port)'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+          // Close button (X)
+          InkWell(
+            onTap: _backToTableSelection,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.close,
+                size: 18,
+                color: Color(0xFF64748B),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildSubHeader(BuildContext context, TableModel? table, Hall? hall) {
+    final tableName = table != null
+        ? '${hall?.name ?? 'Zal'} - stol ${table.number}'
+        : "To'lov";
+    return Row(
+      children: [
+        InkWell(
+          onTap: _backToTableSelection,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.arrow_back,
+              size: 20,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "To'lov",
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              tableName,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0F172A),
+                letterSpacing: -0.3,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ── DESKTOP LAYOUT (Image 2) ──────────────────────────────────────────
+  Widget _buildDesktopLayout(TableModel? table, Hall? hall) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left Column: Buyurtma + Izoh
+        Expanded(
+          flex: 7,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildBuyurtmaCard(isDesktop: true),
+              const SizedBox(height: 20),
+              _buildIzohCard(),
+            ],
+          ),
+        ),
+        const SizedBox(width: 24),
+        // Right Column: Hisob-kitob
+        Expanded(
+          flex: 5,
+          child: _buildHisobKitobCard(
+            isCompact: false,
+            showPaymentMethodsInside: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── TABLET LAYOUT (Image 3) ───────────────────────────────────────────
+  Widget _buildTabletLayout(TableModel? table, Hall? hall) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left Column: Buyurtma (tablet card format) + Izoh
+        Expanded(
+          flex: 7,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildBuyurtmaCard(isDesktop: false),
+              const SizedBox(height: 16),
+              _buildIzohCard(),
+            ],
+          ),
+        ),
+        const SizedBox(width: 20),
+        // Right Column: Hisob-kitob
+        Expanded(
+          flex: 5,
+          child: _buildHisobKitobCard(
+            isCompact: false,
+            showPaymentMethodsInside: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── MOBILE & TELEGRAM BOT LAYOUT (Images 4 & 5) ────────────────────────
+  Widget _buildMobileLayout(TableModel? table, Hall? hall, {required bool isTelegram}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildBuyurtmaCard(isDesktop: false),
+        const SizedBox(height: 16),
+        _buildHisobKitobCard(
+          isCompact: true,
+          showPaymentMethodsInside: false,
+        ),
+        const SizedBox(height: 16),
+        _buildIzohCard(),
+        const SizedBox(height: 16),
+        _buildMobilePaymentMethodsCard(),
+        const SizedBox(height: 20),
+        _buildToLandiButton(),
+        const SizedBox(height: 40),
+      ],
+    );
+  }
+
+  // ── BUYURTMA CARD ────────────────────────────────────────────────────
+  Widget _buildBuyurtmaCard({required bool isDesktop}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Buyurtma',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${appState.cart.length} ta mahsulot',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (isDesktop) ...[
+            // Desktop Header Row
+            Row(
+              children: const [
+                Expanded(
+                  flex: 4,
+                  child: Text(
+                    'Mahsulot',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Center(
+                    child: Text(
+                      'Summa',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Center(
+                    child: Text(
+                      'Soni',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Center(
+                    child: Text(
+                      'Xizmat',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Center(
+                    child: Text(
+                      'Barchasi',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 44),
+              ],
+            ),
+            const Divider(height: 24, color: Color(0xFFF1F5F9)),
+            for (final item in appState.cart) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: Text(
+                        item.product.name,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Center(
+                        child: Text(
+                          formatSum(item.product.price),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF334155),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Center(child: _buildStepper(item)),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Center(
+                        child: Text(
+                          '${servicePercent.round()} %',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Center(
+                        child: Text(
+                          formatSum(item.total),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 44,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: _buildTrashButton(item),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 16, color: Color(0xFFF8FAFC)),
+            ],
+          ] else ...[
+            // Tablet / Mobile Responsive Item List
+            for (int i = 0; i < appState.cart.length; i++) ...[
+              if (i > 0) const Divider(height: 24, color: Color(0xFFF1F5F9)),
+              _buildResponsiveItemCard(appState.cart[i]),
+            ],
+          ],
+          const SizedBox(height: 12),
+          // Add more items button
+          Center(
+            child: InkWell(
+              onTap: _addMoreItems,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.add, size: 18, color: Color(0xFFE25C1D)),
+                    SizedBox(width: 6),
+                    Text(
+                      "+ Mahsulot qo'shish",
+                      style: TextStyle(
+                        color: Color(0xFFE25C1D),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResponsiveItemCard(CartItem item) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                item.product.name,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+            _buildTrashButton(item),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          formatSum(item.product.price),
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _buildStepper(item),
+            const Spacer(),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'Xizmat: ${servicePercent.round()} %',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  formatSum(item.total),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStepper(CartItem item) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: () => appState.changeQty(item, -1),
+            borderRadius: BorderRadius.circular(6),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: Text(
+                '—',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              '${item.qty}',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+          InkWell(
+            onTap: () => appState.changeQty(item, 1),
+            borderRadius: BorderRadius.circular(6),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: Text(
+                '+',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrashButton(CartItem item) {
+    return InkWell(
+      onTap: () => appState.removeFromCart(item),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF2F2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Icon(
+          Icons.delete_outline,
+          color: Color(0xFFEF4444),
+          size: 19,
+        ),
+      ),
+    );
+  }
+
+  // ── IZOH CARD ────────────────────────────────────────────────────────
+  Widget _buildIzohCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Izoh',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _noteCtrl,
+            style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A)),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(
+                Icons.chat_bubble_outline,
+                size: 18,
+                color: Color(0xFF94A3B8),
+              ),
+              hintText: 'Izoh kiritish',
+              hintStyle: const TextStyle(
+                color: Color(0xFF94A3B8),
+                fontSize: 14,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFE25C1D), width: 1.5),
+              ),
+            ),
+            onChanged: (v) => appState.setTableNote(v),
+          ),
+          const SizedBox(height: 14),
+          // Chekni ko'rish button
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFE5E7EB)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              foregroundColor: const Color(0xFF1E293B),
+              backgroundColor: Colors.white,
+            ),
+            onPressed: _showReceiptPreview,
+            icon: const Icon(
+              Icons.description_outlined,
+              size: 18,
+              color: Color(0xFF64748B),
+            ),
+            label: const Text(
+              "Chekni ko'rish",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Print buttons row
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFE5E7EB)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    foregroundColor: const Color(0xFF1E293B),
+                    backgroundColor: Colors.white,
+                  ),
+                  onPressed: printingBill ? null : _printBill,
+                  icon: printingBill
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFFE25C1D),
+                          ),
+                        )
+                      : const Icon(
+                          Icons.print_outlined,
+                          size: 18,
+                          color: Color(0xFF64748B),
+                        ),
+                  label: const Text(
+                    'Xarid cheki',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFE5E7EB)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    foregroundColor: const Color(0xFF1E293B),
+                    backgroundColor: Colors.white,
+                  ),
+                  onPressed: printingKitchen ? null : _printKitchen,
+                  icon: printingKitchen
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFFE25C1D),
+                          ),
+                        )
+                      : const Icon(
+                          Icons.print_outlined,
+                          size: 18,
+                          color: Color(0xFF64748B),
+                        ),
+                  label: const Text(
+                    'Oshpaz cheki',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── HISOB-KITOB CARD ─────────────────────────────────────────────────
+  Widget _buildHisobKitobCard({
+    required bool isCompact,
+    bool showPaymentMethodsInside = true,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Hisob-kitob',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Mahsulotlar qiymati',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              Text(
+                formatSum(_productsTotal),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Xizmat (${servicePercent.round()} %)',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              Text(
+                formatSum(_serviceTotal),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Dark Navy Hero Total Box
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: const Color(0xFF142238),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Jami',
+                  style: TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  formatSum(_grandTotal),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Naqd',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF334155),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Amount Stepper
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove, size: 20, color: Color(0xFF64748B)),
+                  onPressed: () => _changePaying(-1000),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _payingCtrl,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF0F172A),
+                    ),
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const Text(
+                  "so'm",
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add, size: 20, color: Color(0xFF64748B)),
+                  onPressed: () => _changePaying(1000),
+                ),
+              ],
+            ),
+          ),
+          if (showPaymentMethodsInside) ...[
+            const SizedBox(height: 18),
+            const Text(
+              "To'lov usuli",
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildMethodCard(
+                    'Naqd pul',
+                    Icons.payments_outlined,
+                    payByCash,
+                    () => setState(() {
+                      payByCash = true;
+                      payByCard = false;
+                    }),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildMethodCard(
+                    'Karta',
+                    Icons.credit_card_outlined,
+                    payByCard,
+                    () => setState(() {
+                      payByCash = false;
+                      payByCard = true;
+                    }),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _buildTakeawayRow(),
+            const SizedBox(height: 20),
+            _buildToLandiButton(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── MOBILE PAYMENT METHODS CARD ──────────────────────────────────────
+  Widget _buildMobilePaymentMethodsCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "To'lov usuli",
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMethodCard(
+                  'Naqd pul',
+                  Icons.payments_outlined,
+                  payByCash,
+                  () => setState(() {
+                    payByCash = true;
+                    payByCard = false;
+                  }),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMethodCard(
+                  'Karta',
+                  Icons.credit_card_outlined,
+                  payByCard,
+                  () => setState(() {
+                    payByCash = false;
+                    payByCard = true;
+                  }),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildTakeawayRow(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMethodCard(
+    String label,
+    IconData icon,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFFF7ED) : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFE25C1D) : const Color(0xFFE5E7EB),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFFE25C1D) : const Color(0xFF64748B),
+              size: 19,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: isSelected ? const Color(0xFFE25C1D) : const Color(0xFF334155),
+                ),
+              ),
+            ),
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: isSelected ? const Color(0xFFE25C1D) : const Color(0xFFD1D5DB),
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTakeawayRow() {
+    return InkWell(
+      onTap: () => setState(() => isTakeaway = !isTakeaway),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.shopping_bag_outlined,
+              size: 18,
+              color: Color(0xFF64748B),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Olib ketish',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const Spacer(),
+            Checkbox(
+              value: isTakeaway,
+              activeColor: const Color(0xFFE25C1D),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
+              onChanged: (v) => setState(() => isTakeaway = v ?? false),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToLandiButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFE25C1D),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        onPressed: confirming ? null : _confirmPaid,
+        icon: confirming
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(
+                Icons.check_circle_outline,
+                color: Colors.white,
+                size: 20,
+              ),
+        label: const Text(
+          "To'landi",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
 }
+
 
 class ReceiptScreen extends StatefulWidget {
   final Receipt receipt;
