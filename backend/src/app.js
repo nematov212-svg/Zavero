@@ -57,6 +57,12 @@ app.use(
 );
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+
+// ⚡ ULTRA-FAST HEALTH / PING ENDPOINTS (Zero overhead, instant < 1ms response)
+app.get(['/health', '/api/health'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  return res.status(200).json({ status: 'ok', service: 'zavero-backend', time: Date.now() });
+});
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
@@ -94,11 +100,27 @@ app.use(
 // Serve static Flutter POS Web Application (Telegram Mini App, Web, Desktop)
 app.use(
   express.static(path.join(__dirname, 'public'), {
-    maxAge: 0,
+    maxAge: '7d',
+    etag: true,
+    lastModified: true,
     setHeaders: (res, filePath) => {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
+      if (filePath.endsWith('index.html') || filePath.endsWith('menu.html') || filePath.endsWith('version.json')) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      } else if (
+        filePath.includes('canvaskit') ||
+        filePath.includes('assets') ||
+        filePath.endsWith('.png') ||
+        filePath.endsWith('.jpg') ||
+        filePath.endsWith('.woff') ||
+        filePath.endsWith('.woff2') ||
+        filePath.endsWith('.ttf')
+      ) {
+        // Og'ir resurslar (CanvasKit 7MB, shriftlar, rasmlar) 30 kunga keshlanadi — qayta yuklashda darhol (0ms) ochiladi
+        res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      } else {
+        // Boshqa JS/CSS fayllar 7 kunga keshlanadi (?v= parametr bilan boshqariladi)
+        res.setHeader('Cache-Control', 'public, max-age=604800');
+      }
     },
   })
 );
@@ -147,13 +169,7 @@ app.get('/menu', (req, res) => {
 app.get('/qr', serveMenuApp);
 app.get('/qr-menu', serveMenuApp);
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'zavero-backend', time: new Date().toISOString() });
-});
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'zavero-backend', time: new Date().toISOString() });
-});
 
 ['/api', '/api/v1'].forEach((prefix) => {
   app.use(`${prefix}/auth`, authRoutes);

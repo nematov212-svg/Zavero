@@ -418,9 +418,13 @@ class ThermalPdfGenerator {
                 pw.Container(width: 14, height: 0.7, color: PdfColors.black),
                 pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(horizontal: 4),
-                  child: pw.Text(
-                    data.slogan.replaceAll('•', '-'),
-                    style: pw.TextStyle(font: fontOblique, fontSize: 6.5, fontStyle: pw.FontStyle.italic),
+                  child: pw.Row(
+                    mainAxisSize: pw.MainAxisSize.min,
+                    children: [
+                      pw.Text("Yaxshi ta'm ", style: pw.TextStyle(font: fontOblique, fontSize: 6.8, fontStyle: pw.FontStyle.italic)),
+                      pw.Container(width: 2.2, height: 2.2, decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle)),
+                      pw.Text(" Baxtli onlar", style: pw.TextStyle(font: fontOblique, fontSize: 6.8, fontStyle: pw.FontStyle.italic)),
+                    ],
                   ),
                 ),
                 pw.Container(width: 14, height: 0.7, color: PdfColors.black),
@@ -461,7 +465,14 @@ class ThermalPdfGenerator {
                 ]),
               ),
               pw.SizedBox(height: 3),
-              pw.Container(height: 0.8, color: PdfColors.black),
+              // ── Dashed separator before Table ──
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: List.generate(
+                  is58mm ? 22 : 30,
+                  (_) => pw.Container(width: 3.5, height: 0.8, color: PdfColors.black),
+                ),
+              ),
               pw.SizedBox(height: 2.5),
 
               // ── 3. PRODUCT TABLE HEADER ────────────────────
@@ -492,7 +503,7 @@ class ThermalPdfGenerator {
                     child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                       pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('${item.index}', style: pw.TextStyle(font: font, fontSize: 7.0))),
                       pw.Expanded(child: pw.Text(item.name, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                      pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('${item.qty} ta', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: font, fontSize: 7.0))),
+                      pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: font, fontSize: 7.0))),
                       pw.SizedBox(width: is58mm ? 32 : 40, child: pw.Text(ReceiptPrintData.formatMoney(item.unitPrice), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: font, fontSize: 7.0))),
                       pw.SizedBox(width: is58mm ? 36 : 44, child: pw.Text(ReceiptPrintData.formatMoney(item.lineTotal), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
                     ]),
@@ -508,7 +519,14 @@ class ThermalPdfGenerator {
                 ]);
               }),
               pw.SizedBox(height: 2),
-              pw.Container(height: 0.8, color: PdfColors.black),
+              // ── Dashed line separator ──
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: List.generate(
+                  is58mm ? 22 : 30,
+                  (_) => pw.Container(width: 3.5, height: 0.8, color: PdfColors.black),
+                ),
+              ),
               pw.SizedBox(height: 3),
 
               // ── 5. TOTALS ──────────────────────────────────
