@@ -39,7 +39,7 @@ const getWebAppUrl = () => {
   }
   url = url || 'https://zavero-backend-production-7dc9.up.railway.app';
   const clean = url.endsWith('/') ? url.slice(0, -1) : url;
-  const versionParam = process.env.APP_VERSION ? `v=${process.env.APP_VERSION}` : 'v=20261029_v101';
+  const versionParam = process.env.APP_VERSION ? `v=${process.env.APP_VERSION}` : 'v=20261030_v105';
   return `${clean}/?${versionParam}`;
 };
 
@@ -3742,11 +3742,36 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
 };
 
 /**
+ * In-memory deduplication cache for general Telegram notifications (15s cooldown)
+ */
+const recentNotificationCache = new Map();
+const cleanupNotificationCache = () => {
+  const now = Date.now();
+  for (const [key, timestamp] of recentNotificationCache.entries()) {
+    if (now - timestamp > 60000) {
+      recentNotificationCache.delete(key);
+    }
+  }
+};
+
+/**
  * Send general updates to cafe owners and admin telegrams (e.g. staff break, new receipt, subscription)
  */
 const sendGeneralTelegramNotification = async ({ cafeId, title, message }) => {
   try {
     if (!bot) return;
+
+    // Deduplication check: do not send identical notification within 15 seconds
+    const dedupeKey = `${cafeId || ''}_${title}_${(message || '').slice(0, 80)}`;
+    const lastSent = recentNotificationCache.get(dedupeKey);
+    const now = Date.now();
+    if (lastSent && (now - lastSent) < 15000) {
+      console.log(`⚠️ [Telegram Bot] Dublikat xabarnoma to‘xtatildi: "${title}" (${Math.round((now - lastSent)/1000)}s oldin yuborilgan)`);
+      return;
+    }
+    recentNotificationCache.set(dedupeKey, now);
+    cleanupNotificationCache();
+
     const recipientIds = new Set();
 
     // 1. Admin telegram IDs

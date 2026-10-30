@@ -33,6 +33,8 @@ import 'services/local_cache_service.dart';
 import 'services/sound_service.dart';
 import 'services/localization_service.dart';
 import 'services/offline_sync_service.dart';
+import 'services/receipt_printer_service.dart';
+import 'theme/design_tokens.dart';
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
 import 'widgets/receipt_widget.dart';
@@ -2958,8 +2960,8 @@ class NetworkPrinterService {
     }
   }
 
-  /// ReceiptWidget va namunaviy chek (1-rasm) bilan 100% bir xil
-  /// ESC/POS baytlarini generatsiya qiluvchi universal metod.
+  /// ReceiptWidget va namunaviy chek (Reference Image 2) bilan 100% bir xil
+  /// professional ESC/POS baytlarini generatsiya qiluvchi universal metod.
   static List<int> _buildReceiptBytes({
     required String checkId,
     required String cashierName,
@@ -2974,153 +2976,47 @@ class NetworkPrinterService {
     required int charsPerLine,
     required PrinterFontSize fontSize,
   }) {
-    final w = charsPerLine;
-    final headerAlign = _alignFor(appState.receiptHeaderAlign);
-    final bytes = <int>[
-      ..._Esc.init,
-      ..._Esc.codepageCp866,
-      ..._lineSpacingFor(fontSize),
-    ];
-
-    // 1. KAFE NOMI (Qalin, markazda)
-    bytes.addAll(headerAlign);
-    if (appState.receiptBoldHeader) {
-      bytes.addAll(_Esc.boldOn);
-    }
-    bytes
-      ..addAll(_Esc.doubleOn)
-      ..addAll(_t('${appState.effectiveReceiptName.toUpperCase()}\n'))
-      ..addAll(_Esc.normalSize)
-      ..addAll(_Esc.boldOff);
-
-    // 2. MANZIL (sarlavha ostida)
-    if (appState.restaurantAddress.trim().isNotEmpty) {
-      bytes
-        ..addAll(headerAlign)
-        ..addAll(_t('${appState.restaurantAddress}\n'));
-    }
-
-    // 3. TELEFON RAQAMI
-    if (appState.restaurantPhone.trim().isNotEmpty) {
-      bytes
-        ..addAll(headerAlign)
-        ..addAll(_t('Tel: ${appState.restaurantPhone}\n'));
-    }
-
-    // 4. CHEK MA'LUMOTLARI (Ixcham, toza)
-    bytes
-      ..addAll(_Esc.alignLeft)
-      ..addAll(_fontBytes(fontSize));
-
-    if (appState.showCustomerCount) {
-      bytes.addAll(_row('Chek: $checkId', 'Mijoz: $customer', w));
-    } else {
-      bytes.addAll(_t('Chek: $checkId\n'));
-    }
-
-    if (appState.showWaiterName && cashierName.trim().isNotEmpty) {
-      bytes.addAll(_t('Ofitsiant: $cashierName\n'));
-    }
-
-    if (appState.showTableName &&
-        tableNumberStr != null &&
-        tableNumberStr.trim().isNotEmpty) {
-      bytes.addAll(_t('${hallName ?? 'Zal'} - stol $tableNumberStr\n'));
-    }
-
-    // 5. GORIZONTAL PUNKTIR CHIZIQ
-    bytes
-      ..addAll(_Esc.fontA)
-      ..addAll(_Esc.normalSize)
-      ..addAll(_divider(w));
-
-    // 6. JADVAL SARLAVHASI (Menyu / Soni / Summa)
-    bytes
-      ..addAll(_Esc.boldOn)
-      ..addAll(_fontBytes(fontSize))
-      ..addAll(_row3('Menyu', 'Soni', 'Summa', w))
-      ..addAll(_Esc.fontA)
-      ..addAll(_Esc.normalSize)
-      ..addAll(_Esc.boldOff);
-
-    // 7. MAHSULOTLAR RO'YXATI
-    bytes.addAll(_fontBytes(fontSize));
-    for (final item in items) {
-      bytes.addAll(
-        _row3(
-          item.product.name,
-          '${item.qty} ta',
-          ReceiptWidget.money(item.product.price.round()),
-          w,
+    final printItems = <ReceiptPrintItem>[];
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      printItems.add(
+        ReceiptPrintItem(
+          index: i + 1,
+          name: item.product.name,
+          qty: item.qty,
+          unitPrice: item.product.price,
+          lineTotal: item.product.price * item.qty,
+          note: item.note,
         ),
       );
     }
-    bytes
-      ..addAll(_Esc.fontA)
-      ..addAll(_Esc.normalSize);
 
-    // 8. MAHSULOTLAR QIYMATI VA XIZMAT
-    final servicePercentLabel =
-        productsTotal > 0 ? (serviceTotal / productsTotal * 100).round() : 0;
-    if (serviceTotal > 0) {
-      bytes
-        ..addAll(_row('Mahsulotlar qiymati:',
-            '${ReceiptWidget.money(productsTotal.round())} UZS', w))
-        ..addAll(_row('Xizmat: $servicePercentLabel%',
-            '${ReceiptWidget.money(serviceTotal.round())} UZS', w));
-    }
+    final is58 = charsPerLine <= 36 || appState.paperWidthMm == 58;
+    final printData = ReceiptPrintData(
+      checkId: checkId,
+      dateTime: dateTime,
+      cashierName: cashierName.isNotEmpty ? cashierName : (appState.currentUser?.name ?? 'Admin'),
+      cafeName: appState.effectiveReceiptName,
+      address: appState.restaurantAddress,
+      phone: appState.restaurantPhone,
+      slogan: appState.receiptSlogan.isNotEmpty ? appState.receiptSlogan : "Yaxshi ta'm • Baxtli onlar",
+      footerMessage: appState.receiptFooterNote.isNotEmpty
+          ? appState.receiptFooterNote
+          : "Bizni tanlaganingiz uchun rahmat!",
+      qrUrl: appState.receiptQrUrl.isNotEmpty
+          ? appState.receiptQrUrl
+          : 'https://zavero-backend-production-7dc9.up.railway.app',
+      tableNumber: tableNumberStr,
+      hallName: hallName,
+      items: printItems,
+      subtotal: productsTotal,
+      discount: 0,
+      grandTotal: grandTotal,
+      paymentMethod: 'cash',
+      is58mm: is58,
+    );
 
-    // 9. TO'LOV SUMMASI (Qalin, eng ko'zga tashlanadigan qilib)
-    bytes
-      ..addAll(_Esc.boldOn)
-      ..addAll(_Esc.doubleOn)
-      ..addAll(
-          _row("TO'LOV:", '${ReceiptWidget.money(grandTotal.round())} UZS', w ~/ 2))
-      ..addAll(_Esc.normalSize)
-      ..addAll(_Esc.boldOff);
-
-    // 10. PASTKI GORIZONTAL PUNKTIR CHIZIQ
-    bytes.addAll(_divider(w));
-
-    // 11. VAQTI
-    if (appState.showDateTime) {
-      bytes
-        ..addAll(_Esc.alignLeft)
-        ..addAll(
-          _t(
-            'Vaqti: ${dateTime.year}.'
-            '${dateTime.month.toString().padLeft(2, '0')}.'
-            '${dateTime.day.toString().padLeft(2, '0')} - '
-            '${dateTime.hour.toString().padLeft(2, '0')}:'
-            '${dateTime.minute.toString().padLeft(2, '0')}:'
-            '${dateTime.second.toString().padLeft(2, '0')}\n',
-          ),
-        );
-    }
-
-    // 12. RAHMAT XABARI (markazda, qalin)
-    final footerMsg = appState.receiptFooterNote.trim().isNotEmpty
-        ? appState.receiptFooterNote.trim()
-        : 'Xaridingiz uchun rahmat!';
-    bytes
-      ..addAll(_Esc.alignCenter)
-      ..addAll(_Esc.boldOn)
-      ..addAll(_t('$footerMsg\n'))
-      ..addAll(_Esc.boldOff);
-
-    // 13. DEVELOPER YORLIG'I
-    if (appState.showDeveloperTag) {
-      bytes
-        ..addAll(_t('Zavero POS tizimi\n'));
-    }
-
-    // 14. QOG'OZNI TOZA VA IXCHAM KESISH (Ortiqcha qog'oz tortilmaydi)
-    bytes
-      ..addAll(_Esc.lineSpacingDefault)
-      ..addAll(_Esc.feed(3))
-      ..addAll(_Esc.cut);
-
-    return bytes;
+    return EscPosBuilder.buildReceiptBytes(printData);
   }
 
   // ------------------------------------------------------------
@@ -3716,9 +3612,15 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
     grandTotal: receipt.total,
   );
 
+  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+  const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
+  final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+
   await Printing.layoutPdf(
     onLayout: (format) async => doc.save(),
     name: 'chek_${receipt.id}',
+    format: rollFormat,
+    dynamicLayout: false,
   );
 }
 
@@ -3766,9 +3668,15 @@ Future<void> printBillPreview({
     grandTotal: grandTotal,
   );
 
+  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+  const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
+  final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+
   await Printing.layoutPdf(
     onLayout: (format) async => doc.save(),
     name: 'hisob_${DateTime.now().millisecondsSinceEpoch}',
+    format: rollFormat,
+    dynamicLayout: false,
   );
 }
 
@@ -3793,11 +3701,15 @@ Future<void> printKitchenTicket({
     return;
   }
 
+  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+  const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
+  final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+
   final doc = pw.Document();
   doc.addPage(
     pw.Page(
-      pageFormat: PdfPageFormat.roll80,
-      margin: const pw.EdgeInsets.all(12),
+      pageFormat: rollFormat,
+      margin: const pw.EdgeInsets.all(10),
       build: (context) {
         return pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -3806,24 +3718,24 @@ Future<void> printKitchenTicket({
               child: pw.Text(
                 'OSHPAZ CHEKI',
                 style: const pw.TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
             ),
-            pw.SizedBox(height: 6),
+            pw.SizedBox(height: 4),
             pw.Divider(),
             if (table != null)
               pw.Text(
                 '${hallName ?? ''} - Stol ${table.number}',
                 style: const pw.TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
             pw.Text(
               DateTime.now().toString().substring(0, 16),
-              style: const pw.TextStyle(fontSize: 10),
+              style: const pw.TextStyle(fontSize: 9),
             ),
             pw.Divider(),
             pw.Row(
@@ -3833,7 +3745,7 @@ Future<void> printKitchenTicket({
                   child: pw.Text(
                     'Taom',
                     style: const pw.TextStyle(
-                      fontSize: 11,
+                      fontSize: 10,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
@@ -3844,7 +3756,7 @@ Future<void> printKitchenTicket({
                     'Soni',
                     textAlign: pw.TextAlign.center,
                     style: const pw.TextStyle(
-                      fontSize: 11,
+                      fontSize: 10,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
@@ -3854,7 +3766,7 @@ Future<void> printKitchenTicket({
             pw.SizedBox(height: 4),
             ...items.map(
               (item) => pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                padding: const pw.EdgeInsets.symmetric(vertical: 3),
                 child: pw.Row(
                   children: [
                     pw.Expanded(
@@ -3862,7 +3774,7 @@ Future<void> printKitchenTicket({
                       child: pw.Text(
                         item.product.name,
                         style: const pw.TextStyle(
-                          fontSize: 13,
+                          fontSize: 11,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
@@ -3870,10 +3782,10 @@ Future<void> printKitchenTicket({
                     pw.Expanded(
                       flex: 1,
                       child: pw.Text(
-                        '${item.qty}',
+                        '${item.qty} ta',
                         textAlign: pw.TextAlign.center,
                         style: const pw.TextStyle(
-                          fontSize: 13,
+                          fontSize: 11,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
@@ -3886,7 +3798,7 @@ Future<void> printKitchenTicket({
               pw.Divider(),
               pw.Text(
                 'Izoh: $note',
-                style: const pw.TextStyle(fontSize: 10),
+                style: const pw.TextStyle(fontSize: 9),
               ),
             ],
           ],
@@ -3897,6 +3809,8 @@ Future<void> printKitchenTicket({
   await Printing.layoutPdf(
     onLayout: (format) async => doc.save(),
     name: 'oshpaz_cheki_${DateTime.now().millisecondsSinceEpoch}',
+    format: rollFormat,
+    dynamicLayout: false,
   );
 }
 
@@ -13156,7 +13070,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     // 1. To'lovni qayd qilish va chek obyektini olish
     final selTable = appState.selectedTable;
-    final ik = 'chk_${selTable?.id ?? selTable?.number ?? 0}_${DateTime.now().millisecondsSinceEpoch}';
+    // Aniq stol va savat asosida deterministik idempotency key (takroriy bosishlarda dublikat chek urilishini 100% to'sadi)
+    final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}';
     final receipt = appState.checkout(
       method: method,
       cashPaid: cash,
