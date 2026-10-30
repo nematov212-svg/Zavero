@@ -353,22 +353,10 @@ class ThermalPdfGenerator {
     const double marginVerticalPt = 1.5 * PdfPageFormat.mm;
     const double marginHorizontalPt = 2.0 * PdfPageFormat.mm;
 
-    // Exact dynamic content height computation
-    const double headerHeight = 52.0;
-    const double infoHeight = 34.0;
-    const double tableHeaderHeight = 14.0;
-    final double itemsHeight = data.items.length * (is58mm ? 14.0 : 12.0);
-    const double totalsHeight = 36.0;
-    final double qrHeight = data.qrUrl.isNotEmpty ? 56.0 : 0.0;
-    const double footerHeight = 26.0;
-    final double totalHeight = (marginVerticalPt * 2) +
-        headerHeight +
-        infoHeight +
-        tableHeaderHeight +
-        itemsHeight +
-        totalsHeight +
-        qrHeight +
-        footerHeight;
+    // 1-rasmdagi ko'rinishga 100% mos to'liq balandlik (hech qanday qism kesilib qolmasligi uchun)
+    final double baseHeight = is58mm ? 350.0 : 370.0;
+    final double dynamicItemsHeight = data.items.length * (is58mm ? 18.0 : 16.0);
+    final double totalHeight = baseHeight + dynamicItemsHeight;
 
     final format = PdfPageFormat(
       widthPt,
@@ -389,30 +377,18 @@ class ThermalPdfGenerator {
     final timeStr =
         '${data.dateTime.hour.toString().padLeft(2, '0')}:${data.dateTime.minute.toString().padLeft(2, '0')}';
 
-    pw.Widget dashedLine() => pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: List.generate(
-            is58mm ? 20 : 28,
-            (_) => pw.Container(width: 3.2, height: 0.8, color: PdfColors.black),
-          ),
-        );
-
-    // Symmetrical Chef Hat + Crossed Cutlery Emblem SVG
-    const familyEmblemSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 70">
-  <g fill="black">
-    <path d="M 50 8 C 43 8, 38 12, 36 17 C 32 18, 29 22, 30 27 C 30.5 29.5, 32 31.5, 34 32.5 C 33.5 34, 33 36, 33 38 L 67 38 C 67 36, 66.5 34, 66 32.5 C 68 31.5, 69.5 29.5, 70 27 C 71 22, 68 18, 64 17 C 62 12, 57 8, 50 8 Z"/>
-    <rect x="31" y="40" width="38" height="5" rx="2.5"/>
-    <circle cx="50" cy="3" r="1.6"/>
-    <circle cx="43" cy="5" r="1.3"/>
-    <circle cx="57" cy="5" r="1.3"/>
-    <path d="M 23 57 L 41 49 L 42 51 L 24 59 Z"/>
-    <path d="M 19 61 C 17.5 62.5, 18.5 65, 21 64 C 22.5 63, 24 60, 24 59 L 23 57 C 21.5 58.5, 20 60, 19 61 Z"/>
-    <path d="M 40 48 L 45 46 C 46 45.5, 47 46.5, 46.5 47.5 L 44 51.5 L 42.5 50.5 L 44 48.5 L 42 49 L 41 47 L 43 46.5 L 41 47 Z"/>
-    <path d="M 77 57 L 59 49 L 58 51 L 76 59 Z"/>
-    <path d="M 81 61 C 82.5 62.5, 81.5 65, 79 64 C 77.5 63, 76 60, 76 59 L 77 57 C 78.5 58.5, 80 60, 81 61 Z"/>
-    <ellipse cx="56.5" cy="47" rx="4.5" ry="3" transform="rotate(-25 56.5 47)"/>
-  </g>
-  <path d="M 44 17 C 44 24 43 32 43 35 M 50 14 C 50 23 50 31 50 35 M 56 17 C 56 24 57 32 57 35" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    // 1-rasmdagi ChefHatPainter bilan 1:1 aynan bir xil oshpaz qalpog'i + vilka SVG emblemasi
+    const chefHatForkSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="12" y="58" width="76" height="15" rx="3.5" stroke-width="3"/>
+  <line x1="20" y1="58" x2="20" y2="35" stroke-width="3"/>
+  <line x1="80" y1="58" x2="80" y2="35" stroke-width="3"/>
+  <path d="M 16 35 C 16 14, 84 14, 84 35 Z" stroke-width="3"/>
+  <line x1="16" y1="35" x2="84" y2="35" stroke-width="3"/>
+  <line x1="50" y1="23" x2="50" y2="52" stroke-width="2.6"/>
+  <line x1="43" y1="10" x2="43" y2="24" stroke-width="2.4"/>
+  <line x1="50" y1="10" x2="50" y2="24" stroke-width="2.4"/>
+  <line x1="57" y1="10" x2="57" y2="24" stroke-width="2.4"/>
+  <line x1="43" y1="24" x2="57" y2="24" stroke-width="2.4"/>
 </svg>''';
 
     doc.addPage(
@@ -424,14 +400,14 @@ class ThermalPdfGenerator {
             mainAxisSize: pw.MainAxisSize.min,
             children: [
               // ── 1. HEADER: Emblem + Cafe Name + Slogan ──────
-              pw.Center(child: pw.SvgImage(svg: familyEmblemSvg, width: 34, height: 24)),
+              pw.Center(child: pw.SvgImage(svg: chefHatForkSvg, width: 36, height: 28)),
               pw.SizedBox(height: 2),
               pw.Center(
                 child: pw.Text(
                   data.cafeName.toUpperCase(),
                   style: pw.TextStyle(
                     font: fontBold,
-                    fontSize: is58mm ? 12.0 : 14.0,
+                    fontSize: is58mm ? 12.0 : 14.5,
                     fontWeight: pw.FontWeight.bold,
                     letterSpacing: 0.8,
                   ),
@@ -485,7 +461,7 @@ class ThermalPdfGenerator {
                 ]),
               ),
               pw.SizedBox(height: 3),
-              dashedLine(),
+              pw.Container(height: 0.8, color: PdfColors.black),
               pw.SizedBox(height: 2.5),
 
               // ── 3. PRODUCT TABLE HEADER ────────────────────
@@ -531,42 +507,42 @@ class ThermalPdfGenerator {
                     ),
                 ]);
               }),
-              pw.SizedBox(height: 3),
-              dashedLine(),
+              pw.SizedBox(height: 2),
+              pw.Container(height: 0.8, color: PdfColors.black),
               pw.SizedBox(height: 3),
 
               // ── 5. TOTALS ──────────────────────────────────
               pw.Padding(
                 padding: const pw.EdgeInsets.symmetric(horizontal: 2),
                 child: pw.Column(children: [
-                  pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                    pw.Text('Jami:', style: pw.TextStyle(font: fontBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
-                    pw.Text("${ReceiptPrintData.formatMoney(data.subtotal)} so'm", style: pw.TextStyle(font: fontBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
-                  ]),
                   if (data.discount > 0) ...[
+                    pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+                      pw.Text('Jami:', style: pw.TextStyle(font: fontBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("${ReceiptPrintData.formatMoney(data.subtotal)} so'm", style: pw.TextStyle(font: fontBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
+                    ]),
                     pw.SizedBox(height: 1.5),
                     pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
                       pw.Text('Chegirma:', style: pw.TextStyle(font: font, fontSize: 7.5)),
                       pw.Text("-${ReceiptPrintData.formatMoney(data.discount)} so'm", style: pw.TextStyle(font: font, fontSize: 7.5)),
                     ]),
+                    pw.SizedBox(height: 2),
                   ],
-                  pw.SizedBox(height: 2),
                   pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+                    padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 2),
                     decoration: const pw.BoxDecoration(
                       border: pw.Border(
-                        top: pw.BorderSide(color: PdfColors.black, width: 1.0),
-                        bottom: pw.BorderSide(color: PdfColors.black, width: 1.0),
+                        top: pw.BorderSide(color: PdfColors.black, width: 1.2),
+                        bottom: pw.BorderSide(color: PdfColors.black, width: 1.2),
                       ),
                     ),
                     child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                      pw.Text("TO'LOV:", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 10.5 : 12.0, fontWeight: pw.FontWeight.bold)),
-                      pw.Text("${ReceiptPrintData.formatMoney(data.grandTotal)} so'm", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 11.0 : 12.5, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("TO'LOV:", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 11.0 : 13.0, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("${ReceiptPrintData.formatMoney(data.grandTotal)} so'm", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 11.5 : 13.5, fontWeight: pw.FontWeight.bold)),
                     ]),
                   ),
                 ]),
               ),
-              pw.SizedBox(height: 3),
+              pw.SizedBox(height: 4),
 
               // ── 6. QR CODE ─────────────────────────────────
               if (data.qrUrl.isNotEmpty) ...[

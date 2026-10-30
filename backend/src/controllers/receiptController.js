@@ -192,11 +192,39 @@ const checkout = async (req, res) => {
     try {
       const { sendGeneralTelegramNotification } = require('../bot/telegramBot');
       const methodLabel = receipt.method === 'card' ? '💳 Karta' : '💵 Naqd';
-      const tbl = receipt.tableNumber ? `${receipt.tableNumber}-stol` : (receipt.hallName || 'Stol');
+      const tbl = receipt.tableNumber ? `${receipt.tableNumber}-stol` : (receipt.hallName || 'Kassa');
+      
+      const itemsListText = (items || []).map((item, idx) => {
+        const pName = item.product?.name || 'Mahsulot';
+        const pQty = item.qty || 1;
+        const pPrice = (item.product?.price || 0) * pQty;
+        return `${idx + 1}. <b>${pName}</b> — ${pQty} dona × ${(item.product?.price || 0).toLocaleString()} = <b>${pPrice.toLocaleString()} so‘m</b>`;
+      }).join('\n');
+
+      const receiptMsg = 
+        `🍽 <b>FAMILY CAFE</b>\n` +
+        `<i>Yaxshi ta'm • Baxtli onlar</i>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `🏪 <b>Filial:</b> Family Cafe\n` +
+        `📍 <b>Manzil:</b> Navoiy ko'chasi 12, Buxoro\n` +
+        `🪑 <b>Joy:</b> <b>${tbl}</b>\n` +
+        `👤 <b>Kassir:</b> <b>${receipt.cashierName || 'Admin'}</b>\n` +
+        `📅 <b>Sana va vaqt:</b> ${new Date().toLocaleDateString('uz-UZ')} ${new Date().toLocaleTimeString('uz-UZ')}\n` +
+        `🧾 <b>Chek raqami:</b> #${receiptRow.id}\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `📋 <b>Buyurtma tarkibi:</b>\n` +
+        (itemsListText ? `${itemsListText}\n` : '') +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `💳 <b>To'lov turi:</b> ${methodLabel}\n` +
+        `💰 <b>TO'LOV:</b> <b>${(receipt.total || 0).toLocaleString()} so‘m</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `🌐 <i>QR skaner qiling va Zavero saytiga o'ting!</i>\n` +
+        `<i>Bizni tanlaganingiz uchun rahmat!</i>`;
+
       sendGeneralTelegramNotification({
         cafeId,
-        title: `🧾 YANGI TO'LOV / CHEK #${receiptRow.id}`,
-        message: `💵 <b>Summa:</b> ${(receipt.total || 0).toLocaleString()} so'm\n💳 <b>To'lov:</b> ${methodLabel}\n🪑 <b>Joy:</b> ${tbl}\n👤 <b>Kassir/Ofitsiant:</b> ${receipt.cashierName || 'Admin'}\n⏰ <b>Vaqt:</b> ${new Date().toLocaleTimeString('uz-UZ')}`,
+        title: `🧾 CHEK #${receiptRow.id} TO'LANDI`,
+        message: receiptMsg,
       }).catch(() => {});
     } catch (_) {}
     if (effectiveTableId || effectiveTableNumber) {

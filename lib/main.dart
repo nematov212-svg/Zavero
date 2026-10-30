@@ -3279,22 +3279,10 @@ pw.Document _buildThermalReceiptPdf({
   const double marginVerticalPt = 1.5 * PdfPageFormat.mm;
   const double marginHorizontalPt = 2.0 * PdfPageFormat.mm;
 
-  // Aniq ixcham balandlik hisob-kitobi (keraksiz bo'sh qog'oz chiqmasligi uchun)
-  final double headerHeight = 48.0;
-  final double infoHeight = 32.0;
-  final double tableHeaderHeight = 12.0;
-  final double itemsHeight = items.length * (is58mm ? 13.0 : 11.0);
-  final double totalsHeight = 30.0;
-  final double qrHeight = appState.receiptQrEnabled ? 52.0 : 0.0;
-  final double footerHeight = 22.0;
-  final double totalContentHeight = (marginVerticalPt * 2) +
-      headerHeight +
-      infoHeight +
-      tableHeaderHeight +
-      itemsHeight +
-      totalsHeight +
-      qrHeight +
-      footerHeight;
+  // 1-rasmdagi ko'rinishga 100% mos to'liq balandlik (hech qanday qism kesilib qolmasligi uchun)
+  final double baseHeight = is58mm ? 350.0 : 370.0;
+  final double dynamicItemsHeight = items.length * (is58mm ? 18.0 : 16.0);
+  final double totalContentHeight = baseHeight + dynamicItemsHeight;
 
   final format = PdfPageFormat(
     widthPt,
@@ -3353,31 +3341,19 @@ pw.Document _buildThermalReceiptPdf({
     productsSum += item.product.price * item.qty;
   }
 
-  // Professional Symmetrical Family Cafe Emblem SVG (Chef Toque + Crossed Cutlery + Steam Stars)
-  const familyCafeSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 70">
-  <g fill="black">
-    <path d="M 50 8 C 43 8, 38 12, 36 17 C 32 18, 29 22, 30 27 C 30.5 29.5, 32 31.5, 34 32.5 C 33.5 34, 33 36, 33 38 L 67 38 C 67 36, 66.5 34, 66 32.5 C 68 31.5, 69.5 29.5, 70 27 C 71 22, 68 18, 64 17 C 62 12, 57 8, 50 8 Z"/>
-    <rect x="31" y="40" width="38" height="5" rx="2.5"/>
-    <circle cx="50" cy="3" r="1.6"/>
-    <circle cx="43" cy="5" r="1.3"/>
-    <circle cx="57" cy="5" r="1.3"/>
-    <path d="M 23 57 L 41 49 L 42 51 L 24 59 Z"/>
-    <path d="M 19 61 C 17.5 62.5, 18.5 65, 21 64 C 22.5 63, 24 60, 24 59 L 23 57 C 21.5 58.5, 20 60, 19 61 Z"/>
-    <path d="M 40 48 L 45 46 C 46 45.5, 47 46.5, 46.5 47.5 L 44 51.5 L 42.5 50.5 L 44 48.5 L 42 49 L 41 47 L 43 46.5 L 41 47 Z"/>
-    <path d="M 77 57 L 59 49 L 58 51 L 76 59 Z"/>
-    <path d="M 81 61 C 82.5 62.5, 81.5 65, 79 64 C 77.5 63, 76 60, 76 59 L 77 57 C 78.5 58.5, 80 60, 81 61 Z"/>
-    <ellipse cx="56.5" cy="47" rx="4.5" ry="3" transform="rotate(-25 56.5 47)"/>
-  </g>
-  <path d="M 44 17 C 44 24 43 32 43 35 M 50 14 C 50 23 50 31 50 35 M 56 17 C 56 24 57 32 57 35" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+  // 1-rasmdagi ChefHatPainter bilan 1:1 aynan bir xil oshpaz qalpog'i + vilka SVG emblemasi
+  const chefHatForkSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="12" y="58" width="76" height="15" rx="3.5" stroke-width="3"/>
+  <line x1="20" y1="58" x2="20" y2="35" stroke-width="3"/>
+  <line x1="80" y1="58" x2="80" y2="35" stroke-width="3"/>
+  <path d="M 16 35 C 16 14, 84 14, 84 35 Z" stroke-width="3"/>
+  <line x1="16" y1="35" x2="84" y2="35" stroke-width="3"/>
+  <line x1="50" y1="23" x2="50" y2="52" stroke-width="2.6"/>
+  <line x1="43" y1="10" x2="43" y2="24" stroke-width="2.4"/>
+  <line x1="50" y1="10" x2="50" y2="24" stroke-width="2.4"/>
+  <line x1="57" y1="10" x2="57" y2="24" stroke-width="2.4"/>
+  <line x1="43" y1="24" x2="57" y2="24" stroke-width="2.4"/>
 </svg>''';
-
-  pw.Widget dashedLine() => pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: List.generate(
-          is58mm ? 20 : 28,
-          (_) => pw.Container(width: 3.2, height: 0.8, color: PdfColors.black),
-        ),
-      );
 
   doc.addPage(
     pw.Page(
@@ -3390,17 +3366,17 @@ pw.Document _buildThermalReceiptPdf({
             // ── 1. HEADER: Emblem + Kafe nomi (qalin) + Slogan ──────
             if (customLogoBytes != null && customLogoBytes.isNotEmpty)
               pw.Center(
-                child: pw.Image(pw.MemoryImage(customLogoBytes), height: 32, fit: pw.BoxFit.contain),
+                child: pw.Image(pw.MemoryImage(customLogoBytes), height: 34, fit: pw.BoxFit.contain),
               )
             else
-              pw.Center(child: pw.SvgImage(svg: familyCafeSvg, width: 34, height: 24)),
+              pw.Center(child: pw.SvgImage(svg: chefHatForkSvg, width: 36, height: 28)),
             pw.SizedBox(height: 2),
             pw.Center(
               child: pw.Text(
                 cafeName.toUpperCase(),
                 style: pw.TextStyle(
                   font: helveticaBold,
-                  fontSize: is58mm ? 12.0 : 14.0,
+                  fontSize: is58mm ? 12.0 : 14.5,
                   fontWeight: pw.FontWeight.bold,
                   letterSpacing: 0.8,
                 ),
@@ -3409,15 +3385,15 @@ pw.Document _buildThermalReceiptPdf({
             pw.SizedBox(height: 2),
             // Slogan with lines
             pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
-              pw.Container(width: 14, height: 0.7, color: PdfColors.black),
+              pw.Container(width: 14, height: 0.8, color: PdfColors.black),
               pw.Padding(
                 padding: const pw.EdgeInsets.symmetric(horizontal: 4),
                 child: pw.Text(
                   slogan.replaceAll('•', '-'),
-                  style: pw.TextStyle(font: helveticaOblique, fontSize: 6.5, fontStyle: pw.FontStyle.italic),
+                  style: pw.TextStyle(font: helveticaOblique, fontSize: 6.8, fontStyle: pw.FontStyle.italic),
                 ),
               ),
-              pw.Container(width: 14, height: 0.7, color: PdfColors.black),
+              pw.Container(width: 14, height: 0.8, color: PdfColors.black),
             ]),
             pw.SizedBox(height: 3),
 
@@ -3453,7 +3429,7 @@ pw.Document _buildThermalReceiptPdf({
                   ]),
                 ),
                 // DIVIDER
-                pw.Container(width: 0.6, color: PdfColors.grey500, margin: const pw.EdgeInsets.symmetric(horizontal: 4)),
+                pw.Container(width: 0.6, color: PdfColors.grey400, margin: const pw.EdgeInsets.symmetric(horizontal: 4)),
                 // RIGHT
                 pw.Expanded(
                   flex: 4,
@@ -3487,8 +3463,8 @@ pw.Document _buildThermalReceiptPdf({
             ),
             pw.SizedBox(height: 3),
 
-            // ── Dashed separator ──
-            dashedLine(),
+            // ── Thin line separator ──
+            pw.Container(height: 0.8, color: PdfColors.black),
             pw.SizedBox(height: 2.5),
 
             // ── 3. JADVAL SARLAVHASI ──────────────────────────────
@@ -3496,14 +3472,14 @@ pw.Document _buildThermalReceiptPdf({
               padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.5),
               decoration: const pw.BoxDecoration(
                 border: pw.Border(
-                  top: pw.BorderSide(color: PdfColors.black, width: 0.9),
-                  bottom: pw.BorderSide(color: PdfColors.black, width: 0.9),
+                  top: pw.BorderSide(color: PdfColors.black, width: 0.8),
+                  bottom: pw.BorderSide(color: PdfColors.black, width: 0.8),
                 ),
               ),
               child: pw.Row(children: [
                 pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('No', style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
                 pw.Expanded(child: pw.Text('Nomi', style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('Soni', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
+                pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
                 pw.SizedBox(width: is58mm ? 32 : 40, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
                 pw.SizedBox(width: is58mm ? 36 : 44, child: pw.Text('Summa', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
               ]),
@@ -3516,11 +3492,11 @@ pw.Document _buildThermalReceiptPdf({
               final itemSumma = item.product.price * item.qty;
               return pw.Column(children: [
                 pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.5),
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.0),
                   child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                     pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('${index + 1}', style: pw.TextStyle(font: helvetica, fontSize: 7.0))),
                     pw.Expanded(child: pw.Text(item.product.name, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                    pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('${item.qty} ta', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helvetica, fontSize: 7.0))),
+                    pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helvetica, fontSize: 7.0))),
                     pw.SizedBox(width: is58mm ? 32 : 40, child: pw.Text(ReceiptWidget.money(item.product.price.round()), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helvetica, fontSize: 7.0))),
                     pw.SizedBox(width: is58mm ? 36 : 44, child: pw.Text(ReceiptWidget.money(itemSumma.round()), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
                   ]),
@@ -3528,96 +3504,91 @@ pw.Document _buildThermalReceiptPdf({
                 if (index < items.length - 1)
                   pw.Padding(
                     padding: const pw.EdgeInsets.symmetric(vertical: 1.0),
-                    child: pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: List.generate(is58mm ? 20 : 28, (_) => pw.Container(width: 2.5, height: 0.4, color: PdfColors.grey400)),
-                    ),
+                    child: pw.Container(height: 0.4, color: PdfColors.grey300),
                   ),
               ]);
             }),
-            pw.SizedBox(height: 3),
+            pw.SizedBox(height: 2),
 
-            // ── Dashed separator ──
-            dashedLine(),
+            // ── Thin line separator ──
+            pw.Container(height: 0.8, color: PdfColors.black),
             pw.SizedBox(height: 3),
 
             // ── 5. JAMI / CHEGIRMA / TO'LOV ───────────────────────
             pw.Padding(
               padding: const pw.EdgeInsets.symmetric(horizontal: 2),
               child: pw.Column(children: [
-                pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                  pw.Text('Jami:', style: pw.TextStyle(font: helveticaBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
-                  pw.Text("${ReceiptWidget.money(productsSum.round())} so'm", style: pw.TextStyle(font: helveticaBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
-                ]),
                 if (grandTotal < productsSum) ...[
+                  pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+                    pw.Text('Jami:', style: pw.TextStyle(font: helveticaBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("${ReceiptWidget.money(productsSum.round())} so'm", style: pw.TextStyle(font: helveticaBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
+                  ]),
                   pw.SizedBox(height: 1.5),
                   pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
                     pw.Text('Chegirma:', style: pw.TextStyle(font: helvetica, fontSize: 7.5)),
                     pw.Text("-${ReceiptWidget.money((productsSum - grandTotal).round())} so'm", style: pw.TextStyle(font: helvetica, fontSize: 7.5)),
                   ]),
+                  pw.SizedBox(height: 2),
                 ],
-                pw.SizedBox(height: 2),
                 pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+                  padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 2),
                   decoration: const pw.BoxDecoration(
                     border: pw.Border(
-                      top: pw.BorderSide(color: PdfColors.black, width: 1.0),
-                      bottom: pw.BorderSide(color: PdfColors.black, width: 1.0),
+                      top: pw.BorderSide(color: PdfColors.black, width: 1.2),
+                      bottom: pw.BorderSide(color: PdfColors.black, width: 1.2),
                     ),
                   ),
                   child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                    pw.Text("TO'LOV:", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 10.5 : 12.0, fontWeight: pw.FontWeight.bold)),
-                    pw.Text("${ReceiptWidget.money(grandTotal.round())} so'm", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 11.0 : 12.5, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("TO'LOV:", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 11.0 : 13.0, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("${ReceiptWidget.money(grandTotal.round())} so'm", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 11.5 : 13.5, fontWeight: pw.FontWeight.bold)),
                   ]),
                 ),
               ]),
             ),
-            pw.SizedBox(height: 3),
+            pw.SizedBox(height: 4),
 
-            // ── 6. QR KOD ─────────────────────────────────────────
-            if (appState.receiptQrEnabled) ...[
-              pw.SizedBox(height: 2),
-              pw.Center(
-                child: pw.Container(
-                  padding: const pw.EdgeInsets.all(2),
-                  color: PdfColors.white,
-                  child: pw.BarcodeWidget(
-                    barcode: pw.Barcode.qrCode(),
-                    data: appState.receiptQrUrl.isNotEmpty
-                        ? appState.receiptQrUrl
-                        : 'https://zavero-backend-production-7dc9.up.railway.app',
-                    width: is58mm ? 40 : 46,
-                    height: is58mm ? 40 : 46,
-                    color: PdfColors.black,
-                  ),
+            // ── 6. QR KOD (1-rasmga 100% mos) ─────────────────────
+            pw.Center(
+              child: pw.Container(
+                padding: const pw.EdgeInsets.all(2),
+                color: PdfColors.white,
+                child: pw.BarcodeWidget(
+                  barcode: pw.Barcode.qrCode(),
+                  data: appState.receiptQrUrl.isNotEmpty
+                      ? appState.receiptQrUrl
+                      : 'https://zavero-backend-production-7dc9.up.railway.app',
+                  width: is58mm ? 44 : 52,
+                  height: is58mm ? 44 : 52,
+                  color: PdfColors.black,
                 ),
               ),
-              pw.SizedBox(height: 1.5),
-              pw.Center(
-                child: pw.Text(
-                  'QR kodni skaner qiling',
-                  style: pw.TextStyle(font: helveticaBold, fontSize: 6.2, color: PdfColors.black),
-                ),
+            ),
+            pw.SizedBox(height: 2),
+            pw.Center(
+              child: pw.Text(
+                'QR skaner qiling va\nZavero web saytiga o\'ting!',
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(font: helveticaBold, fontSize: 6.8, color: PdfColors.black),
               ),
-              pw.SizedBox(height: 2.5),
-            ],
+            ),
+            pw.SizedBox(height: 4),
 
             // ── Solid separator ──
             pw.Container(height: 0.8, color: PdfColors.black),
-            pw.SizedBox(height: 2.5),
+            pw.SizedBox(height: 3),
 
             // ── 7. FOOTER ─────────────────────────────────────────
             pw.Center(
               child: pw.Text(
                 footerText,
-                style: pw.TextStyle(font: helveticaOblique, fontSize: 8.0, fontStyle: pw.FontStyle.italic),
+                style: pw.TextStyle(font: helveticaOblique, fontSize: 8.5, fontStyle: pw.FontStyle.italic),
               ),
             ),
-            pw.SizedBox(height: 1.5),
+            pw.SizedBox(height: 2),
             pw.Center(
               child: pw.Text(
                 cafeName.toUpperCase(),
-                style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold),
+                style: pw.TextStyle(font: helveticaBold, fontSize: 8.0, fontWeight: pw.FontWeight.bold),
               ),
             ),
           ],
@@ -8243,14 +8214,32 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                             },
                             badge: appState.pendingOrdersCount,
                           ),
-                          // 3. Cheklar
+                          // 3. Hisobotlar (O'rtada)
+                          _mobileNavBtn(
+                            Icons.bar_chart_outlined,
+                            Icons.bar_chart_rounded,
+                            'Hisobotlar',
+                            2 == _mobileNavIndex,
+                            () async {
+                              setState(() => _mobileNavIndex = 2);
+                              await Future.delayed(const Duration(milliseconds: 80));
+                              if (context.mounted) {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                                );
+                              }
+                              if (mounted) setState(() => _mobileNavIndex = 0);
+                            },
+                          ),
+                          // 4. Cheklar
                           _mobileNavBtn(
                             Icons.history_rounded,
                             Icons.history_rounded,
                             'Cheklar',
-                            2 == _mobileNavIndex,
+                            3 == _mobileNavIndex,
                             () async {
-                              setState(() => _mobileNavIndex = 2);
+                              setState(() => _mobileNavIndex = 3);
                               await Future.delayed(const Duration(milliseconds: 80));
                               if (context.mounted) {
                                 await Navigator.push(
@@ -8261,14 +8250,14 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               if (mounted) setState(() => _mobileNavIndex = 0);
                             },
                           ),
-                          // 4. Profil
+                          // 5. Profil
                           _mobileNavBtn(
                             Icons.person_outline_rounded,
                             Icons.person_rounded,
                             'Profil',
-                            3 == _mobileNavIndex,
+                            4 == _mobileNavIndex,
                             () async {
-                              setState(() => _mobileNavIndex = 3);
+                              setState(() => _mobileNavIndex = 4);
                               await Future.delayed(const Duration(milliseconds: 80));
                               if (context.mounted) {
                                 await Navigator.push(
@@ -8365,7 +8354,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       borderRadius: BorderRadius.circular(16),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: active ? activeBg : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
@@ -14568,7 +14557,7 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
         onTap: () => setState(() => _period = filter),
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF0F1E30) : const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(12),
@@ -15426,7 +15415,7 @@ class _ReportsScreenState extends State<ReportsScreen>
         onTap: () => setState(() => _filterMode = mode),
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
             color: isSel ? const Color(0xFFFFB300) : const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(10),
