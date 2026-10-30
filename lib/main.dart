@@ -285,6 +285,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void notifyChanges() {
+    notifyListeners();
+  }
+
   bool isUnderMaintenance = false;
   Timer? _cartSaveTimer;
   bool isCloudSynced = false;
@@ -1066,19 +1070,31 @@ class AppState extends ChangeNotifier {
       }
       final tId = (data['tableId'] as num?)?.toInt();
       final tNum = (data['tableNumber'] as num?)?.toInt();
+      final tHallId = (data['hallId'] as num?)?.toInt();
       final st = data['status'] as String?;
       final isOcc = (st == 'occupied');
-      int idx = -1;
-      if (tId != null) idx = tables.indexWhere((t) => t.id == tId);
-      if (idx == -1 && tNum != null) idx = tables.indexWhere((t) => t.number == tNum);
-      if (idx != -1) {
-        tables[idx].status = isOcc ? TableStatus.occupied : TableStatus.free;
+
+      bool updated = false;
+      if (tId != null) {
         if (!isOcc) {
-          tableOrders.remove(tables[idx].id);
-          tableNotes.remove(tables[idx].id);
+          tableOrders.remove(tId);
+          tableNotes.remove(tId);
         }
-        notifyListeners();
       }
+
+      for (final t in tables) {
+        final matches = (tId != null && t.id == tId) ||
+            (tNum != null && t.number == tNum && (tHallId == null || t.hallId == tHallId));
+        if (matches) {
+          t.status = isOcc ? TableStatus.occupied : TableStatus.free;
+          if (!isOcc) {
+            tableOrders.remove(t.id);
+            tableNotes.remove(t.id);
+          }
+          updated = true;
+        }
+      }
+      if (updated) notifyListeners();
     });
 
     _socketTableOrderSub?.cancel();
@@ -1091,26 +1107,36 @@ class AppState extends ChangeNotifier {
       }
       final tId = (data['tableId'] as num?)?.toInt();
       final tNum = (data['tableNumber'] as num?)?.toInt();
-      int idx = -1;
-      if (tId != null) idx = tables.indexWhere((t) => t.id == tId);
-      if (idx == -1 && tNum != null) idx = tables.indexWhere((t) => t.number == tNum);
+      final tHallId = (data['hallId'] as num?)?.toInt();
+      final rawItems = data['items'];
+      final hasItems = rawItems is List && rawItems.isNotEmpty;
 
-      if (idx != -1) {
-        final tableKey = tables[idx].id;
-        final rawItems = data['items'];
-        if (rawItems is List && rawItems.isNotEmpty) {
-          final items = rawItems
-              .whereType<Map>()
-              .map((m) => CartItem.fromJson(Map<String, dynamic>.from(m)))
-              .toList();
-          tableOrders[tableKey] = items;
-          tables[idx].status = TableStatus.occupied;
-        } else {
-          tableOrders.remove(tableKey);
-          tables[idx].status = TableStatus.free;
-        }
-        notifyListeners();
+      bool updated = false;
+      if (!hasItems && tId != null) {
+        tableOrders.remove(tId);
+        tableNotes.remove(tId);
       }
+
+      for (final t in tables) {
+        final matches = (tId != null && t.id == tId) ||
+            (tNum != null && t.number == tNum && (tHallId == null || t.hallId == tHallId));
+        if (matches) {
+          if (hasItems) {
+            final items = rawItems
+                .whereType<Map>()
+                .map((m) => CartItem.fromJson(Map<String, dynamic>.from(m)))
+                .toList();
+            tableOrders[t.id] = items;
+            t.status = TableStatus.occupied;
+          } else {
+            tableOrders.remove(t.id);
+            tableNotes.remove(t.id);
+            t.status = TableStatus.free;
+          }
+          updated = true;
+        }
+      }
+      if (updated) notifyListeners();
     });
 
     _socketTableReleasedSub?.cancel();
@@ -1123,16 +1149,27 @@ class AppState extends ChangeNotifier {
       }
       final tId = (data['tableId'] as num?)?.toInt();
       final tNum = (data['tableNumber'] as num?)?.toInt();
-      int idx = -1;
-      if (tId != null) idx = tables.indexWhere((t) => t.id == tId);
-      if (idx == -1 && tNum != null) idx = tables.indexWhere((t) => t.number == tNum);
-      if (idx != -1) {
-        final tableKey = tables[idx].id;
-        tableOrders.remove(tableKey);
-        tableNotes.remove(tableKey);
-        tables[idx].status = TableStatus.free;
-        notifyListeners();
+      final tHallId = (data['hallId'] as num?)?.toInt();
+
+      if (tId != null) {
+        tableOrders.remove(tId);
+        tableNotes.remove(tId);
+        _tableOrderMutationTimes[tId] = DateTime.now().millisecondsSinceEpoch;
       }
+
+      bool updated = false;
+      for (final t in tables) {
+        final matches = (tId != null && t.id == tId) ||
+            (tNum != null && t.number == tNum && (tHallId == null || t.hallId == tHallId));
+        if (matches) {
+          t.status = TableStatus.free;
+          tableOrders.remove(t.id);
+          tableNotes.remove(t.id);
+          _tableOrderMutationTimes[t.id] = DateTime.now().millisecondsSinceEpoch;
+          updated = true;
+        }
+      }
+      if (updated) notifyListeners();
     });
 
     // Real-time receipts sync across devices and Telegram WebApp
@@ -1306,7 +1343,7 @@ class AppState extends ChangeNotifier {
       final hasOrder = hasActiveOrder(table.id);
       if (hasOrder) {
         table.status = TableStatus.occupied;
-      } else if (table.status != TableStatus.occupied) {
+      } else {
         if (selectedTable?.id != table.id) {
           table.status = TableStatus.free;
           tableOrders.remove(table.id);
@@ -1857,6 +1894,7 @@ class AppState extends ChangeNotifier {
 
     final tableIdToRelease = selectedTable?.id;
     final tableNumToRelease = selectedTable?.number;
+    final tableHallIdToRelease = selectedTable?.hallId;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     // 1. Zudlik bilan xotiradagi mutatsiya vaqtini yangilaymiz (socket orqali kelishi mumkin bo'lgan eski buyurtma stolni qayta band qilmasligi uchun)
@@ -1868,8 +1906,10 @@ class AppState extends ChangeNotifier {
 
     // 2. Stolni xotirada darhol bo'shatamiz
     for (var i = 0; i < tables.length; i++) {
-      if ((tableIdToRelease != null && tables[i].id == tableIdToRelease) ||
-          (tableNumToRelease != null && tables[i].number == tableNumToRelease)) {
+      final matches = (tableIdToRelease != null && tables[i].id == tableIdToRelease) ||
+          (tableNumToRelease != null && tables[i].number == tableNumToRelease &&
+           (tableHallIdToRelease == null || tables[i].hallId == tableHallIdToRelease));
+      if (matches) {
         tables[i].status = TableStatus.free;
         tableOrders.remove(tables[i].id);
         tableNotes.remove(tables[i].id);
@@ -1881,6 +1921,17 @@ class AppState extends ChangeNotifier {
       tableOrders.remove(tableIdToRelease);
       tableNotes.remove(tableIdToRelease);
     }
+
+    try {
+      final cached = await LocalCacheService().getCachedMap('cache_table_orders_$currentCafeId');
+      if (cached != null) {
+        if (tableIdToRelease != null) cached.remove('$tableIdToRelease');
+        for (final t in tables) {
+          if (t.status == TableStatus.free) cached.remove('${t.id}');
+        }
+        await LocalCacheService().setCachedMap('cache_table_orders_$currentCafeId', cached);
+      }
+    } catch (_) {}
 
     if (selectedTable != null) {
       selectedTable!.status = TableStatus.free;
@@ -7015,20 +7066,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
     final statusBg = free ? freeBg : busyBg;
     final statusText = free ? "Bo'sh" : "Band";
 
-    return TweenAnimationBuilder<double>(
-      duration: Duration(milliseconds: 180 + (widget.index.clamp(0, 10) * 26)),
-      tween: Tween<double>(begin: 0.0, end: 1.0),
-      curve: Curves.easeOutCubic,
-      builder: (context, animVal, child) {
-        return Opacity(
-          opacity: animVal,
-          child: Transform.translate(
-            offset: Offset(0, (1 - animVal) * 12),
-            child: child,
-          ),
-        );
-      },
-      child: MouseRegion(
+    return MouseRegion(
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
         child: GestureDetector(
@@ -7187,8 +7225,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -7401,7 +7438,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                             return InkWell(
                               onTap: () {
                                 n.isRead = true;
-                                appState.notifyListeners();
+                                appState.notifyChanges();
                                 Navigator.pop(ctx);
                                 if (n.type == 'order') {
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
@@ -13213,6 +13250,20 @@ class _PaymentScreenState extends State<PaymentScreen> {
         idempotencyKey: ik,
       );
 
+      // Stolni xotirada 100% bo'shatilishini kafolatlaymiz (Band qolib ketmasligi uchun)
+      if (selTable != null) {
+        appState.tableOrders.remove(selTable.id);
+        appState.tableNotes.remove(selTable.id);
+        for (final t in appState.tables) {
+          if (t.id == selTable.id || (t.number == selTable.number && t.hallId == selTable.hallId)) {
+            t.status = TableStatus.free;
+            appState.tableOrders.remove(t.id);
+            appState.tableNotes.remove(t.id);
+          }
+        }
+        appState.notifyChanges();
+      }
+
       // 2. AVTOMATIK CHEK CHIQARISH: faqat sozlangan tarmoq printeri bo'lsa fonda yuboriladi
       try {
         if (appState.printerConfigured) {
@@ -13394,21 +13445,30 @@ class _PaymentScreenState extends State<PaymentScreen> {
       child: Row(
         children: [
           // Logo & Name
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: const Color(0xFFE25C1D),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            alignment: Alignment.center,
-            child: const Text(
-              'z',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-                height: 1.1,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.asset(
+              'assets/images/logo.png',
+              width: 32,
+              height: 32,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE25C1D),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  'z',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                    height: 1.1,
+                  ),
+                ),
               ),
             ),
           ),

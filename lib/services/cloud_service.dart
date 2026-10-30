@@ -180,7 +180,7 @@ class CloudService {
                   (fresh is Map && fresh.isEmpty);
               final isCachedNotEmpty = (cachedObj is List && cachedObj.isNotEmpty) ||
                   (cachedObj is Map && cachedObj.isNotEmpty);
-              if (isFreshEmpty && isCachedNotEmpty) {
+              if (isFreshEmpty && isCachedNotEmpty && T != (Map<int, List<CartItem>>) && T != (Map<int, String>)) {
                 // Serverdan bo'sh ma'lumot vaqtinchalik xato tufayli kelsa, keshdagi ma'lumotlarni o'chirmaymiz
               } else {
                 controller.add(fresh);
@@ -307,10 +307,8 @@ class CloudService {
           return _tableOrdersFromJson(cached);
         },
         cacheSave: (data) async {
-          if (data.isNotEmpty) {
-            final jsonMap = data.map((k, v) => MapEntry(k.toString(), v.map((e) => e.toJson()).toList()));
-            await LocalCacheService().setCachedMap('cache_table_orders_$cafeId', jsonMap);
-          }
+          final jsonMap = data.map((k, v) => MapEntry(k.toString(), v.map((e) => e.toJson()).toList()));
+          await LocalCacheService().setCachedMap('cache_table_orders_$cafeId', jsonMap);
         },
         fetch: () async {
           final res = await _api.get('/tables');

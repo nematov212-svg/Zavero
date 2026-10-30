@@ -31,10 +31,9 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-
   <link rel="icon" type="image/png" href="favicon.png" />
 
-  <title>Zavero Pos</title>
+  <title>ZAVERO POS</title>
   <link rel="manifest" href="manifest.json">
 
   <style>
@@ -183,20 +182,20 @@
   <!-- Force clear old service workers and storage caches -->
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(regs) {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
         for (var r of regs) { r.unregister(); }
-      }).catch(function(){});
+      }).catch(function () { });
     }
     if ('caches' in window) {
-      caches.keys().then(function(names) {
+      caches.keys().then(function (names) {
         for (var n of names) { caches.delete(n); }
-      }).catch(function(){});
+      }).catch(function () { });
     }
   </script>
 
   <script src="mac_touch_id.js"></script>
   <script src="sound_effects.js"></script>
-  <script src="flutter_bootstrap.js?v=20261030_v112" async></script>
+  <script src="flutter_bootstrap.js?v=20261030_v109" async></script>
 </body>
 
 </html>

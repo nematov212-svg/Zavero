@@ -31,6 +31,18 @@ const checkout = async (req, res) => {
         [cafeId, effectiveIdempotencyKey]
       );
       if (existing.rows.length > 0) {
+        // Stolni baribir bo'shatish kerak
+        if (tableId) {
+          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE id=$1 AND cafe_id=$2`, [tableId, cafeId]).catch(() => {});
+          await db.query(`DELETE FROM table_orders WHERE table_id=$1`, [tableId]).catch(() => {});
+        }
+        if (receipt.tableNumber) {
+          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE number=$1 AND cafe_id=$2`, [receipt.tableNumber, cafeId]).catch(() => {});
+          await db.query(`DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number=$1 AND cafe_id=$2)`, [receipt.tableNumber, cafeId]).catch(() => {});
+        }
+        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: receipt.tableNumber });
+        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: receipt.tableNumber, status: 'free' });
+        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: receipt.tableNumber, items: [], note: '' });
         return res.json({
           success: true,
           message: 'To‘lov allaqachon qayd etilgan (idempotent)',
@@ -59,6 +71,15 @@ const checkout = async (req, res) => {
       );
       if (recent.rows.length > 0) {
         console.log(`⚠️ [Checkout] Takroriy bosish aniqlandi (Stol #${tblNum}, Summa: ${rTotal}). Dublikat rad etildi.`);
+        if (tableId) {
+          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE id=$1 AND cafe_id=$2`, [tableId, cafeId]).catch(() => {});
+          await db.query(`DELETE FROM table_orders WHERE table_id=$1`, [tableId]).catch(() => {});
+        }
+        await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE number=$1 AND cafe_id=$2`, [tblNum, cafeId]).catch(() => {});
+        await db.query(`DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number=$1 AND cafe_id=$2)`, [tblNum, cafeId]).catch(() => {});
+        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: tblNum });
+        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: tblNum, status: 'free' });
+        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: tblNum, items: [], note: '' });
         return res.json({
           success: true,
           message: 'To‘lov allaqachon qayd etilgan (takroriy bosish oldi olindi)',
@@ -167,15 +188,29 @@ const checkout = async (req, res) => {
         );
         await client.query('DELETE FROM table_orders WHERE table_id = $1', [effectiveTableId]);
       }
-      if (effectiveTableNumber) {
+      if (tableId && parseInt(tableId, 10) !== effectiveTableId) {
         await client.query(
           `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL, updated_at=CURRENT_TIMESTAMP
-           WHERE number=$1 AND cafe_id=$2`,
-          [effectiveTableNumber, cafeId]
+           WHERE id=$1 AND cafe_id=$2`,
+          [parseInt(tableId, 10), cafeId]
+        ).catch(() => {});
+        await client.query('DELETE FROM table_orders WHERE table_id = $1', [parseInt(tableId, 10)]).catch(() => {});
+      }
+      if (effectiveTableNumber) {
+        let hallFilter = '';
+        const params = [effectiveTableNumber, cafeId];
+        if (receipt.hallName) {
+          params.push(receipt.hallName.trim());
+          hallFilter = ` AND hall_id IN (SELECT id FROM halls WHERE cafe_id = $2 AND LOWER(TRIM(name)) = LOWER(TRIM($3)))`;
+        }
+        await client.query(
+          `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL, updated_at=CURRENT_TIMESTAMP
+           WHERE number=$1 AND cafe_id=$2${hallFilter}`,
+          params
         );
         await client.query(
-          `DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number = $1 AND cafe_id = $2)`,
-          [effectiveTableNumber, cafeId]
+          `DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number = $1 AND cafe_id = $2${hallFilter})`,
+          params
         );
       }
 
@@ -188,16 +223,17 @@ const checkout = async (req, res) => {
         ]
       );
 
-      return { receiptRow, reportRow: reportResult.rows[0], effectiveTableId, effectiveTableNumber };
+      return { receiptRow, reportRow: reportResult.rows[0], effectiveTableId: effectiveTableId || tableId, effectiveTableNumber };
     });
 
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
     notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow) });
     // Telegram botga chek/stol bo'yicha spam xabar yuborish to'xtatildi (Talab 6)
-    if (effectiveTableId || effectiveTableNumber) {
-      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber });
-      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, status: 'free' });
-      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, items: [], note: '' });
+    const relId = effectiveTableId || tableId;
+    if (relId || effectiveTableNumber) {
+      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: relId, tableNumber: effectiveTableNumber });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: relId, tableNumber: effectiveTableNumber, status: 'free' });
+      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: relId, tableNumber: effectiveTableNumber, items: [], note: '' });
     }
 
     return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow) });
