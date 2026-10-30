@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 import '../models/models.dart';
-import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/pin_security_service.dart';
 import 'blocked_screen.dart';
@@ -29,7 +28,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   bool _rememberMe = true;
   bool _hasPinConfigured = false;
   String? _loginError;
-  bool _isOfflineMode = false;
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -169,38 +167,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  void _toggleOfflineMode() {
-    setState(() {
-      _isOfflineMode = !_isOfflineMode;
-      _loginError = null;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              _isOfflineMode ? Icons.offline_bolt_rounded : Icons.wifi_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                _isOfflineMode
-                    ? 'Oflayn rejim faol! O‘zingizning login va parolingizni kiritib kiring.'
-                    : 'Onlayn rejimga qaytildi.',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: _isOfflineMode ? const Color(0xFFD97706) : const Color(0xFF10B981),
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
   Future<void> _submitLogin() async {
     final login = _loginUserCtrl.text.trim();
     final pass = _loginPassCtrl.text.trim();
@@ -219,14 +185,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
       _loginError = null;
     });
 
-    // 1. Agar foydalanuvchi "Oflayn rejim"ni yoqqan bo'lsa, to'g'ridan-to'g'ri oflayn tekshiramiz:
-    if (_isOfflineMode) {
-      await _performOfflineLogin(login, pass);
-      if (mounted) setState(() => _isLoginLoading = false);
-      return;
-    }
-
-    // 2. Aks holda oddiy online rejimda server orqali kirishga harakat qilamiz:
     try {
       final user = await _authService.login(login, pass);
 
@@ -307,25 +265,17 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
         (r) => false,
       );
     } catch (e) {
-      // 3. Agar serverga ulanishda tarmoq xatosi bo'lsa (internet uzilgan), avtomatik oflayn tekshiramiz:
-      final isNetworkIssue = e.toString().toLowerCase().contains('socket') ||
-          e.toString().toLowerCase().contains('failed host lookup') ||
-          e.toString().toLowerCase().contains('network') ||
-          e.toString().toLowerCase().contains('connection') ||
-          e.toString().toLowerCase().contains('clientexception') ||
-          e.toString().toLowerCase().contains('timeout');
-
-      if (isNetworkIssue) {
-        await _performOfflineLogin(login, pass);
-        if (mounted) setState(() => _isLoginLoading = false);
-        return;
-      }
-
       if (!mounted) return;
       setState(() {
         final rawMsg = e.toString().replaceAll('Exception: ', '');
         if (rawMsg.contains('xato') || rawMsg.contains('Noto\'g\'ri') || rawMsg.contains('401')) {
           _loginError = 'Login yoki parol xato. Iltimos, qaytadan tekshiring.';
+        } else if (rawMsg.toLowerCase().contains('socket') ||
+            rawMsg.toLowerCase().contains('network') ||
+            rawMsg.toLowerCase().contains('failed host lookup') ||
+            rawMsg.toLowerCase().contains('connection') ||
+            rawMsg.toLowerCase().contains('timeout')) {
+          _loginError = 'Serverga ulanib bo‘lmadi. Internet aloqasini tekshiring.';
         } else {
           _loginError = rawMsg;
         }
@@ -333,158 +283,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     } finally {
       if (mounted) setState(() => _isLoginLoading = false);
     }
-  }
-
-  /// Oflayn tizim orqali tekshirish va xodimni o'zining tegishli paneliga yo'naltirish
-  Future<void> _performOfflineLogin(String login, String pass) async {
-    final offlineUser = await _resolveOfflineUser(login, pass);
-    if (offlineUser == null) {
-      if (!mounted) return;
-      setState(() {
-        _loginError = 'Login yoki parol xato. Iltimos, qaytadan tekshiring.';
-      });
-      return;
-    }
-
-    if (!mounted) return;
-    await appState.saveUserSession(offlineUser);
-    try {
-      await appState.loadCloudDataForCafe(offlineUser.workspaceId);
-    } catch (_) {}
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.wifi_off_rounded, color: Colors.white, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Oflayn rejim: Kassa lokal ma’lumotlar bilan ishga tushdi (${offlineUser.name}).',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: const Color(0xFFF59E0B),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-
-    // Xodim o'zining roliga mos paneliga kiradi:
-    if (offlineUser.role == UserRole.director) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          settings: const RouteSettings(name: 'director'),
-          builder: (_) => DirectorScreen(directorUser: offlineUser),
-        ),
-        (r) => false,
-      );
-      return;
-    }
-
-    if (offlineUser.role == UserRole.waiter) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          settings: const RouteSettings(name: 'dashboard'),
-          builder: (_) => const DashboardScreen(),
-        ),
-        (r) => false,
-      );
-      return;
-    }
-
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(
-        settings: const RouteSettings(name: 'dashboard'),
-        builder: (_) => const DashboardScreen(),
-      ),
-      (r) => false,
-    );
-  }
-
-  /// Oflayn foydalanuvchini aniqlash (Lokal baza, Kesh yoki Default Admin)
-  Future<AppUser?> _resolveOfflineUser(String login, String pass) async {
-    final cleanL = login.trim().toLowerCase();
-    final cleanP = pass.trim();
-
-    if (cleanL.isEmpty || cleanP.isEmpty) return null;
-
-    // 1. Lokal xodimlar ro'yxatidan qidirish
-    final localUser = appState.loginByCredentials(cleanL, cleanP);
-    if (localUser != null) return localUser;
-
-    // 2. Keshdagi oxirgi sessiyani tekshirish
-    try {
-      final cachedJson = await ApiClient().readCachedUserJson();
-      if (cachedJson != null) {
-        final uName = (cachedJson['username'] ?? '').toString().toLowerCase();
-        final uEmail = (cachedJson['email'] ?? '').toString().toLowerCase();
-        if (uName == cleanL || uEmail == cleanL) {
-          final prefs = await SharedPreferences.getInstance();
-          final savedPass = prefs.getString('saved_quick_login_pass') ?? '';
-          if (savedPass.isEmpty || savedPass == cleanP) {
-            return AppUser.fromJson(cachedJson);
-          }
-        }
-      }
-    } catch (_) {}
-
-    // 3. Standart ma'murlar va xodimlar parollari
-    if (cleanL == 'admin' &&
-        (cleanP == '123456' || cleanP == 'admin' || cleanP == 'admin1' || cleanP == 'zavero2026')) {
-      return AppUser(
-        id: 1,
-        uid: 'admin',
-        name: 'Administrator',
-        surname: '',
-        username: 'admin',
-        email: 'admin@zavero.pos',
-        phone: '',
-        password: '',
-        role: UserRole.admin,
-        ownerId: 'local_default',
-        cafeId: 'cafe1',
-      );
-    }
-
-    if (cleanL == 'kassir' && (cleanP == '123456' || cleanP == 'kassir123' || cleanP == 'kassir')) {
-      return AppUser(
-        id: 2,
-        uid: 'kassir',
-        name: 'Kassir',
-        surname: '',
-        username: 'kassir',
-        email: 'kassir@zavero.pos',
-        phone: '',
-        password: '',
-        role: UserRole.cashier,
-        ownerId: 'local_default',
-        cafeId: 'cafe1',
-      );
-    }
-
-    if (cleanL == 'ofitsiant' && (cleanP == '123456' || cleanP == 'ofitsiant' || cleanP == 'waiter')) {
-      return AppUser(
-        id: 3,
-        uid: 'ofitsiant',
-        name: 'Ofitsiant',
-        surname: '',
-        username: 'ofitsiant',
-        email: 'ofitsiant@zavero.pos',
-        phone: '',
-        password: '',
-        role: UserRole.waiter,
-        ownerId: 'local_default',
-        cafeId: 'cafe1',
-      );
-    }
-
-    return null;
   }
 
   @override
@@ -737,48 +535,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
           const SizedBox(height: 16),
         ],
 
-        // Oflayn rejim faol bo'lsa ogohlantirish banneri
-        if (_isOfflineMode) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFEF3C7),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFFBBF24)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.offline_bolt_rounded, color: Color(0xFFD97706), size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Oflayn rejim faol',
-                        style: TextStyle(
-                          color: Color(0xFF92400E),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'O‘z login va parolingizni kiritib kiring. Har bir xodim o‘z paneliga yo‘naltiriladi.',
-                        style: TextStyle(
-                          color: Color(0xFFB45309),
-                          fontSize: 11.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-
         // Input 1: Email / Foydalanuvchi nomi
         _buildPillInputField(
           controller: _loginUserCtrl,
@@ -878,9 +634,9 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2.4, color: _textDark),
                   )
-                : Text(
-                    _isOfflineMode ? 'Oflayn tizimga kirish' : 'Login',
-                    style: const TextStyle(
+                : const Text(
+                    'Login',
+                    style: TextStyle(
                       color: _textDark,
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
@@ -908,35 +664,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             ),
           ),
         ],
-
-        const SizedBox(height: 12),
-        // Oflayn rejim almashtirish tugmasi (Avtomatik kirmaydi, rejimni yoqadi)
-        Center(
-          child: TextButton.icon(
-            style: TextButton.styleFrom(
-              foregroundColor: _isOfflineMode ? const Color(0xFF065F46) : const Color(0xFF92400E),
-              backgroundColor: _isOfflineMode ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: BorderSide(
-                  color: _isOfflineMode ? const Color(0xFF10B981) : const Color(0xFFFBBF24),
-                  width: 1.2,
-                ),
-              ),
-            ),
-            onPressed: _isLoginLoading ? null : _toggleOfflineMode,
-            icon: Icon(
-              _isOfflineMode ? Icons.check_circle_rounded : Icons.offline_bolt_rounded,
-              size: 17,
-              color: _isOfflineMode ? const Color(0xFF059669) : const Color(0xFFD97706),
-            ),
-            label: Text(
-              _isOfflineMode ? 'Oflayn rejim faol (Onlaynga o‘tish)' : 'Oflayn rejimga o‘tish (Internetsiz)',
-              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-            ),
-          ),
-        ),
 
         const SizedBox(height: 20),
 

@@ -3280,8 +3280,8 @@ pw.Document _buildThermalReceiptPdf({
   const double marginHorizontalPt = 2.0 * PdfPageFormat.mm;
 
   // 1-rasmdagi ko'rinishga 100% mos to'liq balandlik (hech qanday qism kesilib qolmasligi uchun)
-  final double baseHeight = is58mm ? 350.0 : 370.0;
-  final double dynamicItemsHeight = items.length * (is58mm ? 18.0 : 16.0);
+  final double baseHeight = is58mm ? 480.0 : 510.0;
+  final double dynamicItemsHeight = items.length * (is58mm ? 20.0 : 18.0);
   final double totalContentHeight = baseHeight + dynamicItemsHeight;
 
   final format = PdfPageFormat(
@@ -3545,9 +3545,9 @@ pw.Document _buildThermalReceiptPdf({
                 ),
               ]),
             ),
-            pw.SizedBox(height: 4),
+            pw.SizedBox(height: 18),
 
-            // ── 6. QR KOD (1-rasmga 100% mos) ─────────────────────
+            // ── 6. QR KOD (1-rasmga 100% mos, vertikal masofa oshirilgan) ──
             pw.Center(
               child: pw.Container(
                 padding: const pw.EdgeInsets.all(2),
@@ -3563,7 +3563,7 @@ pw.Document _buildThermalReceiptPdf({
                 ),
               ),
             ),
-            pw.SizedBox(height: 2),
+            pw.SizedBox(height: 4),
             pw.Center(
               child: pw.Text(
                 'QR skaner qiling va\nZavero web saytiga o\'ting!',
@@ -3571,11 +3571,11 @@ pw.Document _buildThermalReceiptPdf({
                 style: pw.TextStyle(font: helveticaBold, fontSize: 6.8, color: PdfColors.black),
               ),
             ),
-            pw.SizedBox(height: 4),
+            pw.SizedBox(height: 8),
 
             // ── Solid separator ──
             pw.Container(height: 0.8, color: PdfColors.black),
-            pw.SizedBox(height: 3),
+            pw.SizedBox(height: 5),
 
             // ── 7. FOOTER ─────────────────────────────────────────
             pw.Center(
@@ -3584,13 +3584,14 @@ pw.Document _buildThermalReceiptPdf({
                 style: pw.TextStyle(font: helveticaOblique, fontSize: 8.5, fontStyle: pw.FontStyle.italic),
               ),
             ),
-            pw.SizedBox(height: 2),
+            pw.SizedBox(height: 3),
             pw.Center(
               child: pw.Text(
                 cafeName.toUpperCase(),
                 style: pw.TextStyle(font: helveticaBold, fontSize: 8.0, fontWeight: pw.FontWeight.bold),
               ),
             ),
+            pw.SizedBox(height: 12),
           ],
         );
       },
@@ -7205,10 +7206,18 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
+  Color _getPingColor(int pingMs, bool isOnline) {
+    if (!isOnline) return const Color(0xFFEF4444);
+    if (pingMs <= 22) return const Color(0xFF10B981); // ~20ms: juda yaxshi (yashil)
+    if (pingMs <= 28) return const Color(0xFF22C55E); // ~25ms: yaxshi (och yashil)
+    if (pingMs <= 38) return const Color(0xFFF59E0B); // 30-35ms: o'rtacha (sariq)
+    return const Color(0xFFEF4444); // >35ms: sekinlashgan (qizil)
+  }
+
   void _startPingTimer() {
     _pingTimer?.cancel();
     _checkPing();
-    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) => _checkPing());
+    _pingTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkPing());
   }
 
   Future<void> _checkPing() async {
@@ -7975,25 +7984,25 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   const Spacer(),
                   // Live network status badge
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 400),
+                    duration: const Duration(milliseconds: 300),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _isOnline ? const Color(0xFFE8F8F0) : const Color(0xFFFFEBEB),
+                      color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: _isOnline ? const Color(0xFF16B86A).withValues(alpha: 0.35) : const Color(0xFFEF4444).withValues(alpha: 0.35),
+                        color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.35),
                       ),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       // Pulsing dot
-                      _PulsingDot(color: _isOnline ? const Color(0xFF16B86A) : const Color(0xFFEF4444)),
+                      _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
                       const SizedBox(width: 6),
                       Text(
                         _isOnline
                             ? (_pingMs > 0 ? 'Online  •  ${_pingMs}ms' : 'Online')
                             : 'Offline',
                         style: TextStyle(
-                          color: _isOnline ? const Color(0xFF16B86A) : const Color(0xFFEF4444),
+                          color: _getPingColor(_pingMs, _isOnline),
                           fontWeight: FontWeight.w700,
                           fontSize: 12,
                         ),
@@ -8290,6 +8299,32 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                           const SizedBox(width: 10),
                           const Text('ZAVERO POS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5)),
                           const Spacer(),
+                          // Mobile live ping badge
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                            decoration: BoxDecoration(
+                              color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.45),
+                                width: 0.9,
+                              ),
+                            ),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
+                              const SizedBox(width: 4),
+                              Text(
+                                _isOnline ? '${_pingMs > 0 ? _pingMs : 1}ms' : 'Offline',
+                                style: TextStyle(
+                                  color: _getPingColor(_pingMs, _isOnline),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ]),
+                          ),
+                          const SizedBox(width: 6),
                           // Mobile Bell:
                           Stack(children: [
                             IconButton(

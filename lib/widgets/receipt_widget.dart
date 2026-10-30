@@ -278,9 +278,9 @@ class ReceiptWidget extends StatelessWidget {
                         discountVal: finalDiscount,
                         grandTotalVal: finalTotal,
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 18),
 
-                      // ── 5. QR KOD ─────────────────────────────
+                      // ── 5. QR KOD (vertikal masofa oshirilgan) ──
                       if (showQr) _buildQrSection(),
 
                       // ── 6. FOOTER ─────────────────────────────
@@ -598,7 +598,7 @@ class ReceiptWidget extends StatelessWidget {
             fontWeight: FontWeight.w700,
             color: Colors.black87),
       ),
-      const SizedBox(height: 6),
+      const SizedBox(height: 10),
     ]);
   }
 

@@ -43,7 +43,11 @@ const checkout = async (req, res) => {
 
   // RECENT CHECK DEDUPLICATION: 30 soniya ichida aynan shu stol va summaga chek urilgan bo'lsa qaytaramiz
   try {
-    const tblNum = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
+    let tblNum = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
+    if (!tblNum && tableId) {
+      const tblRes = await db.query('SELECT number FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
+      if (tblRes.rows.length > 0) tblNum = parseInt(tblRes.rows[0].number, 10);
+    }
     const rTotal = parseFloat(receipt.total) || 0;
     if (tblNum && rTotal > 0) {
       const recent = await db.query(
@@ -189,44 +193,7 @@ const checkout = async (req, res) => {
 
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
     notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow) });
-    try {
-      const { sendGeneralTelegramNotification } = require('../bot/telegramBot');
-      const methodLabel = receipt.method === 'card' ? '💳 Karta' : '💵 Naqd';
-      const tbl = receipt.tableNumber ? `${receipt.tableNumber}-stol` : (receipt.hallName || 'Kassa');
-      
-      const itemsListText = (items || []).map((item, idx) => {
-        const pName = item.product?.name || 'Mahsulot';
-        const pQty = item.qty || 1;
-        const pPrice = (item.product?.price || 0) * pQty;
-        return `${idx + 1}. <b>${pName}</b> — ${pQty} dona × ${(item.product?.price || 0).toLocaleString()} = <b>${pPrice.toLocaleString()} so‘m</b>`;
-      }).join('\n');
-
-      const receiptMsg = 
-        `🍽 <b>FAMILY CAFE</b>\n` +
-        `<i>Yaxshi ta'm • Baxtli onlar</i>\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `🏪 <b>Filial:</b> Family Cafe\n` +
-        `📍 <b>Manzil:</b> Navoiy ko'chasi 12, Buxoro\n` +
-        `🪑 <b>Joy:</b> <b>${tbl}</b>\n` +
-        `👤 <b>Kassir:</b> <b>${receipt.cashierName || 'Admin'}</b>\n` +
-        `📅 <b>Sana va vaqt:</b> ${new Date().toLocaleDateString('uz-UZ')} ${new Date().toLocaleTimeString('uz-UZ')}\n` +
-        `🧾 <b>Chek raqami:</b> #${receiptRow.id}\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `📋 <b>Buyurtma tarkibi:</b>\n` +
-        (itemsListText ? `${itemsListText}\n` : '') +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `💳 <b>To'lov turi:</b> ${methodLabel}\n` +
-        `💰 <b>TO'LOV:</b> <b>${(receipt.total || 0).toLocaleString()} so‘m</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `🌐 <i>QR skaner qiling va Zavero saytiga o'ting!</i>\n` +
-        `<i>Bizni tanlaganingiz uchun rahmat!</i>`;
-
-      sendGeneralTelegramNotification({
-        cafeId,
-        title: `🧾 CHEK #${receiptRow.id} TO'LANDI`,
-        message: receiptMsg,
-      }).catch(() => {});
-    } catch (_) {}
+    // Telegram botga chek/stol bo'yicha spam xabar yuborish to'xtatildi (Talab 6)
     if (effectiveTableId || effectiveTableNumber) {
       notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber });
       notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, status: 'free' });

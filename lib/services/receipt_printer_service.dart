@@ -354,8 +354,8 @@ class ThermalPdfGenerator {
     const double marginHorizontalPt = 2.0 * PdfPageFormat.mm;
 
     // 1-rasmdagi ko'rinishga 100% mos to'liq balandlik (hech qanday qism kesilib qolmasligi uchun)
-    final double baseHeight = is58mm ? 350.0 : 370.0;
-    final double dynamicItemsHeight = data.items.length * (is58mm ? 18.0 : 16.0);
+    final double baseHeight = is58mm ? 480.0 : 510.0;
+    final double dynamicItemsHeight = data.items.length * (is58mm ? 20.0 : 18.0);
     final double totalHeight = baseHeight + dynamicItemsHeight;
 
     final format = PdfPageFormat(
@@ -542,11 +542,10 @@ class ThermalPdfGenerator {
                   ),
                 ]),
               ),
-              pw.SizedBox(height: 4),
+              pw.SizedBox(height: 18),
 
               // ── 6. QR CODE ─────────────────────────────────
               if (data.qrUrl.isNotEmpty) ...[
-                pw.SizedBox(height: 2),
                 pw.Center(
                   child: pw.Container(
                     padding: const pw.EdgeInsets.all(2),
@@ -560,7 +559,7 @@ class ThermalPdfGenerator {
                     ),
                   ),
                 ),
-                pw.SizedBox(height: 1.5),
+                pw.SizedBox(height: 4),
                 pw.Center(
                   child: pw.Text(
                     'QR skaner qiling va\nZavero web saytiga o\'ting!',
@@ -568,25 +567,26 @@ class ThermalPdfGenerator {
                     style: pw.TextStyle(font: fontBold, fontSize: 6.2, color: PdfColors.black),
                   ),
                 ),
-                pw.SizedBox(height: 2.5),
+                pw.SizedBox(height: 8),
               ],
 
               // ── 7. FOOTER ──────────────────────────────────
               pw.Container(height: 0.8, color: PdfColors.black),
-              pw.SizedBox(height: 2.5),
+              pw.SizedBox(height: 5),
               pw.Center(
                 child: pw.Text(
                   data.footerMessage,
                   style: pw.TextStyle(font: fontOblique, fontSize: 8.0, fontStyle: pw.FontStyle.italic),
                 ),
               ),
-              pw.SizedBox(height: 1.5),
+              pw.SizedBox(height: 3),
               pw.Center(
                 child: pw.Text(
                   data.cafeName.toUpperCase(),
                   style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold),
                 ),
               ),
+              pw.SizedBox(height: 12),
             ],
           );
         },
