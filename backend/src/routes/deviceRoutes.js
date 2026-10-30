@@ -58,9 +58,11 @@ router.post('/register', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     if (req.user.role === 'director') {
-      await db.query('DELETE FROM devices WHERE id = $1', [req.params.id]);
+      const delRes = await db.query('DELETE FROM devices WHERE id = $1 RETURNING id', [req.params.id]);
+      if (delRes.rowCount === 0) return res.status(404).json({ success: false, message: 'Qurilma topilmadi.' });
     } else {
-      await db.query('DELETE FROM devices WHERE id = $1 AND cafe_id = $2', [req.params.id, req.user.cafeId]);
+      const delRes = await db.query('DELETE FROM devices WHERE id = $1 AND cafe_id = $2 RETURNING id', [req.params.id, req.user.cafeId]);
+      if (delRes.rowCount === 0) return res.status(404).json({ success: false, message: 'Qurilma topilmadi.' });
     }
     return res.json({ success: true, message: 'Qurilma o\'chirildi.' });
   } catch (error) {

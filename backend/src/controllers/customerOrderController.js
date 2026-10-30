@@ -18,18 +18,18 @@ const save = async (req, res) => {
     let row;
     if (id) {
       const existing = await db.query('SELECT id FROM customer_orders WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
-      if (existing.rows.length > 0) {
-        const result = await db.query(
-          `UPDATE customer_orders SET items=$1, customer_name=$2, phone=$3, type=$4, table_number=$5,
-           hall_id=$6, delivery_address=$7, status=$8, updated_at=CURRENT_TIMESTAMP
-           WHERE id=$9 AND cafe_id=$10 RETURNING *`,
-          [JSON.stringify(items || []), customerName || '', phone || '', type || 'dineIn',
-          tableNumber ?? null, hallId ?? null, deliveryAddress ?? null, status || 'pending', id, cafeId]
-        );
-        row = result.rows[0];
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Buyurtma topilmadi' });
       }
-    }
-    if (!row) {
+      const result = await db.query(
+        `UPDATE customer_orders SET items=$1, customer_name=$2, phone=$3, type=$4, table_number=$5,
+         hall_id=$6, delivery_address=$7, status=$8, updated_at=CURRENT_TIMESTAMP
+         WHERE id=$9 AND cafe_id=$10 RETURNING *`,
+        [JSON.stringify(items || []), customerName || '', phone || '', type || 'dineIn',
+        tableNumber ?? null, hallId ?? null, deliveryAddress ?? null, status || 'pending', id, cafeId]
+      );
+      row = result.rows[0];
+    } else {
       const result = await db.query(
         `INSERT INTO customer_orders (cafe_id, date, items, customer_name, phone, type, table_number, hall_id, delivery_address, status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
@@ -89,16 +89,6 @@ const getPublicMenu = async (req, res) => {
             OR LOWER(TRIM(u.username)) = LOWER(TRIM($1))
          LIMIT 1`,
         [cafeId]
-      );
-    }
-
-    if (cafeRes.rows.length === 0) {
-      cafeRes = await db.query(
-        `SELECT c.cafe_id, c.cafe_name, c.receipt_name, c.owner_name, c.owner_email, c.status, c.end_date
-         FROM cafes c
-         WHERE c.status != 'blocked'
-         ORDER BY c.created_at ASC, c.cafe_id ASC
-         LIMIT 1`
       );
     }
 
@@ -202,16 +192,10 @@ const createPublicOrder = async (req, res) => {
     }
 
     if (cafeCheck.rows.length === 0) {
-      cafeCheck = await db.query(
-        `SELECT c.cafe_id, c.status
-         FROM cafes c
-         WHERE c.status != 'blocked'
-         ORDER BY c.created_at ASC, c.cafe_id ASC
-         LIMIT 1`
-      );
+      return res.status(404).json({ success: false, message: 'Kafe topilmadi' });
     }
 
-    if (cafeCheck.rows.length === 0 || cafeCheck.rows[0].status === 'blocked') {
+    if (cafeCheck.rows[0].status === 'blocked') {
       return res.status(403).json({ success: false, message: 'Ushbu kafe hozirda buyurtma qabul qila olmaydi.' });
     }
 
@@ -453,9 +437,6 @@ const registerPublicCustomer = async (req, res) => {
       cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE LOWER(TRIM(cafe_name)) = LOWER(TRIM($1)) LIMIT 1', [cafeId]);
     }
     if (cafeCheck.rows.length === 0) {
-      cafeCheck = await db.query('SELECT cafe_id FROM cafes WHERE status != \'blocked\' ORDER BY created_at ASC, cafe_id ASC LIMIT 1');
-    }
-    if (cafeCheck.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Kafe topilmadi' });
     }
     const realCafeId = cafeCheck.rows[0].cafe_id;
@@ -514,13 +495,12 @@ const getPublicOrderStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Yaroqsiz orderId' });
     }
 
-    const parsedOrderId = parseInt(orderId, 10);
-    const query = cafeId
-      ? 'SELECT * FROM customer_orders WHERE id = $1 AND cafe_id = $2'
-      : 'SELECT * FROM customer_orders WHERE id = $1';
-    const params = cafeId ? [parsedOrderId, cafeId] : [parsedOrderId];
+    if (!cafeId) {
+      return res.status(400).json({ success: false, message: 'cafeId kiritilishi shart' });
+    }
 
-    const result = await db.query(query, params);
+    const parsedOrderId = parseInt(orderId, 10);
+    const result = await db.query('SELECT * FROM customer_orders WHERE id = $1 AND cafe_id = $2', [parsedOrderId, cafeId]);
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Buyurtma topilmadi' });
     }

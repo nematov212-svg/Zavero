@@ -26,16 +26,15 @@ const save = async (req, res) => {
     let row;
     if (id) {
       const existing = await db.query('SELECT id FROM halls WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
-      if (existing.rows.length > 0) {
-        const result = await db.query(
-          'UPDATE halls SET name = $1, icon_code_point = $2, image_asset = $3 WHERE id = $4 AND cafe_id = $5 RETURNING *',
-          [cleanName, safeIcon, imageAsset || null, id, cafeId]
-        );
-        row = result.rows[0];
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Zal topilmadi' });
       }
-    }
-
-    if (!row) {
+      const result = await db.query(
+        'UPDATE halls SET name = $1, icon_code_point = $2, image_asset = $3 WHERE id = $4 AND cafe_id = $5 RETURNING *',
+        [cleanName, safeIcon, imageAsset || null, id, cafeId]
+      );
+      row = result.rows[0];
+    } else {
       const result = await db.query(
         'INSERT INTO halls (cafe_id, name, icon_code_point, image_asset) VALUES ($1, $2, $3, $4) RETURNING *',
         [cafeId, cleanName, safeIcon, imageAsset || null]
@@ -66,6 +65,10 @@ const remove = async (req, res) => {
 
     // Delete tables associated with this hall or cascade
     await db.withTransaction(async (client) => {
+      const hallCheck = await client.query('SELECT id FROM halls WHERE id = $1 AND cafe_id = $2', [hallId, cafeId]);
+      if (hallCheck.rows.length === 0) {
+        throw Object.assign(new Error('Zal topilmadi'), { status: 404 });
+      }
       // First delete table_orders for tables in this hall
       await client.query(
         `DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE hall_id = $1 AND cafe_id = $2)`,

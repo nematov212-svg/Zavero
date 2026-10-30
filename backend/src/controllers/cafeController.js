@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const mappers = require('../utils/mappers');
 const { restoreDefaultMenu, seedDefaultHallsAndTables } = require('../utils/seedCafe');
+const { getTenantCafeId } = require('../utils/tenantHelper');
 
 // GET /api/cafe/full — one-shot full workspace load (mirrors old loadFullCafeData)
 const getFullCafeData = async (req, res) => {
@@ -235,7 +236,8 @@ const getMaintenanceStatus = async (req, res) => {
 // GET /api/cafe/banners
 const getBanners = async (req, res) => {
   try {
-    const cafeId = req.headers['x-cafe-id'] || req.user?.cafeId || req.query?.cafeId;
+    const cafeId = (req.user && getTenantCafeId(req)) || req.query?.cafeId;
+    if (!cafeId) return res.json({ success: true, banners: [] });
     const current = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
     const settings = current.rows[0]?.data || {};
     return res.json({ success: true, banners: settings.promoBanners || [] });
@@ -247,7 +249,8 @@ const getBanners = async (req, res) => {
 // POST /api/cafe/banners
 const addBanner = async (req, res) => {
   try {
-    const cafeId = req.headers['x-cafe-id'] || req.user?.cafeId || req.body?.cafeId || req.query?.cafeId;
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(401).json({ success: false, message: 'Avtorizatsiya talab etiladi' });
     const { imageUrl, tag, title, description } = req.body;
     if (!imageUrl && !title) {
       return res.status(400).json({ success: false, message: 'Rasm yoki sarlavha kiritilishi shart' });
@@ -285,7 +288,8 @@ const addBanner = async (req, res) => {
 // DELETE /api/cafe/banners/:id
 const deleteBanner = async (req, res) => {
   try {
-    const cafeId = req.headers['x-cafe-id'] || req.user?.cafeId || req.query?.cafeId;
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(401).json({ success: false, message: 'Avtorizatsiya talab etiladi' });
     const { id } = req.params;
     const current = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
     const settings = current.rows[0]?.data || {};

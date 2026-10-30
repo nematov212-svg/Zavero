@@ -57,14 +57,14 @@ const save = async (req, res) => {
         if (passwordHash) {
           await db.query(
             `UPDATE users SET name=$1, surname=$2, username=$3, email=$4, phone=$5, role=$6, salary=$7, password_hash=$8, is_active=true, updated_at=CURRENT_TIMESTAMP
-             WHERE id=$9`,
-            [name || '', surname || '', cleanUsername, cleanEmail, phone || '', empRole, salary || 0, passwordHash, uId]
+             WHERE id=$9 AND cafe_id=$10`,
+            [name || '', surname || '', cleanUsername, cleanEmail, phone || '', empRole, salary || 0, passwordHash, uId, cafeId]
           );
         } else {
           await db.query(
             `UPDATE users SET name=$1, surname=$2, username=$3, email=$4, phone=$5, role=$6, salary=$7, is_active=true, updated_at=CURRENT_TIMESTAMP
-             WHERE id=$8`,
-            [name || '', surname || '', cleanUsername, cleanEmail, phone || '', empRole, salary || 0, uId]
+             WHERE id=$8 AND cafe_id=$9`,
+            [name || '', surname || '', cleanUsername, cleanEmail, phone || '', empRole, salary || 0, uId, cafeId]
           );
         }
       } else {
@@ -92,10 +92,11 @@ const remove = async (req, res) => {
     const cafeId = req.user.cafeId;
     const { id } = req.params;
     const existing = await db.query('SELECT username, email FROM employees WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
-    if (existing.rows.length > 0) {
-      const { username, email } = existing.rows[0];
-      await db.query('DELETE FROM users WHERE cafe_id = $1 AND (username = $2 OR email = $3)', [cafeId, username, email]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Xodim topilmadi' });
     }
+    const { username, email } = existing.rows[0];
+    await db.query('DELETE FROM users WHERE cafe_id = $1 AND (username = $2 OR email = $3)', [cafeId, username, email]);
     await db.query('DELETE FROM employees WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
     notifyCafe(cafeId, 'EMPLOYEES_UPDATED', { deletedId: parseInt(id, 10) });
     res.json({ success: true });

@@ -8,7 +8,7 @@ const uploadImage = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Fayl yuborilmadi.' });
   }
   try {
-    const cafeId = req.user?.cafeId || req.headers['x-cafe-id'] || null;
+    const cafeId = req.user?.cafeId || null;
     const result = await db.query(
       'INSERT INTO images (mime_type, data, cafe_id) VALUES ($1, $2, $3) RETURNING id',
       [req.file.mimetype, req.file.buffer, cafeId]

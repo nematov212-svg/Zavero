@@ -51,7 +51,7 @@ const saveOrder = async (req, res) => {
       if (tableRes.rows.length === 0) throw Object.assign(new Error('Stol topilmadi'), { status: 404 });
 
       const table = tableRes.rows[0];
-      const orderRes = await client.query('SELECT * FROM table_orders WHERE table_id = $1', [tableId]);
+      const orderRes = await client.query('SELECT * FROM table_orders WHERE table_id = $1 AND cafe_id = $2', [tableId, cafeId]);
       const existingOrder = orderRes.rows[0];
 
       if (table.status === 'occupied' && existingOrder && existingOrder.started_by &&
@@ -69,14 +69,15 @@ const saveOrder = async (req, res) => {
 
       await client.query(
         `UPDATE restaurant_tables SET status='occupied', order_id=$1, total=$2, started_by=$3,
-         updated_at=CURRENT_TIMESTAMP WHERE id=$4`,
-        [`${tableId}`, total, startedBy, tableId]
+         updated_at=CURRENT_TIMESTAMP WHERE id=$4 AND cafe_id=$5`,
+        [`${tableId}`, total, startedBy, tableId, cafeId]
       );
 
       await client.query(
         `INSERT INTO table_orders (table_id, cafe_id, items, note, started_by, updated_at)
          VALUES ($1,$2,$3,$4,$5,CURRENT_TIMESTAMP)
-         ON CONFLICT (table_id) DO UPDATE SET items=$3, note=$4, started_by=$5, updated_at=CURRENT_TIMESTAMP`,
+         ON CONFLICT (table_id) DO UPDATE SET items=$3, note=$4, started_by=$5, updated_at=CURRENT_TIMESTAMP
+         WHERE table_orders.cafe_id = $2`,
         [tableId, cafeId, JSON.stringify(items), note || '', startedBy]
       );
 
@@ -85,7 +86,7 @@ const saveOrder = async (req, res) => {
         [cafeId, 'TABLE_ORDER_SAVED', `Stol #${table.number} buyurtmasi saqlandi (${startedBy})`, startedBy]
       );
 
-      const updatedTable = await client.query('SELECT * FROM restaurant_tables WHERE id = $1', [tableId]);
+      const updatedTable = await client.query('SELECT * FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
       return updatedTable.rows[0];
     });
 
@@ -130,8 +131,11 @@ const release = async (req, res) => {
          updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING number`,
         [tableId, cafeId]
       );
-      if (up.rows.length > 0) releasedTableNumber = up.rows[0].number;
-      await client.query('DELETE FROM table_orders WHERE table_id = $1', [tableId]);
+      if (up.rows.length === 0) {
+        throw Object.assign(new Error('Stol topilmadi'), { status: 404 });
+      }
+      releasedTableNumber = up.rows[0].number;
+      await client.query('DELETE FROM table_orders WHERE table_id = $1 AND cafe_id = $2', [tableId, cafeId]);
       await client.query(
         'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
         [cafeId, 'TABLE_RELEASED', `Stol #${releasedTableNumber || tableId} bo'shatildi`, req.user?.username || 'Ofitsiant']
@@ -144,7 +148,7 @@ const release = async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     console.error('release error:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(error.status || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -270,10 +274,15 @@ const removeTable = async (req, res) => {
     }
 
     await db.withTransaction(async (client) => {
-      await client.query('DELETE FROM table_orders WHERE table_id = $1', [tableId]);
-      if (req.user?.role === 'director' || !cafeId) {
+      if (req.user?.role === 'director' && !cafeId) {
+        await client.query('DELETE FROM table_orders WHERE table_id = $1', [tableId]);
         await client.query('DELETE FROM restaurant_tables WHERE id = $1', [tableId]);
       } else {
+        const check = await client.query('SELECT id FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
+        if (check.rows.length === 0) {
+          throw Object.assign(new Error('Stol topilmadi'), { status: 404 });
+        }
+        await client.query('DELETE FROM table_orders WHERE table_id = $1 AND cafe_id = $2', [tableId, cafeId]);
         await client.query('DELETE FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
       }
     });
@@ -290,7 +299,7 @@ const removeTable = async (req, res) => {
     return res.json({ success: true, tableId });
   } catch (error) {
     console.error('removeTable error:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(error.status || 500).json({ success: false, message: error.message });
   }
 };
 

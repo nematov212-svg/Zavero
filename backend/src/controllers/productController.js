@@ -24,17 +24,16 @@ const save = async (req, res) => {
 
     if (id) {
       const existing = await db.query('SELECT id FROM products WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
-      if (existing.rows.length > 0) {
-        const result = await db.query(
-          `UPDATE products SET name=$1, price=$2, category_id=$3, stock=$4, icon_code_point=$5,
-           image_url=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7 AND cafe_id=$8 RETURNING *`,
-          [cleanName, safePrice, safeCatId, safeStock, safeIconCodePoint, imageUrl || null, id, cafeId]
-        );
-        row = result.rows[0];
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
       }
-    }
-
-    if (!row && (cleanOrigName || cleanName)) {
+      const result = await db.query(
+        `UPDATE products SET name=$1, price=$2, category_id=$3, stock=$4, icon_code_point=$5,
+         image_url=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7 AND cafe_id=$8 RETURNING *`,
+        [cleanName, safePrice, safeCatId, safeStock, safeIconCodePoint, imageUrl || null, id, cafeId]
+      );
+      row = result.rows[0];
+    } else if (cleanOrigName || cleanName) {
       const nameToMatch = cleanOrigName || cleanName;
       const existingByName = await db.query(
         'SELECT id FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2',
@@ -51,7 +50,7 @@ const save = async (req, res) => {
       }
     }
 
-    if (!row && cleanName) {
+    if (!row && !id && cleanName) {
       const result = await db.query(
         `INSERT INTO products (cafe_id, name, price, category_id, stock, icon_code_point, image_url)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
@@ -86,13 +85,21 @@ const remove = async (req, res) => {
         const resByName = await db.query('DELETE FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2 RETURNING id', [name, cafeId]);
         if (resByName.rows.length > 0) {
           deletedId = resByName.rows[0].id;
+        } else {
+          return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
         }
+      } else if (resById.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
       }
     } else if (name) {
       const resByName = await db.query('DELETE FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2 RETURNING id', [name, cafeId]);
       if (resByName.rows.length > 0) {
         deletedId = resByName.rows[0].id;
+      } else {
+        return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
       }
+    } else {
+      return res.status(400).json({ success: false, message: 'ID yoki nom ko\'rsatilishi shart' });
     }
 
     notifyCafe(cafeId, 'PRODUCTS_UPDATED', { deletedId: deletedId || numericId });

@@ -15,15 +15,15 @@ const save = async (req, res) => {
     let row;
     if (id) {
       const existing = await db.query('SELECT id FROM customers WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
-      if (existing.rows.length > 0) {
-        const result = await db.query(
-          'UPDATE customers SET name=$1, phone=$2, email=$3, loyalty_points=$4 WHERE id=$5 AND cafe_id=$6 RETURNING *',
-          [name, phone || '', email || '', loyaltyPoints || 0, id, cafeId]
-        );
-        row = result.rows[0];
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Mijoz topilmadi' });
       }
-    }
-    if (!row) {
+      const result = await db.query(
+        'UPDATE customers SET name=$1, phone=$2, email=$3, loyalty_points=$4 WHERE id=$5 AND cafe_id=$6 RETURNING *',
+        [name, phone || '', email || '', loyaltyPoints || 0, id, cafeId]
+      );
+      row = result.rows[0];
+    } else {
       const result = await db.query(
         'INSERT INTO customers (cafe_id, name, phone, email, loyalty_points) VALUES ($1,$2,$3,$4,$5) RETURNING *',
         [cafeId, name, phone || '', email || '', loyaltyPoints || 0]
@@ -42,7 +42,10 @@ const remove = async (req, res) => {
   try {
     const cafeId = req.user.cafeId;
     const { id } = req.params;
-    await db.query('DELETE FROM customers WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
+    const delRes = await db.query('DELETE FROM customers WHERE id = $1 AND cafe_id = $2 RETURNING id', [id, cafeId]);
+    if (delRes.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Mijoz topilmadi' });
+    }
     notifyCafe(cafeId, 'CUSTOMERS_UPDATED', { deletedId: parseInt(id, 10) });
     res.json({ success: true });
   } catch (error) {

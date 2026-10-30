@@ -47,15 +47,35 @@ const initSocket = (io) => {
           if (decoded.role === 'director') {
             socket.join('director_room');
           }
-          joinCafeId = (decoded.role === 'director' ? (data?.cafeId || joinCafeId) : decoded.cafeId) || joinCafeId;
         } catch (e) {
           console.error('[Socket.IO] JOIN_CAFE token error:', e.message);
+          return socket.emit('ERROR', { success: false, message: 'Invalid token' });
         }
       }
-      if (joinCafeId) {
-        socket.join(cafeRoom(joinCafeId));
-        socket.emit('JOINED_CAFE', { cafeId: joinCafeId, success: true });
-        console.log(`👤 [Socket.IO] Joined room ${cafeRoom(joinCafeId)}`);
+
+      const role = socket.user?.role;
+      const userCafeId = socket.user?.cafeId;
+
+      if (role === 'director') {
+        // SaaS Director can join any cafe room
+        const targetCafe = joinCafeId || userCafeId;
+        if (targetCafe) {
+          socket.join(cafeRoom(targetCafe));
+          socket.emit('JOINED_CAFE', { cafeId: targetCafe, success: true });
+          console.log(`👑 [Socket.IO] Director joined room ${cafeRoom(targetCafe)}`);
+        }
+      } else if (userCafeId) {
+        // Cafe users can ONLY join their own authorized cafe room
+        if (joinCafeId && joinCafeId !== userCafeId) {
+          console.warn(`🚨 [Socket.IO] Cross-tenant join blocked: user from ${userCafeId} attempted to join ${joinCafeId}`);
+          return socket.emit('ERROR', { success: false, message: 'Unauthorized cafe room access' });
+        }
+        socket.join(cafeRoom(userCafeId));
+        socket.emit('JOINED_CAFE', { cafeId: userCafeId, success: true });
+        console.log(`👤 [Socket.IO] Joined room ${cafeRoom(userCafeId)}`);
+      } else {
+        // Unauthenticated client cannot join private cafe rooms
+        return socket.emit('ERROR', { success: false, message: 'Authentication required' });
       }
     });
 
@@ -69,34 +89,36 @@ const initSocket = (io) => {
     socket.on('PING', () => socket.emit('PONG', { time: new Date().toISOString() }));
 
     socket.on('STAFF_STATUS_UPDATE', (payload = {}) => {
-      const targetCafeId = socket.user?.cafeId || payload.cafeId;
-      if (targetCafeId) {
-        notifyCafe(targetCafeId, 'STAFF_STATUS_UPDATED', payload);
-        console.log(`☕ [Socket.IO] STAFF_STATUS_UPDATED for cafe ${targetCafeId}:`, payload.userName || payload.staffName, payload.statusText);
-        try {
-          const { sendGeneralTelegramNotification } = require('../bot/telegramBot');
-          const isOnBreak = payload.isOnBreak === true;
-          const uName = payload.userName || payload.staffName || 'Xodim';
-          const uRole = payload.role === 'waiter' ? 'Ofitsiant' : (payload.role || 'Xodim');
-          const statusDesc = isOnBreak ? '☕ Dam olishga chiqdi' : '🟢 Ishga qaytdi / Faol';
-          sendGeneralTelegramNotification({
-            cafeId: targetCafeId,
-            title: `${statusDesc} — ${uName}`,
-            message: `👤 <b>Xodim:</b> ${uName} (${uRole})\n📍 <b>Holat:</b> ${statusDesc}\n⏰ <b>Vaqt:</b> ${new Date().toLocaleTimeString('uz-UZ')}`,
-          }).catch(() => {});
-        } catch (_) {}
+      // SECURITY: Only emit to authorized cafe room
+      const targetCafeId = socket.user?.role === 'director' ? (payload.cafeId || socket.user?.cafeId) : socket.user?.cafeId;
+      if (!targetCafeId) {
+        return socket.emit('ERROR', { message: 'Authentication required' });
       }
+      notifyCafe(targetCafeId, 'STAFF_STATUS_UPDATED', payload);
+      console.log(`☕ [Socket.IO] STAFF_STATUS_UPDATED for cafe ${targetCafeId}:`, payload.userName || payload.staffName, payload.statusText);
+      try {
+        const { sendGeneralTelegramNotification } = require('../bot/telegramBot');
+        const isOnBreak = payload.isOnBreak === true;
+        const uName = payload.userName || payload.staffName || 'Xodim';
+        const uRole = payload.role === 'waiter' ? 'Ofitsiant' : (payload.role || 'Xodim');
+        const statusDesc = isOnBreak ? '☕ Dam olishga chiqdi' : '🟢 Ishga qaytdi / Faol';
+        sendGeneralTelegramNotification({
+          cafeId: targetCafeId,
+          title: `${statusDesc} — ${uName}`,
+          message: `👤 <b>Xodim:</b> ${uName} (${uRole})\n📍 <b>Holat:</b> ${statusDesc}\n⏰ <b>Vaqt:</b> ${new Date().toLocaleTimeString('uz-UZ')}`,
+        }).catch(() => {});
+      } catch (_) {}
     });
 
     socket.on('STAFF_MOVEMENT_UPDATE', (payload = {}) => {
-      const targetCafeId = socket.user?.cafeId || payload.cafeId;
+      const targetCafeId = socket.user?.role === 'director' ? (payload.cafeId || socket.user?.cafeId) : socket.user?.cafeId;
       if (targetCafeId) {
         notifyCafe(targetCafeId, 'STAFF_MOVEMENT_UPDATED', payload);
       }
     });
 
     socket.on('BANNERS_UPDATED', (payload = {}) => {
-      const targetCafeId = socket.user?.cafeId || payload.cafeId;
+      const targetCafeId = socket.user?.role === 'director' ? (payload.cafeId || socket.user?.cafeId) : socket.user?.cafeId;
       if (targetCafeId) {
         notifyCafe(targetCafeId, 'BANNERS_UPDATED', payload);
         console.log(`📢 [Socket.IO] BANNERS_UPDATED forwarded to cafe ${targetCafeId}`);
