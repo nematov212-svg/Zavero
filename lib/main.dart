@@ -13204,34 +13204,43 @@ class _PaymentScreenState extends State<PaymentScreen> {
         debugPrint('Avtomatik chek chiqarishda xatolik: $e');
       }
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (hallBeforeCheckout != null) {
+        appState.selectedHall = hallBeforeCheckout;
+      }
+
+      appMessengerKey.currentState?.showSnackBar(
         const SnackBar(
-          content: Text('To\'lov qabul qilindi va chek chiqarildi'),
+          content: Text("To'lov qabul qilindi va chek chiqarildi"),
           backgroundColor: Color(0xFF10B981),
         ),
       );
 
-      if (hallBeforeCheckout != null) {
-        appState.selectedHall = hallBeforeCheckout;
-      }
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          settings: const RouteSettings(name: 'dashboard'),
-          builder: (_) => const DashboardScreen(),
-        ),
-        (r) => false,
-      );
-    } catch (e) {
-      debugPrint('To‘lovni amalga oshirishda xatolik: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('To‘lovda xatolik yuz berdi: $e'),
-            backgroundColor: Colors.red,
+      final nav = appNavigatorKey.currentState;
+      if (nav != null) {
+        nav.pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'dashboard'),
+            builder: (_) => const DashboardScreen(),
           ),
+          (r) => false,
+        );
+      } else if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'dashboard'),
+            builder: (_) => const DashboardScreen(),
+          ),
+          (r) => false,
         );
       }
+    } catch (e) {
+      debugPrint('To‘lovni amalga oshirishda xatolik: $e');
+      appMessengerKey.currentState?.showSnackBar(
+        SnackBar(
+          content: Text('To‘lovda xatolik yuz berdi: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       _globalCheckoutInProgress = false;
       if (mounted) setState(() => confirming = false);
@@ -13260,10 +13269,34 @@ class _PaymentScreenState extends State<PaymentScreen> {
         final table = appState.selectedTable;
         final hall = appState.selectedHall;
 
+        if (confirming) {
+          return const Scaffold(
+            backgroundColor: Color(0xFFF8F9FA),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFFE25C1D)),
+                  SizedBox(height: 16),
+                  Text(
+                    'To‘lov qabul qilinmoqda...',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
         if (appState.cart.isEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (context.mounted) {
-              Navigator.of(context).pushAndRemoveUntil(
+            final nav = appNavigatorKey.currentState;
+            if (nav != null) {
+              nav.pushAndRemoveUntil(
                 MaterialPageRoute(
                   settings: const RouteSettings(name: 'dashboard'),
                   builder: (_) => const DashboardScreen(),
