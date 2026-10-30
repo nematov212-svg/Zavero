@@ -443,7 +443,7 @@ class ThermalPdfGenerator {
                 pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(horizontal: 4),
                   child: pw.Text(
-                    data.slogan,
+                    data.slogan.replaceAll('•', '-'),
                     style: pw.TextStyle(font: fontOblique, fontSize: 6.5, fontStyle: pw.FontStyle.italic),
                   ),
                 ),

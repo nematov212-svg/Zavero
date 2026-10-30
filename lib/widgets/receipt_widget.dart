@@ -569,13 +569,16 @@ class ReceiptWidget extends StatelessWidget {
   //  QR KOD
   // ─────────────────────────────────────────────────────────
   Widget _buildQrSection() {
+    final qrData = appState.receiptQrUrl.isNotEmpty
+        ? appState.receiptQrUrl
+        : 'https://zavero-backend-production-7dc9.up.railway.app';
     return Column(children: [
       Center(
         child: Container(
           padding: const EdgeInsets.all(4),
           color: Colors.white,
           child: QrImageView(
-            data: 'https://zavero-backend-production-7dc9.up.railway.app',
+            data: qrData,
             version: QrVersions.auto,
             size: 72.0,
             padding: EdgeInsets.zero,
@@ -588,10 +591,10 @@ class ReceiptWidget extends StatelessWidget {
       ),
       const SizedBox(height: 3),
       const Text(
-        'QR kodni skaner qiling',
+        'QR skaner qiling va\nZavero web saytiga o\'ting!',
         textAlign: TextAlign.center,
         style: TextStyle(
-            fontSize: 10,
+            fontSize: 9.5,
             fontWeight: FontWeight.w700,
             color: Colors.black87),
       ),

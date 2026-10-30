@@ -878,6 +878,23 @@ class AppState extends ChangeNotifier {
     _tableOrdersSub =
         _cloudService.streamTableOrders(cafeId).listen((newOrders) {
       final now = DateTime.now().millisecondsSinceEpoch;
+
+      // 1. To'langan yoki bo'shatilgan stollarni xotiradan to'liq tozalash
+      final currentKeys = tableOrders.keys.toList();
+      for (final tableId in currentKeys) {
+        final lastMutation = _tableOrderMutationTimes[tableId] ?? 0;
+        if (now - lastMutation < 4000) continue;
+        if (!newOrders.containsKey(tableId) || (newOrders[tableId]?.isEmpty ?? true)) {
+          tableOrders.remove(tableId);
+          tableNotes.remove(tableId);
+          final tIdx = tables.indexWhere((t) => t.id == tableId);
+          if (tIdx != -1) {
+            tables[tIdx].status = TableStatus.free;
+          }
+        }
+      }
+
+      // 2. Yangi buyurtmalarni yangilash
       for (final entry in newOrders.entries) {
         final tableId = entry.key;
         final remoteItems = entry.value;
@@ -887,6 +904,16 @@ class AppState extends ChangeNotifier {
         }
         if (remoteItems.isNotEmpty) {
           tableOrders[tableId] = remoteItems;
+          final tIdx = tables.indexWhere((t) => t.id == tableId);
+          if (tIdx != -1) {
+            tables[tIdx].status = TableStatus.occupied;
+          }
+        } else {
+          tableOrders.remove(tableId);
+          final tIdx = tables.indexWhere((t) => t.id == tableId);
+          if (tIdx != -1) {
+            tables[tIdx].status = TableStatus.free;
+          }
         }
       }
 
@@ -1798,12 +1825,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Receipt checkout({
+  Future<Receipt> checkout({
     required PaymentMethod method,
     double cashPaid = 0,
     double cardPaid = 0,
     String? idempotencyKey,
-  }) {
+  }) async {
     final r = Receipt(
       id: nextId(),
       date: DateTime.now(),
@@ -1830,25 +1857,23 @@ class AppState extends ChangeNotifier {
 
     final tableIdToRelease = selectedTable?.id;
     final tableNumToRelease = selectedTable?.number;
-    final effIdemKey = idempotencyKey ??
-        'rcpt_${r.id}_${DateTime.now().millisecondsSinceEpoch}_${tableIdToRelease ?? tableNumToRelease ?? 0}';
-    _cloudService.completeCheckout(
-      cafeId: currentCafeId,
-      receipt: r,
-      tableId: tableIdToRelease,
-      items: List<CartItem>.from(cart),
-      allProducts: products,
-      ownerId: '',
-      idempotencyKey: effIdemKey,
-    );
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
 
-    // Stolni to'liq bo'shatish va diskka/bulutga saqlash (ID va raqam bo'yicha)
+    // 1. Zudlik bilan xotiradagi mutatsiya vaqtini yangilaymiz (socket orqali kelishi mumkin bo'lgan eski buyurtma stolni qayta band qilmasligi uchun)
+    if (tableIdToRelease != null) {
+      _tableOrderMutationTimes[tableIdToRelease] = nowMs;
+      tableOrders.remove(tableIdToRelease);
+      tableNotes.remove(tableIdToRelease);
+    }
+
+    // 2. Stolni xotirada darhol bo'shatamiz
     for (var i = 0; i < tables.length; i++) {
       if ((tableIdToRelease != null && tables[i].id == tableIdToRelease) ||
           (tableNumToRelease != null && tables[i].number == tableNumToRelease)) {
         tables[i].status = TableStatus.free;
         tableOrders.remove(tables[i].id);
         tableNotes.remove(tables[i].id);
+        _tableOrderMutationTimes[tables[i].id] = nowMs;
         unawaited(_persistTableStatus(tables[i].id, false));
       }
     }
@@ -1863,7 +1888,27 @@ class AppState extends ChangeNotifier {
     selectedTable = null;
     selectedHall = null;
     cart.clear();
-    unawaited(saveData());
+    notifyListeners();
+
+    // 3. Serverdagi PostgreSQL tranzaksiyasini kutamiz (database transaction committed)
+    final effIdemKey = idempotencyKey ??
+        'rcpt_${r.id}_${nowMs}_${tableIdToRelease ?? tableNumToRelease ?? 0}';
+    try {
+      await _cloudService.completeCheckout(
+        cafeId: currentCafeId,
+        receipt: r,
+        tableId: tableIdToRelease,
+        items: List<CartItem>.from(r.items),
+        allProducts: products,
+        ownerId: '',
+        idempotencyKey: effIdemKey,
+      );
+    } catch (e) {
+      debugPrint('checkout tarmoq/server xatoligi (oflayn saqlangan bo‘lishi mumkin): $e');
+    }
+
+    // 4. Lokal ma'lumotlar bazasini saqlaymiz
+    await saveData();
     notifyListeners();
     return r;
   }
@@ -3368,7 +3413,7 @@ pw.Document _buildThermalReceiptPdf({
               pw.Padding(
                 padding: const pw.EdgeInsets.symmetric(horizontal: 4),
                 child: pw.Text(
-                  slogan,
+                  slogan.replaceAll('•', '-'),
                   style: pw.TextStyle(font: helveticaOblique, fontSize: 6.5, fontStyle: pw.FontStyle.italic),
                 ),
               ),
@@ -3584,6 +3629,24 @@ pw.Document _buildThermalReceiptPdf({
   return doc;
 }
 
+bool _isPrintingWindowActive = false;
+int _lastPrintWindowTimestamp = 0;
+
+Future<bool> _acquirePrintLock() async {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  if (_isPrintingWindowActive || (now - _lastPrintWindowTimestamp < 2500)) {
+    debugPrint('⚠️ [Chop etish] Chek oynasi allaqachon ochiq yoki bloklangan.');
+    return false;
+  }
+  _isPrintingWindowActive = true;
+  _lastPrintWindowTimestamp = now;
+  return true;
+}
+
+void _releasePrintLock() {
+  _isPrintingWindowActive = false;
+}
+
 Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async {
   if (appState.printerConfigured) {
     await NetworkPrinterService.printReceiptNetwork(
@@ -3596,32 +3659,39 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
     return;
   }
 
-  // Telegram WebApp yoki Brauzerda avtomatik to'lov paytida "blob:..." oynasi chiqmasligi uchun:
-  if (kIsWeb && isAutoCheckout) {
-    debugPrint('Web / Telegram WebApp: Avtomatik chek chop etishda printer sozlanmaganligi sababli blob oynasi ochilmadi.');
+  // Avtomatik to'lov paytida printer sozlanmagan bo'lsa (Web, Desktop yoki Mobile),
+  // kassa ekrani to'xtab qolmasligi va ortiqcha PDF dialoglari ketma-ket chiqib
+  // dasturni qotirib qo'ymasligi uchun avtomatik modal oynani cheklaymiz.
+  if (isAutoCheckout) {
+    debugPrint('ℹ️ [Print] Avtomatik to‘lovda printer sozlanmaganligi sababli kassa bloklanmadi.');
     return;
   }
 
-  final doc = _buildThermalReceiptPdf(
-    checkId: '${receipt.id}',
-    cashierName: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
-    hallName: receipt.hallName,
-    tableNumberStr: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
-    dateTime: receipt.date,
-    items: receipt.items,
-    grandTotal: receipt.total,
-  );
+  if (!await _acquirePrintLock()) return;
+  try {
+    final doc = _buildThermalReceiptPdf(
+      checkId: '${receipt.id}',
+      cashierName: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
+      hallName: receipt.hallName,
+      tableNumberStr: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
+      dateTime: receipt.date,
+      items: receipt.items,
+      grandTotal: receipt.total,
+    );
 
-  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
-  const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
-  final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+    final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+    const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
+    final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
 
-  await Printing.layoutPdf(
-    onLayout: (format) async => doc.save(),
-    name: 'chek_${receipt.id}',
-    format: rollFormat,
-    dynamicLayout: false,
-  );
+    await Printing.layoutPdf(
+      onLayout: (format) async => doc.save(),
+      name: 'chek_${receipt.id}',
+      format: rollFormat,
+      dynamicLayout: false,
+    );
+  } finally {
+    _releasePrintLock();
+  }
 }
 
 // ---- XARID CHEKI: hali to'lanmagan, stol hisobini mijozga ko'rsatish/chop etish uchun ----
@@ -3672,12 +3742,17 @@ Future<void> printBillPreview({
   const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
   final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
 
-  await Printing.layoutPdf(
-    onLayout: (format) async => doc.save(),
-    name: 'hisob_${DateTime.now().millisecondsSinceEpoch}',
-    format: rollFormat,
-    dynamicLayout: false,
-  );
+  if (!await _acquirePrintLock()) return;
+  try {
+    await Printing.layoutPdf(
+      onLayout: (format) async => doc.save(),
+      name: 'hisob_${DateTime.now().millisecondsSinceEpoch}',
+      format: rollFormat,
+      dynamicLayout: false,
+    );
+  } finally {
+    _releasePrintLock();
+  }
 }
 
 // ---- OSHPAZ CHEKI: narxsiz, faqat taom nomi va soni bilan oshxonaga
@@ -3806,12 +3881,17 @@ Future<void> printKitchenTicket({
       },
     ),
   );
-  await Printing.layoutPdf(
-    onLayout: (format) async => doc.save(),
-    name: 'oshpaz_cheki_${DateTime.now().millisecondsSinceEpoch}',
-    format: rollFormat,
-    dynamicLayout: false,
-  );
+  if (!await _acquirePrintLock()) return;
+  try {
+    await Printing.layoutPdf(
+      onLayout: (format) async => doc.save(),
+      name: 'oshpaz_cheki_${DateTime.now().millisecondsSinceEpoch}',
+      format: rollFormat,
+      dynamicLayout: false,
+    );
+  } finally {
+    _releasePrintLock();
+  }
 }
 
 // ============================================================
@@ -13030,79 +13110,108 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  Future<void> _confirmPaid() async {
-    if (confirming) return;
-    if (appState.cart.isEmpty) return;
-    // Agar to'lov turi belgilanmagan bo'lsa, standart Naqd pul sifatida qabul qilamiz
-    if (!payByCash && !payByCard) {
-      payByCash = true;
-    }
-    setState(() => confirming = true);
-    final method = payByCash && payByCard
-        ? PaymentMethod.split
-        : (payByCash ? PaymentMethod.cash : PaymentMethod.card);
-    double cash = 0, card = 0;
-    if (method == PaymentMethod.split) {
-      cash = _payingAmount;
-      card = (_grandTotal - cash).clamp(0, double.infinity).toDouble();
-    } else if (method == PaymentMethod.cash) {
-      cash = _payingAmount < _grandTotal ? _grandTotal : _payingAmount;
-    } else {
-      card = _grandTotal;
-    }
+  static bool _globalCheckoutInProgress = false;
+  static int _lastCheckoutTimestamp = 0;
 
-    Hall? hallBeforeCheckout = appState.selectedHall;
-    if (hallBeforeCheckout == null && appState.selectedTable != null) {
-      for (final h in appState.halls) {
-        if (h.id == appState.selectedTable!.hallId) {
-          hallBeforeCheckout = h;
-          break;
+  Future<void> _confirmPaid() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // 1. Zudlik bilan sinxron bloklash (double-click, triple-click va takroriy bosishlarni 100% to'sadi)
+    if (_globalCheckoutInProgress || (now - _lastCheckoutTimestamp < 3000)) {
+      debugPrint('⚠️ [Payment] To‘lov allaqachon bajarilmoqda yoki bloklangan.');
+      return;
+    }
+    if (confirming || appState.cart.isEmpty) return;
+
+    _globalCheckoutInProgress = true;
+    _lastCheckoutTimestamp = now;
+    setState(() => confirming = true);
+
+    try {
+      // Agar to'lov turi belgilanmagan bo'lsa, standart Naqd pul sifatida qabul qilamiz
+      if (!payByCash && !payByCard) {
+        payByCash = true;
+      }
+      final method = payByCash && payByCard
+          ? PaymentMethod.split
+          : (payByCash ? PaymentMethod.cash : PaymentMethod.card);
+      double cash = 0, card = 0;
+      if (method == PaymentMethod.split) {
+        cash = _payingAmount;
+        card = (_grandTotal - cash).clamp(0, double.infinity).toDouble();
+      } else if (method == PaymentMethod.cash) {
+        cash = _payingAmount < _grandTotal ? _grandTotal : _payingAmount;
+      } else {
+        card = _grandTotal;
+      }
+
+      Hall? hallBeforeCheckout = appState.selectedHall;
+      if (hallBeforeCheckout == null && appState.selectedTable != null) {
+        for (final h in appState.halls) {
+          if (h.id == appState.selectedTable!.hallId) {
+            hallBeforeCheckout = h;
+            break;
+          }
         }
       }
-    }
 
-    if (isTakeaway) {
-      final existingNote = appState.selectedTableNote;
-      if (!existingNote.contains('[Olib ketish]')) {
-        appState.setTableNote('[Olib ketish] $existingNote'.trim());
+      if (isTakeaway) {
+        final existingNote = appState.selectedTableNote;
+        if (!existingNote.contains('[Olib ketish]')) {
+          appState.setTableNote('[Olib ketish] $existingNote'.trim());
+        }
       }
-    }
 
-    // 1. To'lovni qayd qilish va chek obyektini olish
-    final selTable = appState.selectedTable;
-    // Aniq stol va savat asosida deterministik idempotency key (takroriy bosishlarda dublikat chek urilishini 100% to'sadi)
-    final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}';
-    final receipt = appState.checkout(
-      method: method,
-      cashPaid: cash,
-      cardPaid: card,
-      idempotencyKey: ik,
-    );
+      // 1. To'lovni qayd qilish va chek obyektini olish (tranzaksiya Postgresda commit bo'lishini kutamiz)
+      final selTable = appState.selectedTable;
+      final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}';
+      final receipt = await appState.checkout(
+        method: method,
+        cashPaid: cash,
+        cardPaid: card,
+        idempotencyKey: ik,
+      );
 
-    // 2. AVTOMATIK CHEK CHIQARISH: "Xarid cheki" alohida bosilmagan bo'lsa ham, "To'landi" bosilganda chek avtomatik chiqadi!
-    try {
-      printReceipt(receipt, isAutoCheckout: true).catchError((e) {
+      // 2. AVTOMATIK CHEK CHIQARISH: faqat sozlangan tarmoq printeri bo'lsa fonda yuboriladi
+      try {
+        if (appState.printerConfigured) {
+          unawaited(printReceipt(receipt, isAutoCheckout: true));
+        }
+      } catch (e) {
         debugPrint('Avtomatik chek chiqarishda xatolik: $e');
-      });
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('To\'lov qabul qilindi va chek chiqarildi'),
+          backgroundColor: Color(0xFF10B981),
+        ),
+      );
+
+      if (hallBeforeCheckout != null) {
+        appState.selectedHall = hallBeforeCheckout;
+      }
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: 'dashboard'),
+          builder: (_) => const DashboardScreen(),
+        ),
+        (r) => false,
+      );
     } catch (e) {
-      debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+      debugPrint('To‘lovni amalga oshirishda xatolik: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('To‘lovda xatolik yuz berdi: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      _globalCheckoutInProgress = false;
+      if (mounted) setState(() => confirming = false);
     }
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('To\'lov qabul qilindi va chek chiqarildi')));
-
-    if (hallBeforeCheckout != null) {
-      appState.selectedHall = hallBeforeCheckout;
-    }
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        settings: const RouteSettings(name: 'dashboard'),
-        builder: (_) => const DashboardScreen(),
-      ),
-      (r) => false,
-    );
   }
 
   @override

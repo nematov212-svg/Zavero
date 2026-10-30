@@ -136,7 +136,7 @@ const checkout = async (req, res) => {
 
       if (tableId) {
         const idCheck = await client.query(
-          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND id = $2 LIMIT 1',
+          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND id = $2 FOR UPDATE LIMIT 1',
           [cafeId, parseInt(tableId, 10)]
         );
         if (idCheck.rows.length > 0) {
@@ -147,7 +147,7 @@ const checkout = async (req, res) => {
 
       if (!effectiveTableId && effectiveTableNumber) {
         const numCheck = await client.query(
-          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND number = $2 LIMIT 1',
+          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND number = $2 FOR UPDATE LIMIT 1',
           [cafeId, effectiveTableNumber]
         );
         if (numCheck.rows.length > 0) {
