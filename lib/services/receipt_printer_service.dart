@@ -367,16 +367,17 @@ class EscPosBuilder {
 class ThermalPdfGenerator {
   ThermalPdfGenerator._();
 
-  static pw.Document buildReceiptDoc(ReceiptPrintData data, {bool is58mm = false}) {
+  static PdfPageFormat getFormat(ReceiptPrintData data, {bool is58mm = false}) {
     final double widthPt = (is58mm ? 58.0 : 80.0) * PdfPageFormat.mm;
-    const double marginVerticalPt = 1.5 * PdfPageFormat.mm;
-    const double marginHorizontalPt = 2.5 * PdfPageFormat.mm;
+    const double marginVerticalPt = 1.0 * PdfPageFormat.mm;
+    const double marginHorizontalPt = 2.0 * PdfPageFormat.mm;
 
-    final double baseHeight = is58mm ? 470.0 : 490.0;
-    final double dynamicItemsHeight = data.items.length * (is58mm ? 16.0 : 15.0);
+    // Aniq ixcham balandlik: pastda ortiqcha bo'sh joy qoldirmasdan, chiroyli va qulay chiqishini ta'minlaydi
+    final double baseHeight = is58mm ? 255.0 : 277.0;
+    final double dynamicItemsHeight = data.items.length * (is58mm ? 14.5 : 13.5);
     final double totalHeight = baseHeight + dynamicItemsHeight;
 
-    final format = PdfPageFormat(
+    return PdfPageFormat(
       widthPt,
       totalHeight,
       marginTop: marginVerticalPt,
@@ -384,7 +385,10 @@ class ThermalPdfGenerator {
       marginLeft: marginHorizontalPt,
       marginRight: marginHorizontalPt,
     );
+  }
 
+  static pw.Document buildReceiptDoc(ReceiptPrintData data, {bool is58mm = false}) {
+    final format = getFormat(data, is58mm: is58mm);
     final doc = pw.Document();
     final font = pw.Font.helvetica();
     final fontBold = pw.Font.helveticaBold();
@@ -670,13 +674,12 @@ class ReceiptPrinterService {
     }
 
     final doc = ThermalPdfGenerator.buildReceiptDoc(data, is58mm: is58mm);
-    const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
-    final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+    final pageFormat = ThermalPdfGenerator.getFormat(data, is58mm: is58mm);
 
     await Printing.layoutPdf(
       onLayout: (format) async => doc.save(),
       name: 'chek_${data.checkId}',
-      format: rollFormat,
+      format: pageFormat,
       dynamicLayout: false,
     );
   }

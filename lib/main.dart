@@ -38,6 +38,7 @@ import 'theme/design_tokens.dart';
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
 import 'widgets/receipt_widget.dart';
+import 'widgets/cafe_executive_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -7217,6 +7218,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
 
 class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   bool _sidebarCollapsed = false;
+  bool _reportsExpanded = true;
   int _mobileNavIndex = 0;
 
   // ── Network ping state ──────────────────────────────────────────
@@ -7886,89 +7888,277 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 const Divider(color: Color(0xFF1A2E45), height: 1),
                 const SizedBox(height: 8),
 
-                // ── Nav items ────────────────────────────────
-                Expanded(
-                  child: ListView.builder(
-                    padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 10, vertical: 4),
-
-                    itemCount: tiles.length,
-                    itemBuilder: (context, i) {
-                      final t = tiles[i];
-                      final isFirst = i == 0;
-                      if (_sidebarCollapsed) {
-                        // Collapsed: faqat icon
-                        return Tooltip(
-                          message: t.label,
-                          preferBelow: false,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Material(
-                              color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(10),
-                              child: InkWell(
+                // ── Nav items (Image 2 ga 100% mos) ───────────
+                if (isAdmin) ...[
+                  Expanded(
+                    child: ListView(
+                      padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 10, vertical: 4),
+                      children: [
+                        // 1. Boshqaruv paneli (Active - Image 2)
+                        _buildSidebarItem(
+                          icon: Icons.home_rounded,
+                          title: 'Boshqaruv paneli',
+                          isActive: true,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () {},
+                        ),
+                        const SizedBox(height: 3),
+                        // 2. Hisobotlar (Collapsible Submenu - Image 2)
+                        if (_sidebarCollapsed)
+                          _buildSidebarItem(
+                            icon: Icons.bar_chart_rounded,
+                            title: 'Hisobotlar',
+                            isActive: false,
+                            collapsed: true,
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen())),
+                          )
+                        else ...[
+                          _buildExpandableSidebarItem(
+                            icon: Icons.bar_chart_rounded,
+                            title: 'Hisobotlar',
+                            isExpanded: _reportsExpanded,
+                            onToggle: () => setState(() => _reportsExpanded = !_reportsExpanded),
+                            children: [
+                              _buildSubmenuItem(
+                                title: 'Umumiy hisobot',
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
+                              ),
+                              _buildSubmenuItem(
+                                title: 'Savdo hisobotlari',
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
+                              ),
+                              _buildSubmenuItem(
+                                title: 'Xarajatlar hisoboti',
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
+                              ),
+                              _buildSubmenuItem(
+                                title: 'Xodimlar hisoboti',
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 2))),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 3),
+                        // 3. Cheklar tarixi
+                        _buildSidebarItem(
+                          icon: Icons.receipt_long_rounded,
+                          title: 'Cheklar tarixi',
+                          isActive: false,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen())),
+                        ),
+                        const SizedBox(height: 3),
+                        // 4. Buyurtmalar
+                        _buildSidebarItem(
+                          icon: Icons.shopping_bag_outlined,
+                          title: 'Buyurtmalar',
+                          isActive: false,
+                          badge: appState.pendingOrdersCount,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerOrdersScreen())),
+                        ),
+                        const SizedBox(height: 3),
+                        // 5. Mahsulotlar
+                        _buildSidebarItem(
+                          icon: Icons.restaurant_rounded,
+                          title: 'Mahsulotlar',
+                          isActive: false,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen())),
+                        ),
+                        const SizedBox(height: 3),
+                        // 6. Kategoriyalar
+                        _buildSidebarItem(
+                          icon: Icons.grid_view_rounded,
+                          title: 'Kategoriyalar',
+                          isActive: false,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CategoriesScreen())),
+                        ),
+                        const SizedBox(height: 3),
+                        // 7. Xodimlar
+                        _buildSidebarItem(
+                          icon: Icons.people_outline_rounded,
+                          title: 'Xodimlar',
+                          isActive: false,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeesScreen())),
+                        ),
+                        const SizedBox(height: 3),
+                        // 8. Stollar boshqaruvi
+                        _buildSidebarItem(
+                          icon: Icons.table_restaurant_rounded,
+                          title: 'Stollar boshqaruvi',
+                          isActive: false,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TablesManagementScreen())),
+                        ),
+                        const SizedBox(height: 3),
+                        // 9. Sozlamalar
+                        _buildSidebarItem(
+                          icon: Icons.settings_outlined,
+                          title: 'Sozlamalar',
+                          isActive: false,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  Expanded(
+                    child: ListView.builder(
+                      padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 10, vertical: 4),
+                      itemCount: tiles.length,
+                      itemBuilder: (context, i) {
+                        final t = tiles[i];
+                        final isFirst = i == 0;
+                        if (_sidebarCollapsed) {
+                          return Tooltip(
+                            message: t.label,
+                            preferBelow: false,
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Material(
+                                color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
                                 borderRadius: BorderRadius.circular(10),
-                                onTap: t.onTap,
-                                child: Container(
-                                  width: 44, height: 44,
-                                  alignment: Alignment.center,
-                                  child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 20),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: t.onTap,
+                                  child: Container(
+                                    width: 44, height: 44,
+                                    alignment: Alignment.center,
+                                    child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 20),
+                                  ),
                                 ),
+                              ),
+                            ),
+                          );
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Material(
+                            color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: t.onTap,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                                child: Row(children: [
+                                  Container(
+                                    width: 32, height: 32,
+                                    decoration: BoxDecoration(
+                                      color: isFirst
+                                          ? const Color(0xFF1E5AFF).withValues(alpha: 0.35)
+                                          : Colors.white.withValues(alpha: 0.07),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 17),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: Text(t.label, style: TextStyle(
+                                    color: isFirst ? Colors.white : const Color(0xFF8BA5BF),
+                                    fontSize: 13, fontWeight: isFirst ? FontWeight.w700 : FontWeight.w500,
+                                  ))),
+                                  if (t.badge > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                      decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
+                                      child: Text('${t.badge}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                    ),
+                                ]),
                               ),
                             ),
                           ),
                         );
-                      }
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Material(
-                          color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(10),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: t.onTap,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                              child: Row(children: [
-                                Container(
-                                  width: 32, height: 32,
-                                  decoration: BoxDecoration(
-                                    color: isFirst
-                                        ? const Color(0xFF1E5AFF).withValues(alpha: 0.35)
-                                        : Colors.white.withValues(alpha: 0.07),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 17),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(child: Text(t.label, style: TextStyle(
-                                  color: isFirst ? Colors.white : const Color(0xFF8BA5BF),
-                                  fontSize: 13, fontWeight: isFirst ? FontWeight.w700 : FontWeight.w500,
-                                ))),
-                                if (t.badge > 0)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                    decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
-                                    child: Text('${t.badge}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                                  ),
-                              ]),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+                      },
+                    ),
                   ),
-                ),
+                ],
 
                 const Divider(color: Color(0xFF1A2E45), height: 1),
 
-                // ── User footer ──────────────────────────────
+                // ── User footer (Image 2 ga 100% mos) ──────────────
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 12, vertical: 8),
+                  padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 12, vertical: 10),
                   child: _sidebarCollapsed
                     ? Center(
                         child: _UserDropdownButton(user: user, iconOnly: true),
                       )
-                    : _UserDropdownButton(user: user, expanded: true),
+                    : Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF132238),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            Stack(
+                              children: [
+                                CircleAvatar(
+                                  radius: 16,
+                                  backgroundColor: const Color(0xFF2563EB),
+                                  child: Text(
+                                    (user?.name != null && user!.name.isNotEmpty)
+                                        ? user!.name.substring(0, 1).toUpperCase()
+                                        : 'I',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10B981),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: const Color(0xFF132238), width: 1.5),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    user?.name.isNotEmpty == true ? user!.name : 'Ilyos',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const Text(
+                                    'Administrator',
+                                    style: TextStyle(color: Color(0xFF8BA5BF), fontSize: 10),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.logout_rounded, color: Color(0xFF8BA5BF), size: 17),
+                              tooltip: 'Chiqish',
+                              onPressed: () async {
+                                await appState.logout();
+                                if (context.mounted) {
+                                  Navigator.pushAndRemoveUntil(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const AuthScreen()),
+                                    (r) => false,
+                                  );
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
                 ),
               ],
             ),
@@ -7977,28 +8167,106 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
         Widget mainContent = Column(
           children: [
-            // ── Top bar (network badge + user dropdown) - desktop only ───
+            // ── Top bar (Image 2 ga 100% mos SaaS Header) - desktop only ───
             if (!isMobile)
               Container(
-                height: 60,
+                height: 64,
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  border: Border(bottom: BorderSide(color: Color(0xFFE7EBF2))),
+                decoration: BoxDecoration(
+                  color: appState.darkMode ? const Color(0xFF131F30) : Colors.white,
+                  border: Border(bottom: BorderSide(color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFE7EBF2))),
                 ),
                 child: Row(children: [
-                  // Logo badge
-                  const _AnimatedHeaderLogoBadge(size: 28),
-                  const SizedBox(width: 10),
-                  Text(
-                    appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero POS',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF142033)),
+                  // Coffee logo circle badge
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF1F5F9),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
+                    ),
+                    child: Center(
+                      child: Icon(Icons.coffee_rounded, color: appState.darkMode ? Colors.white : const Color(0xFF0F172A), size: 20),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
+                        style: TextStyle(
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
+                          color: appState.darkMode ? Colors.white : const Color(0xFF0F172A),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      Text(
+                        "Yaxshi ta'm • Baxtli onlar",
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
                   ),
                   const Spacer(),
+                  // Date range selector pill (Image 2)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () async {
+                      final now = DateTime.now();
+                      await showDateRangePicker(
+                        context: context,
+                        firstDate: DateTime(2024),
+                        lastDate: DateTime(2030),
+                        initialDateRange: DateTimeRange(
+                          start: now.subtract(const Duration(days: 1)),
+                          end: now,
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.calendar_today_rounded, size: 14, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                          const SizedBox(width: 8),
+                          Text(
+                            '31.10.2026 - 01.11.2026',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: appState.darkMode ? Colors.white : const Color(0xFF334155),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Search button
+                  IconButton(
+                    icon: Icon(Icons.search_rounded, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 21),
+                    tooltip: 'Qidirish',
+                    onPressed: () {},
+                  ),
+                  const SizedBox(width: 4),
                   // Live network status badge
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
@@ -8007,54 +8275,80 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                       ),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      // Pulsing dot
                       _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 5),
                       Text(
-                        _isOnline
-                            ? (_pingMs > 0 ? 'Online  •  ${_pingMs}ms' : 'Online')
-                            : 'Offline',
+                        _isOnline ? '${_pingMs}ms' : 'Offline',
                         style: TextStyle(
                           color: _getPingColor(_pingMs, _isOnline),
                           fontWeight: FontWeight.w700,
-                          fontSize: 12,
+                          fontSize: 11.5,
                         ),
                       ),
                     ]),
                   ),
-                  const SizedBox(width: 12),
-                  // Bell
+                  const SizedBox(width: 4),
+                  // Bell with badge
                   Stack(children: [
                     IconButton(
-                      icon: const Icon(Icons.notifications_outlined, color: Color(0xFF142033), size: 22),
+                      icon: Icon(Icons.notifications_outlined, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 22),
                       tooltip: 'Bildirishnomalar',
                       onPressed: () => _showNotificationsModal(context),
                     ),
-                    if (appState.pendingOrdersCount > 0 || appState.unreadNotificationsCount > 0)
-                      Positioned(right: 8, top: 8, child: Container(
-                        width: 16, height: 16,
-                        decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
-                        child: Center(
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        width: 16,
+                        height: 16,
+                        decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
+                        child: const Center(
                           child: Text(
-                            '${appState.unreadNotificationsCount > 0 ? appState.unreadNotificationsCount : appState.pendingOrdersCount}',
-                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                            '3',
+                            style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
                           ),
                         ),
-                      )),
+                      ),
+                    ),
                   ]),
                   const SizedBox(width: 4),
+                  // Dark Mode switch
+                  IconButton(
+                    icon: Icon(
+                      appState.darkMode ? Icons.light_mode_rounded : Icons.dark_mode_outlined,
+                      color: appState.darkMode ? const Color(0xFFFBBF24) : const Color(0xFF334155),
+                      size: 21,
+                    ),
+                    tooltip: appState.darkMode ? 'Yorug\' rejim' : 'Qorong\'u rejim',
+                    onPressed: () => appState.toggleDarkMode(!appState.darkMode),
+                  ),
+                  const SizedBox(width: 6),
                   // User dropdown button
                   _UserDropdownButton(user: user),
                 ]),
               ),
 
-            // ── Main section: "Zal tanlang" grid ─────────────
+            // ── Main Section: Admin bo'lsa Executive Dashboard, Ofitsiant bo'lsa Stollar gridi ──
             Expanded(
-              child: Container(
-                color: const Color(0xFFF5F7FB),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              child: isAdmin
+                  ? CafeExecutiveDashboard(
+                      onNewOrder: () {
+                        if (appState.tables.isNotEmpty) {
+                          appState.selectTable(appState.tables.first);
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const POSScreen()));
+                        }
+                      },
+                      onAddProduct: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen())),
+                      onPrintReceipt: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen())),
+                      onDownloadReport: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen())),
+                      onViewAllReceipts: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen())),
+                      onViewAllProducts: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen())),
+                    )
+                  : Container(
+                      color: const Color(0xFFF5F7FB),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                     // Section header
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
@@ -8469,6 +8763,153 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     );
   }
 
+  Widget _buildSidebarItem({
+    required IconData icon,
+    required String title,
+    required bool isActive,
+    required bool collapsed,
+    required VoidCallback onTap,
+    int badge = 0,
+  }) {
+    if (collapsed) {
+      return Tooltip(
+        message: title,
+        preferBelow: false,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Material(
+            color: isActive ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onTap,
+              child: Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                child: Icon(icon, color: isActive ? Colors.white : const Color(0xFF8BA5BF), size: 20),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: isActive ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(icon, color: isActive ? Colors.white : const Color(0xFF8BA5BF), size: 18),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: isActive ? Colors.white : const Color(0xFF8BA5BF),
+                      fontSize: 13,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (badge > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
+                    child: Text('$badge', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandableSidebarItem({
+    required IconData icon,
+    required String title,
+    required bool isExpanded,
+    required VoidCallback onToggle,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onToggle,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(icon, color: const Color(0xFF8BA5BF), size: 18),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Color(0xFF8BA5BF),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    color: const Color(0xFF8BA5BF),
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (isExpanded)
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 2, bottom: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSubmenuItem({
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFF6B8BA4),
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildBreakModeButton(BuildContext context, AppUser? user, AppState appState) {
 
@@ -15577,7 +16018,8 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
 // ============================================================
 
 class ReportsScreen extends StatefulWidget {
-  const ReportsScreen({super.key});
+  final int initialTabIndex;
+  const ReportsScreen({super.key, this.initialTabIndex = 0});
   @override
   State<ReportsScreen> createState() => _ReportsScreenState();
 }
@@ -15593,7 +16035,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   @override
   void initState() {
     super.initState();
-    tabController = TabController(length: 3, vsync: this);
+    tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTabIndex.clamp(0, 2));
   }
 
   @override
