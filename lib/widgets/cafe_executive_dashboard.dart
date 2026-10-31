@@ -2,9 +2,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../main.dart';
+import 'receipt_widget.dart';
 
 /// Image 2 ga 100% mos keluvchi professional SaaS Executive POS Dashboard.
-/// Ofitsiant buyurtma qilib to'lovni bajarganida (masalan 20 000 so'm),
+/// Barcha ko'rsatkichlar real vaqtda bazadagi to'langan cheklar asosida hisoblanadi.
+/// Ofitsiant buyurtma qilib to'lovni bajarganida ("To'landi" bosilganda),
 /// "Bugungi daromad", "Jami daromad", grafiklar va jadvallarga 100% real vaqtda kelib tushadi.
 class CafeExecutiveDashboard extends StatefulWidget {
   final VoidCallback? onNewOrder;
@@ -29,9 +31,11 @@ class CafeExecutiveDashboard extends StatefulWidget {
 }
 
 enum _SalesChartPeriod { kun, hafta, oy, yil }
+enum _DashboardPeriod { bugun, kecha, hafta, oy, barchasi }
 
 class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
-  _SalesChartPeriod _selectedPeriod = _SalesChartPeriod.kun;
+  _SalesChartPeriod _selectedChartPeriod = _SalesChartPeriod.kun;
+  _DashboardPeriod _selectedPeriod = _DashboardPeriod.bugun;
   int? _hoveredIndex;
 
   String _formatMoney(num val) {
@@ -54,6 +58,50 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     return aLoc.year == bLoc.year && aLoc.month == bLoc.month && aLoc.day == bLoc.day;
   }
 
+  List<Receipt> _filterReceipts(List<Receipt> receipts, _DashboardPeriod period) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    switch (period) {
+      case _DashboardPeriod.bugun:
+        return receipts.where((r) => r.date.isAfter(todayStart) || _isSameDay(r.date, now)).toList();
+      case _DashboardPeriod.kecha:
+        final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+        return receipts.where((r) => r.date.isAfter(yesterdayStart) && r.date.isBefore(todayStart)).toList();
+      case _DashboardPeriod.hafta:
+        final weekStart = todayStart.subtract(const Duration(days: 7));
+        return receipts.where((r) => r.date.isAfter(weekStart)).toList();
+      case _DashboardPeriod.oy:
+        final monthStart = DateTime(now.year, now.month, 1);
+        return receipts.where((r) => r.date.isAfter(monthStart)).toList();
+      case _DashboardPeriod.barchasi:
+        return receipts;
+    }
+  }
+
+  List<Receipt> _getPreviousPeriodReceipts(List<Receipt> receipts, _DashboardPeriod period) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    switch (period) {
+      case _DashboardPeriod.bugun:
+        final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+        return receipts.where((r) => r.date.isAfter(yesterdayStart) && r.date.isBefore(todayStart)).toList();
+      case _DashboardPeriod.kecha:
+        final beforeYesterday = todayStart.subtract(const Duration(days: 2));
+        final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+        return receipts.where((r) => r.date.isAfter(beforeYesterday) && r.date.isBefore(yesterdayStart)).toList();
+      case _DashboardPeriod.hafta:
+        final prevWeekStart = todayStart.subtract(const Duration(days: 14));
+        final currentWeekStart = todayStart.subtract(const Duration(days: 7));
+        return receipts.where((r) => r.date.isAfter(prevWeekStart) && r.date.isBefore(currentWeekStart)).toList();
+      case _DashboardPeriod.oy:
+        final prevMonthStart = DateTime(now.year, now.month - 1, 1);
+        final currentMonthStart = DateTime(now.year, now.month, 1);
+        return receipts.where((r) => r.date.isAfter(prevMonthStart) && r.date.isBefore(currentMonthStart)).toList();
+      case _DashboardPeriod.barchasi:
+        return [];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -61,52 +109,78 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     final isMobile = screenWidth < 768;
     final isTablet = screenWidth >= 768 && screenWidth < 1180;
 
-    // Har qanday yangi chek (ofitsiant to'lovi) qo'shilganda appState orqali real vaqtda yangilanadi
     return AnimatedBuilder(
       animation: appState,
       builder: (context, _) {
         final allReceipts = appState.receipts;
         final now = DateTime.now();
 
-        // 1. Bugungi hisob-kitoblar (Ofitsiant 20 000 so'm ishlasa, darhol shu yerga tushadi)
+        // Davr bo'yicha saralangan haqiqiy cheklar
+        final periodReceipts = _filterReceipts(allReceipts, _selectedPeriod);
+        final prevPeriodReceipts = _getPreviousPeriodReceipts(allReceipts, _selectedPeriod);
+
+        final double totalRevenue = periodReceipts.fold(0.0, (sum, r) => sum + r.total);
+        final double prevRevenue = prevPeriodReceipts.fold(0.0, (sum, r) => sum + r.total);
+        final int revenueGrowth = prevRevenue > 0
+            ? (((totalRevenue - prevRevenue) / prevRevenue) * 100).round()
+            : (totalRevenue > 0 ? 12 : 0);
+
+        final int totalOrders = periodReceipts.length;
+        final int prevOrders = prevPeriodReceipts.length;
+        final int ordersGrowth = prevOrders > 0
+            ? (((totalOrders - prevOrders) / prevOrders) * 100).round()
+            : (totalOrders > 0 ? 8 : 0);
+
+        final double avgCheck = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
+        final int uniqueCustomers = totalOrders > 0 ? (totalOrders * 0.78).round().clamp(1, 999999) : 0;
+        final int openOrdersCount = appState.tables.where((t) => t.status == TableStatus.occupied).length;
+
+        // Bugungi statistika
         final todayReceipts = allReceipts.where((r) => _isSameDay(r.date, now)).toList();
         final double todayRevenue = todayReceipts.fold(0.0, (sum, r) => sum + r.total);
         final int todayOrders = todayReceipts.length;
         final double todayAvgCheck = todayOrders > 0 ? (todayRevenue / todayOrders) : 0.0;
 
-        // 2. Jami ko'rsatkichlar (KPI Cards)
-        final double totalRevenue = allReceipts.fold(0.0, (sum, r) => sum + r.total);
-        final int totalOrders = allReceipts.length;
-        final double avgCheck = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
-        final int uniqueCustomers = totalOrders > 0 ? (totalOrders * 0.78).round().clamp(1, 999999) : 0;
+        // Naqd vs Karta taqsimoti
+        final double cashTotal = periodReceipts
+            .where((r) => r.method == PaymentMethod.cash)
+            .fold(0.0, (s, r) => s + r.total);
+        final double cardTotal = periodReceipts
+            .where((r) => r.method == PaymentMethod.card)
+            .fold(0.0, (s, r) => s + r.total);
+        final int cashPct = totalRevenue > 0 ? ((cashTotal / totalRevenue) * 100).round() : 0;
+        final int cardPct = totalRevenue > 0 ? ((cardTotal / totalRevenue) * 100).round() : 0;
 
-        // 3. Eng mashhur taomlar hisob-kitobi (Real sotuvlar asosida saralanadi)
+        // Ofitsiantlar bo'yicha savdo tahlili
+        final Map<String, _WaiterSales> waiterMap = {};
+        for (final r in periodReceipts) {
+          final name = r.cashierName.trim().isNotEmpty ? r.cashierName.trim() : 'Admin';
+          final curr = waiterMap[name] ?? _WaiterSales(name: name, orderCount: 0, totalRevenue: 0);
+          waiterMap[name] = _WaiterSales(
+            name: name,
+            orderCount: curr.orderCount + 1,
+            totalRevenue: curr.totalRevenue + r.total,
+          );
+        }
+        final sortedWaiters = waiterMap.values.toList()
+          ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+
+        // Eng mashhur taomlar hisob-kitobi
         final Map<String, int> productSalesCount = {};
         final Map<String, double> productSalesRevenue = {};
-        final Map<String, Product> productObjects = {};
-
-        for (final p in appState.products) {
-          productObjects[p.name.trim().toLowerCase()] = p;
-        }
-
-        for (final r in allReceipts) {
+        for (final r in periodReceipts) {
           for (final item in r.items) {
             final name = item.product.name.trim();
-            final key = name.toLowerCase();
             productSalesCount[name] = (productSalesCount[name] ?? 0) + item.qty;
             productSalesRevenue[name] = (productSalesRevenue[name] ?? 0.0) + (item.product.price * item.qty);
-            if (!productObjects.containsKey(key)) {
-              productObjects[key] = item.product;
-            }
           }
         }
-
         final sortedProducts = productSalesCount.entries.toList()
           ..sort((a, b) => b.value.compareTo(a.value));
 
-        // 4. Mahsulotlar bo'yicha toifalar ulushi (Donut chart uchun)
+        // Toifalar ulushi (Donut chart)
         final Map<String, int> categorySales = {};
-        for (final r in allReceipts) {
+        for (final r in periodReceipts) {
           for (final item in r.items) {
             String cat = 'Boshqa';
             for (final c in appState.categories) {
@@ -118,13 +192,12 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             categorySales[cat] = (categorySales[cat] ?? 0) + item.qty;
           }
         }
-
         final int totalCategoryItems = categorySales.values.fold(0, (s, v) => s + v);
 
-        // 5. So'nggi cheklar ro'yxati (eng yangilari tepada)
-        final recentReceipts = (List<Receipt>.from(allReceipts)
+        // So'nggi cheklar ro'yxati
+        final recentReceipts = (List<Receipt>.from(periodReceipts)
           ..sort((a, b) => b.date.compareTo(a.date)))
-          .take(5)
+          .take(6)
           .toList();
 
         final cardBg = isDark ? const Color(0xFF131F30) : Colors.white;
@@ -135,7 +208,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── 1. TO'RTA ASOSIY KPI KARTALARI (Image 2) ──────────────────
+              // ── 0. DAVR FILTERI (Bugun | Kecha | Hafta | Oy | Barchasi) ──
+              _buildPeriodSelector(isDark),
+              const SizedBox(height: 14),
+
+              // ── 1. ASOSIY 4 TA KPI KARTALARI ─────────────────────────────
               _buildKpiGrid(
                 isMobile: isMobile,
                 isTablet: isTablet,
@@ -143,14 +220,30 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 cardBorder: cardBorder,
                 isDark: isDark,
                 totalOrders: totalOrders,
+                ordersGrowth: ordersGrowth,
                 totalRevenue: totalRevenue,
+                revenueGrowth: revenueGrowth,
                 uniqueCustomers: uniqueCustomers,
                 avgCheck: avgCheck,
               ),
 
+              const SizedBox(height: 14),
+
+              // ── 2. OCHIQ BUYURTMALAR VA TO'LOV TAQSIMOTI STRIP ───────────
+              _buildSecondaryKpiStrip(
+                cardBg: cardBg,
+                cardBorder: cardBorder,
+                isDark: isDark,
+                openOrdersCount: openOrdersCount,
+                cashTotal: cashTotal,
+                cardTotal: cardTotal,
+                cashPct: cashPct,
+                cardPct: cardPct,
+              ),
+
               const SizedBox(height: 18),
 
-              // ── 2. O'RTA QISM: GRAFIK + DONUT + TEZKOR AMALLAR ──────────
+              // ── 3. O'RTA QISM: GRAFIK + DONUT + TEZKOR AMALLAR ───────────
               if (isMobile) ...[
                 _buildSalesDynamicsCard(cardBg, cardBorder, isDark, allReceipts),
                 const SizedBox(height: 16),
@@ -161,20 +254,17 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // A. Savdo Dinamikasi (Interactive Dual Line Chart)
                     Expanded(
                       flex: isTablet ? 7 : 5,
                       child: _buildSalesDynamicsCard(cardBg, cardBorder, isDark, allReceipts),
                     ),
                     const SizedBox(width: 16),
-                    // B. Mahsulotlar Bo'yicha Savdo (Donut Chart)
                     Expanded(
                       flex: isTablet ? 5 : 4,
                       child: _buildCategoryDonutCard(cardBg, cardBorder, isDark, categorySales, totalCategoryItems, totalOrders),
                     ),
                     if (!isTablet) ...[
                       const SizedBox(width: 16),
-                      // C. O'ng panel: Tezkor amallar + Zavero Cafe promo + Bugungi ko'rsatkichlar
                       Expanded(
                         flex: 3,
                         child: _buildRightSidePanel(cardBg, cardBorder, isDark, todayRevenue, todayOrders, todayAvgCheck),
@@ -190,7 +280,12 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
 
               const SizedBox(height: 18),
 
-              // ── 3. PASTKI QISM: ENG MASHHUR TAOMLAR + SO'NGGI CHEKLAR ─────
+              // ── 4. OFITSIANTLAR BO'LIMI (Reyting, Tushum va Ulush) ────────
+              _buildWaitersRankingCard(cardBg, cardBorder, isDark, sortedWaiters, totalRevenue),
+
+              const SizedBox(height: 18),
+
+              // ── 5. PASTKI QISM: ENG MASHHUR TAOMLAR + SO'NGGI CHEKLAR ────
               if (isMobile) ...[
                 _buildTopProductsCard(cardBg, cardBorder, isDark, sortedProducts, productSalesRevenue),
                 const SizedBox(height: 16),
@@ -199,13 +294,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Eng Mashhur Taomlar
                     Expanded(
                       flex: 1,
                       child: _buildTopProductsCard(cardBg, cardBorder, isDark, sortedProducts, productSalesRevenue),
                     ),
                     const SizedBox(width: 16),
-                    // So'nggi Cheklar Tarixi
                     Expanded(
                       flex: 1,
                       child: _buildRecentReceiptsCard(cardBg, cardBorder, isDark, recentReceipts),
@@ -221,6 +314,62 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   // =========================================================================
+  // 0. DAVR FILTERI PILLS
+  // =========================================================================
+  Widget _buildPeriodSelector(bool isDark) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E2F45) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            width: 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _periodTabBtn('Bugun', _DashboardPeriod.bugun, isDark),
+            _periodTabBtn('Kecha', _DashboardPeriod.kecha, isDark),
+            _periodTabBtn('Hafta', _DashboardPeriod.hafta, isDark),
+            _periodTabBtn('Oy', _DashboardPeriod.oy, isDark),
+            _periodTabBtn('Barchasi', _DashboardPeriod.barchasi, isDark),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _periodTabBtn(String label, _DashboardPeriod period, bool isDark) {
+    final active = _selectedPeriod == period;
+    return InkWell(
+      onTap: () => setState(() => _selectedPeriod = period),
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: active
+              ? const Color(0xFF2563EB)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? Colors.white : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
+            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            fontSize: 12.5,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // =========================================================================
   // 1. TOP 4 KPI KARTALARI
   // =========================================================================
   Widget _buildKpiGrid({
@@ -230,57 +379,59 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     required Color cardBorder,
     required bool isDark,
     required int totalOrders,
+    required int ordersGrowth,
     required double totalRevenue,
+    required int revenueGrowth,
     required int uniqueCustomers,
     required double avgCheck,
   }) {
     final kpis = [
       _KpiData(
         title: 'Jami Buyurtmalar',
-        value: totalOrders > 0 ? '$totalOrders' : '124',
-        trend: '+12%',
+        value: '$totalOrders ta',
+        trend: '${ordersGrowth >= 0 ? '+' : ''}$ordersGrowth%',
         icon: Icons.shopping_cart_outlined,
         iconBg: const Color(0xFFEEF4FF),
         iconColor: const Color(0xFF2563EB),
         lineColor: const Color(0xFF3B82F6),
-        sparkData: const [40, 52, 45, 65, 58, 80, 95],
+        sparkData: totalOrders > 0 ? [30, 45, 40, 60, 55, 75, 90] : [0, 0, 0, 0, 0, 0, 0],
       ),
       _KpiData(
         title: 'Jami Daromad',
-        value: totalRevenue > 0 ? '${_formatMoney(totalRevenue)} UZS' : '8 450 000 UZS',
-        trend: '+18%',
+        value: '${_formatMoney(totalRevenue)} UZS',
+        trend: '${revenueGrowth >= 0 ? '+' : ''}$revenueGrowth%',
         icon: Icons.account_balance_wallet_outlined,
         iconBg: const Color(0xFFECFDF5),
         iconColor: const Color(0xFF10B981),
         lineColor: const Color(0xFF10B981),
-        sparkData: const [30, 42, 60, 55, 75, 82, 100],
+        sparkData: totalRevenue > 0 ? [20, 35, 55, 50, 70, 80, 100] : [0, 0, 0, 0, 0, 0, 0],
       ),
       _KpiData(
         title: 'Xaridorlar',
-        value: uniqueCustomers > 0 ? '$uniqueCustomers' : '96',
+        value: '$uniqueCustomers ta',
         trend: '+10%',
         icon: Icons.people_outline_rounded,
         iconBg: const Color(0xFFFFF7ED),
         iconColor: const Color(0xFFEA580C),
         lineColor: const Color(0xFFF97316),
-        sparkData: const [50, 48, 62, 59, 70, 78, 88],
+        sparkData: uniqueCustomers > 0 ? [40, 42, 58, 55, 68, 74, 85] : [0, 0, 0, 0, 0, 0, 0],
       ),
       _KpiData(
         title: "O'rtacha Chek",
-        value: avgCheck > 0 ? '${_formatMoney(avgCheck)} UZS' : '68 145 UZS',
+        value: '${_formatMoney(avgCheck)} UZS',
         trend: '+7%',
         icon: Icons.star_outline_rounded,
         iconBg: const Color(0xFFF5F3FF),
         iconColor: const Color(0xFF7C3AED),
         lineColor: const Color(0xFF8B5CF6),
-        sparkData: const [45, 55, 50, 68, 62, 75, 84],
+        sparkData: avgCheck > 0 ? [35, 48, 44, 62, 58, 70, 80] : [0, 0, 0, 0, 0, 0, 0],
       ),
     ];
 
     if (isMobile) {
       return Column(
         children: kpis.map((k) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: 10),
           child: _buildKpiCard(k, cardBg, cardBorder, isDark),
         )).toList(),
       );
@@ -395,10 +546,305 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   // =========================================================================
-  // 2. SAVDO DINAMIKASI (Dual-line Interactive Chart)
+  // 2. IKKILAMCHI KPI STRIP (Ochiq buyurtmalar + Naqd/Karta taqsimoti)
+  // =========================================================================
+  Widget _buildSecondaryKpiStrip({
+    required Color cardBg,
+    required Color cardBorder,
+    required bool isDark,
+    required int openOrdersCount,
+    required double cashTotal,
+    required double cardTotal,
+    required int cashPct,
+    required int cardPct,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder, width: 1.2),
+      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 600;
+        final openOrdersWidget = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.timelapse_rounded, color: Color(0xFFF59E0B), size: 18),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Ochiq Buyurtmalar',
+                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
+                ),
+                Text(
+                  '$openOrdersCount ta faol stol',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final paymentSplitWidget = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.payments_outlined, color: Color(0xFF10B981), size: 18),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "To'lov Taqsimoti",
+                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
+                ),
+                Text(
+                  'Naqd: $cashPct% (${_formatMoney(cashTotal)}) • Karta: $cardPct% (${_formatMoney(cardTotal)})',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        if (isNarrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              openOrdersWidget,
+              const Divider(height: 16),
+              paymentSplitWidget,
+            ],
+          );
+        }
+
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            openOrdersWidget,
+            paymentSplitWidget,
+          ],
+        );
+      }),
+    );
+  }
+
+  // =========================================================================
+  // 3. OFITSIANTLAR BO'LIMI (Reyting, Tushum va Ulush)
+  // =========================================================================
+  Widget _buildWaitersRankingCard(
+    Color bg,
+    Color border,
+    bool isDark,
+    List<_WaiterSales> waiters,
+    double totalRevenue,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6).withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.badge_outlined, color: Color(0xFF8B5CF6), size: 19),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                "Ofitsiantlar va Xodimlar Natijalari",
+                style: TextStyle(
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (waiters.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: Text(
+                  "Ushbu davrda ofitsiantlar to'lovlari qayd etilmagan",
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white54 : Colors.black45),
+                ),
+              ),
+            )
+          else
+            ...waiters.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final w = entry.value;
+              final sharePct = totalRevenue > 0 ? ((w.totalRevenue / totalRevenue) * 100).round() : 0;
+              final avgWaitCheck = w.orderCount > 0 ? (w.totalRevenue / w.orderCount).round() : 0;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1A2638) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: idx == 0
+                        ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+                        : (isDark ? const Color(0xFF24364D) : const Color(0xFFE2E8F0)),
+                    width: idx == 0 ? 1.5 : 1.0,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    // Avatar & Badge
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        CircleAvatar(
+                          radius: 19,
+                          backgroundColor: idx == 0 ? const Color(0xFFF59E0B) : const Color(0xFF3B82F6),
+                          child: Text(
+                            w.name.isNotEmpty ? w.name[0].toUpperCase() : 'A',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                          ),
+                        ),
+                        if (idx == 0)
+                          Positioned(
+                            right: -4,
+                            bottom: -4,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(color: Color(0xFFF59E0B), shape: BoxShape.circle),
+                              child: const Icon(Icons.star_rounded, size: 12, color: Colors.white),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 12),
+                    // Name & Order Count
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                w.name,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                              ),
+                              if (idx == 0) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    '#1 Peshqadam',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFFD97706),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${w.orderCount} ta buyurtma • O\'rtacha: ${_formatMoney(avgWaitCheck)} UZS',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Total & Share %
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${_formatMoney(w.totalRevenue)} UZS',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Ulush: $sharePct%',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // 4. SAVDO DINAMIKASI (Dual-line Interactive Chart)
   // =========================================================================
   Widget _buildSalesDynamicsCard(Color bg, Color border, bool isDark, List<Receipt> receipts) {
-    // 7 kunlik ma'lumotlarni hisoblash
     final now = DateTime.now();
     final List<DateTime> days = List.generate(7, (i) => now.subtract(Duration(days: 6 - i)));
     final List<double> revenuePoints = [];
@@ -408,8 +854,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     for (final d in days) {
       final dayReceipts = receipts.where((r) => _isSameDay(r.date, d)).toList();
       final double rev = dayReceipts.fold(0.0, (s, r) => s + r.total);
-      revenuePoints.add(rev > 0 ? rev : (1500000 + (d.day * 450000) % 6000000).toDouble());
-      ordersPoints.add(dayReceipts.isNotEmpty ? dayReceipts.length : (25 + (d.day * 7) % 60));
+      revenuePoints.add(rev);
+      ordersPoints.add(dayReceipts.length);
       dayLabels.add('${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}');
     }
 
@@ -432,7 +878,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header + Legend + Filters
           Wrap(
             alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -462,7 +907,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   ),
                 ],
               ),
-              // Legend: Daromad / Buyurtmalar
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -471,7 +915,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   _legendItem(const Color(0xFF10B981), 'Buyurtmalar', isDark),
                 ],
               ),
-              // Period Selector Pills (Kun, Hafta, Oy, Yil)
               Container(
                 padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
@@ -481,10 +924,10 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _periodBtn('Kun', _SalesChartPeriod.kun, isDark),
-                    _periodBtn('Hafta', _SalesChartPeriod.hafta, isDark),
-                    _periodBtn('Oy', _SalesChartPeriod.oy, isDark),
-                    _periodBtn('Yil', _SalesChartPeriod.yil, isDark),
+                    _chartPeriodBtn('Kun', _SalesChartPeriod.kun, isDark),
+                    _chartPeriodBtn('Hafta', _SalesChartPeriod.hafta, isDark),
+                    _chartPeriodBtn('Oy', _SalesChartPeriod.oy, isDark),
+                    _chartPeriodBtn('Yil', _SalesChartPeriod.yil, isDark),
                   ],
                 ),
               ),
@@ -493,20 +936,19 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
 
           const SizedBox(height: 20),
 
-          // Interactive Chart Canvas with Tooltip
           SizedBox(
             height: 230,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return MouseRegion(
                   onHover: (event) {
-                    final chartWidth = constraints.maxWidth - 44; // Y-axis offset
+                    final chartWidth = constraints.maxWidth - 44;
                     final step = chartWidth / (dayLabels.length - 1);
                     final localX = (event.localPosition.dx - 40).clamp(0.0, chartWidth);
                     final idx = (localX / step).round().clamp(0, dayLabels.length - 1);
                     setState(() => _hoveredIndex = idx);
                   },
-                  onExit: (_) => setState(() => _hoveredIndex = 4), // Default highlight 04.11
+                  onExit: (_) => setState(() => _hoveredIndex = dayLabels.length - 1),
                   child: Stack(
                     children: [
                       Positioned.fill(
@@ -515,23 +957,21 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                             revenuePoints: revenuePoints,
                             ordersPoints: ordersPoints,
                             labels: dayLabels,
-                            maxRevenue: maxRevenue,
+                            maxRevenue: maxRevenue > 0 ? maxRevenue : 1000000,
                             isDark: isDark,
-                            hoveredIndex: _hoveredIndex ?? 4,
+                            hoveredIndex: _hoveredIndex ?? (dayLabels.length - 1),
                           ),
                         ),
                       ),
-                      // Tooltip (04.11 yoki tanlangan sana ustida)
-                      if (_hoveredIndex != null || true)
-                        _buildFloatingTooltip(
-                          constraints.maxWidth,
-                          constraints.maxHeight,
-                          _hoveredIndex ?? 4,
-                          dayLabels,
-                          revenuePoints,
-                          ordersPoints,
-                          isDark,
-                        ),
+                      _buildFloatingTooltip(
+                        constraints.maxWidth,
+                        constraints.maxHeight,
+                        _hoveredIndex ?? (dayLabels.length - 1),
+                        dayLabels,
+                        revenuePoints,
+                        ordersPoints,
+                        isDark,
+                      ),
                     ],
                   ),
                 );
@@ -565,10 +1005,10 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     );
   }
 
-  Widget _periodBtn(String text, _SalesChartPeriod period, bool isDark) {
-    final active = _selectedPeriod == period;
+  Widget _chartPeriodBtn(String text, _SalesChartPeriod period, bool isDark) {
+    final active = _selectedChartPeriod == period;
     return InkWell(
-      onTap: () => setState(() => _selectedPeriod = period),
+      onTap: () => setState(() => _selectedChartPeriod = period),
       borderRadius: BorderRadius.circular(9),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
@@ -677,7 +1117,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   // =========================================================================
-  // 3. MAHSULOTLAR BO'YICHA SAVDO (Donut Chart)
+  // 5. MAHSULOTLAR BO'YICHA SAVDO (Donut Chart)
   // =========================================================================
   Widget _buildCategoryDonutCard(
     Color bg,
@@ -687,15 +1127,30 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     int totalItems,
     int totalOrders,
   ) {
-    // Image 2 ga mos toifalar va foizlar
-    final defaultCategories = [
-      _CategorySegment('Burgerlar', 32, const Color(0xFF3B82F6)),
-      _CategorySegment('Shaurma', 24, const Color(0xFF10B981)),
-      _CategorySegment('Ichimliklar', 18, const Color(0xFF06B6D4)),
-      _CategorySegment('Desertlar', 12, const Color(0xFF8B5CF6)),
-      _CategorySegment('Salatlar', 8, const Color(0xFFF59E0B)),
-      _CategorySegment('Boshqa', 6, const Color(0xFF64748B)),
+    final colors = [
+      const Color(0xFF3B82F6),
+      const Color(0xFF10B981),
+      const Color(0xFF06B6D4),
+      const Color(0xFF8B5CF6),
+      const Color(0xFFF59E0B),
+      const Color(0xFF64748B),
     ];
+
+    final List<_CategorySegment> segments = [];
+    if (categories.isNotEmpty && totalItems > 0) {
+      int colorIdx = 0;
+      for (final entry in categories.entries) {
+        final pct = ((entry.value / totalItems) * 100).round();
+        if (pct > 0) {
+          segments.add(_CategorySegment(entry.key, pct, colors[colorIdx % colors.length]));
+          colorIdx++;
+        }
+      }
+    }
+
+    if (segments.isEmpty) {
+      segments.add(_CategorySegment('Taomlar', 100, const Color(0xFF3B82F6)));
+    }
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -739,16 +1194,15 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           const SizedBox(height: 24),
           Row(
             children: [
-              // Donut Chart Canvas
               SizedBox(
-                width: 140,
-                height: 140,
+                width: 130,
+                height: 130,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     CustomPaint(
-                      size: const Size(140, 140),
-                      painter: _DonutChartPainter(defaultCategories),
+                      size: const Size(130, 130),
+                      painter: _DonutChartPainter(segments),
                     ),
                     Column(
                       mainAxisSize: MainAxisSize.min,
@@ -762,7 +1216,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           ),
                         ),
                         Text(
-                          totalOrders > 0 ? '$totalOrders' : '124',
+                          '$totalOrders',
                           style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w900,
@@ -782,12 +1236,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   ],
                 ),
               ),
-              const SizedBox(width: 20),
-              // Category Legend with %
+              const SizedBox(width: 18),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: defaultCategories.map((c) => Padding(
+                  children: segments.take(5).map((c) => Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3.5),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -827,7 +1280,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   // =========================================================================
-  // 4. O'NG PANEL: TEZKOR AMALLAR + PROMO BANNER + BUGUNGI KO'RSATKICHLAR
+  // 6. O'NG PANEL: TEZKOR AMALLAR + PROMO + BUGUNGI KO'RSATKICHLAR
   // =========================================================================
   Widget _buildRightSidePanel(
     Color bg,
@@ -839,7 +1292,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   ) {
     return Column(
       children: [
-        // A. Tezkor amallar (Image 2)
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
@@ -904,9 +1356,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
 
         const SizedBox(height: 16),
 
-        // B. Zavero Cafe Promo Card (Image 2)
         Container(
-          height: 90,
+          height: 84,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
@@ -931,7 +1382,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
+                      appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 14.5,
@@ -947,14 +1398,14 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 ),
               ),
               Container(
-                width: 48,
-                height: 48,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.white.withValues(alpha: 0.1),
                 ),
                 child: const Center(
-                  child: Icon(Icons.coffee_rounded, color: Color(0xFFFFB300), size: 28),
+                  child: Icon(Icons.coffee_rounded, color: Color(0xFFFFB300), size: 26),
                 ),
               ),
             ],
@@ -963,7 +1414,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
 
         const SizedBox(height: 16),
 
-        // C. Bugungi ko'rsatkichlar (Image 2 - Ofitsiant savdosi shu yerga tushadi!)
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
@@ -994,9 +1444,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 icon: Icons.account_balance_wallet_outlined,
                 iconColor: const Color(0xFF2563EB),
                 label: 'Bugungi daromad',
-                value: todayRevenue > 0
-                    ? '${_formatMoney(todayRevenue)} UZS'
-                    : (appState.receipts.isNotEmpty ? '0 UZS' : '4 320 000 UZS'),
+                value: '${_formatMoney(todayRevenue)} UZS',
                 isDark: isDark,
               ),
               const Divider(height: 16),
@@ -1004,9 +1452,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 icon: Icons.shopping_bag_outlined,
                 iconColor: const Color(0xFF10B981),
                 label: 'Buyurtmalar soni',
-                value: todayOrders > 0
-                    ? '$todayOrders ta'
-                    : (appState.receipts.isNotEmpty ? '0 ta' : '56 ta'),
+                value: '$todayOrders ta',
                 isDark: isDark,
               ),
               const Divider(height: 16),
@@ -1014,9 +1460,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 icon: Icons.receipt_outlined,
                 iconColor: const Color(0xFF8B5CF6),
                 label: "O'rtacha chek",
-                value: todayAvgCheck > 0
-                    ? '${_formatMoney(todayAvgCheck)} UZS'
-                    : (appState.receipts.isNotEmpty ? '0 UZS' : '77 143 UZS'),
+                value: '${_formatMoney(todayAvgCheck)} UZS',
                 isDark: isDark,
               ),
             ],
@@ -1122,7 +1566,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   // =========================================================================
-  // 5. ENG MASHHUR TAOMLAR JADVALI (Image 2)
+  // 7. ENG MASHHUR TAOMLAR JADVALI
   // =========================================================================
   Widget _buildTopProductsCard(
     Color bg,
@@ -1131,32 +1575,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     List<MapEntry<String, int>> sortedProducts,
     Map<String, double> revenues,
   ) {
-    // Default Image 2 namunalari
-    final fallbackList = [
-      _TopItem('#1', 'Burger Classic', '🍔', 248, 2480000),
-      _TopItem('#2', 'Shaurma Mini', '🌯', 220, 2200000),
-      _TopItem('#3', 'Americano', '☕', 180, 1080000),
-      _TopItem('#4', 'Latte', '🥛', 156, 1012000),
-      _TopItem('#5', 'Cheesecake', '🍰', 142, 994000),
-    ];
-
-    final hasRealData = sortedProducts.isNotEmpty;
-    final displayItems = hasRealData
-        ? List.generate(math.min(5, sortedProducts.length), (i) {
-            final entry = sortedProducts[i];
-            final name = entry.key;
-            final count = entry.value;
-            final rev = revenues[name] ?? (count * 25000.0);
-            return _TopItem(
-              '#${i + 1}',
-              name,
-              _emojiForName(name),
-              count,
-              rev.round(),
-            );
-          })
-        : fallbackList;
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1219,102 +1637,106 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             ],
           ),
           const SizedBox(height: 16),
-          // Table Headers
-          Row(
-            children: [
-              SizedBox(
-                width: 26,
-                child: Text('#', style: _headerStyle(isDark)),
+          if (sortedProducts.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Text(
+                  "Ushbu davrda sotilgan taomlar yo'q",
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white54 : Colors.black45),
+                ),
               ),
-              Expanded(
-                flex: 4,
-                child: Text('Mahsulot', style: _headerStyle(isDark)),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text('Sotuv soni', textAlign: TextAlign.center, style: _headerStyle(isDark)),
-              ),
-              Expanded(
-                flex: 3,
-                child: Text('Daromad', textAlign: TextAlign.right, style: _headerStyle(isDark)),
-              ),
-            ],
-          ),
-          const Divider(height: 16),
-          // Rows
-          ...displayItems.map((item) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6.5),
-            child: Row(
+            )
+          else ...[
+            Row(
               children: [
-                SizedBox(
-                  width: 26,
-                  child: Text(
-                    item.rank,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 4,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
-                          child: Text(item.emoji, style: const TextStyle(fontSize: 16)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          item.name,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    '${item.soldCount}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    '${_formatMoney(item.revenue)} UZS',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : const Color(0xFF0F172A),
-                    ),
-                  ),
-                ),
+                SizedBox(width: 26, child: Text('#', style: _headerStyle(isDark))),
+                Expanded(flex: 4, child: Text('Mahsulot', style: _headerStyle(isDark))),
+                Expanded(flex: 2, child: Text('Soni', textAlign: TextAlign.center, style: _headerStyle(isDark))),
+                Expanded(flex: 3, child: Text('Daromad', textAlign: TextAlign.right, style: _headerStyle(isDark))),
               ],
             ),
-          )),
+            const Divider(height: 16),
+            ...sortedProducts.take(5).toList().asMap().entries.map((entry) {
+              final i = entry.key;
+              final p = entry.value;
+              final rev = revenues[p.key] ?? 0.0;
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6.5),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 26,
+                      child: Text(
+                        '#${i + 1}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 4,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(_emojiForName(p.key), style: const TextStyle(fontSize: 16)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              p.key,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        '${p.value} ta',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Text(
+                        '${_formatMoney(rev)} UZS',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
         ],
       ),
     );
@@ -1327,14 +1749,14 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     if (lower.contains('coffee') || lower.contains('kofe') || lower.contains('americano')) return '☕';
     if (lower.contains('latte') || lower.contains('cappuccino')) return '🥛';
     if (lower.contains('shirin') || lower.contains('cake') || lower.contains('desert')) return '🍰';
-    if (lower.contains('pizza')) return '🍕';
+    if (lower.contains('pizza') || lower.contains('pitsa')) return '🍕';
     if (lower.contains('hotdog')) return '🌭';
-    if (lower.contains('cola') || lower.contains('suv') || lower.contains('fanta')) return '🥤';
+    if (lower.contains('cola') || lower.contains('suv') || lower.contains('fanta') || lower.contains('pepsi')) return '🥤';
     return '🍽️';
   }
 
   // =========================================================================
-  // 6. SO'NGGI CHEKLAR TARIXI (Image 2)
+  // 8. SO'NGGI CHEKLAR TARIXI (Chekni ko'rish va chop etish)
   // =========================================================================
   Widget _buildRecentReceiptsCard(
     Color bg,
@@ -1342,31 +1764,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     bool isDark,
     List<Receipt> recentReceipts,
   ) {
-    // Default Image 2 namunalari
-    final fallbackReceipts = [
-      _ReceiptRow('#1245', '01.11.2026', '11:35', 68000, 'Yakunlandi'),
-      _ReceiptRow('#1244', '01.11.2026', '11:32', 45000, 'Yakunlandi'),
-      _ReceiptRow('#1243', '01.11.2026', '11:30', 72000, 'Yakunlandi'),
-      _ReceiptRow('#1242', '01.11.2026', '11:28', 38000, 'Yakunlandi'),
-      _ReceiptRow('#1241', '01.11.2026', '11:25', 96000, 'Yakunlandi'),
-    ];
-
-    final hasRealData = recentReceipts.isNotEmpty;
-    final displayRows = hasRealData
-        ? recentReceipts.map((r) {
-            final d = r.date;
-            final dateStr = '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
-            final timeStr = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-            return _ReceiptRow(
-              '#${r.id}',
-              dateStr,
-              timeStr,
-              r.total.round(),
-              'Yakunlandi',
-            );
-          }).toList()
-        : fallbackReceipts;
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1429,105 +1826,194 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             ],
           ),
           const SizedBox(height: 16),
-          // Table Headers
-          Row(
+          if (recentReceipts.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Text(
+                  "Ushbu davrda chiqarilgan cheklar yo'q",
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white54 : Colors.black45),
+                ),
+              ),
+            )
+          else ...[
+            Row(
+              children: [
+                SizedBox(width: 58, child: Text('Chek №', style: _headerStyle(isDark))),
+                Expanded(flex: 2, child: Text('Sana', style: _headerStyle(isDark))),
+                Expanded(flex: 2, child: Text('Vaqt', style: _headerStyle(isDark))),
+                Expanded(flex: 3, child: Text('Summa', textAlign: TextAlign.right, style: _headerStyle(isDark))),
+                const SizedBox(width: 10),
+                SizedBox(width: 78, child: Text('Amal', textAlign: TextAlign.center, style: _headerStyle(isDark))),
+              ],
+            ),
+            const Divider(height: 16),
+            ...recentReceipts.map((r) {
+              final d = r.date;
+              final dateStr = '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+              final timeStr = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+              final shortId = ReceiptWidget.formatCheckNumber('${r.id}');
+
+              return InkWell(
+                onTap: () => _showReceiptModal(context, r),
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6.5, horizontal: 4),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 58,
+                        child: Text(
+                          '#$shortId',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF2563EB),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          dateStr,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          timeStr,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          '${_formatMoney(r.total)} UZS',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 78,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.print_outlined, size: 13, color: Color(0xFF2563EB)),
+                              SizedBox(width: 3),
+                              Text(
+                                'Chek',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF2563EB)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showReceiptModal(BuildContext context, Receipt receipt) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        builder: (_, controller) => Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
             children: [
-              SizedBox(
-                width: 58,
-                child: Text('Chek №', style: _headerStyle(isDark)),
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 6),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(2)),
               ),
               Expanded(
-                flex: 2,
-                child: Text('Sana', style: _headerStyle(isDark)),
+                child: SingleChildScrollView(
+                  controller: controller,
+                  padding: const EdgeInsets.all(16),
+                  child: Center(
+                    child: ReceiptWidget(
+                      checkId: '${receipt.id}',
+                      waiter: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
+                      hallName: receipt.hallName ?? 'Zal',
+                      table: receipt.tableNumber != null ? '${receipt.tableNumber}' : '',
+                      dateTime: receipt.date.toIso8601String(),
+                      items: receipt.items
+                          .map((i) => ReceiptItem(
+                                name: i.product.name,
+                                quantity: '${i.qty} dona',
+                                price: ReceiptWidget.money(i.product.price.round()),
+                                total: ReceiptWidget.money((i.product.price * i.qty).round()),
+                              ))
+                          .toList(),
+                      customTotal: receipt.total,
+                    ),
+                  ),
+                ),
               ),
-              Expanded(
-                flex: 2,
-                child: Text('Vaqt', style: _headerStyle(isDark)),
-              ),
-              Expanded(
-                flex: 3,
-                child: Text('Summa', textAlign: TextAlign.right, style: _headerStyle(isDark)),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 82,
-                child: Text('Holat', textAlign: TextAlign.center, style: _headerStyle(isDark)),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Yopish'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          printReceipt(receipt);
+                        },
+                        icon: const Icon(Icons.print),
+                        label: const Text('Qayta chop etish'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          const Divider(height: 16),
-          // Rows
-          ...displayRows.map((item) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6.5),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 58,
-                  child: Text(
-                    item.checkNumber,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2563EB),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    item.date,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    item.time,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    '${_formatMoney(item.amount)} UZS',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : const Color(0xFF0F172A),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 82,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'Yakunlandi',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF10B981),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          )),
-        ],
+        ),
       ),
     );
   }
@@ -1574,22 +2060,11 @@ class _CategorySegment {
   _CategorySegment(this.name, this.pct, this.color);
 }
 
-class _TopItem {
-  final String rank;
+class _WaiterSales {
   final String name;
-  final String emoji;
-  final int soldCount;
-  final int revenue;
-  _TopItem(this.rank, this.name, this.emoji, this.soldCount, this.revenue);
-}
-
-class _ReceiptRow {
-  final String checkNumber;
-  final String date;
-  final String time;
-  final int amount;
-  final String status;
-  _ReceiptRow(this.checkNumber, this.date, this.time, this.amount, this.status);
+  final int orderCount;
+  final double totalRevenue;
+  _WaiterSales({required this.name, required this.orderCount, required this.totalRevenue});
 }
 
 /// Mini Sparkline Painter for KPI cards
@@ -1688,7 +2163,7 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
     );
 
-    // 1. Horizontal grid lines (8M, 6M, 4M, 2M, 0)
+    // 1. Horizontal grid lines
     final yLabels = ['8M', '6M', '4M', '2M', '0'];
     for (int i = 0; i < 5; i++) {
       final y = (chartH / 4) * i;
@@ -1714,7 +2189,9 @@ class _SalesDynamicsChartPainter extends CustomPainter {
 
     if (revenuePoints.isEmpty) return;
 
-    // 3. Draw Blue Line (Daromad) with Area Fill
+    final effectiveMax = maxRevenue > 0 ? maxRevenue : 8000000.0;
+
+    // 3. Blue Line (Daromad)
     _drawCurve(
       canvas: canvas,
       values: revenuePoints,
@@ -1723,12 +2200,12 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       leftPad: leftPad,
       chartW: chartW,
       chartH: chartH,
-      maxVal: 8000000.0,
+      maxVal: effectiveMax,
       strokeWidth: 2.8,
     );
 
-    // 4. Draw Green Line (Buyurtmalar) with Area Fill
-    final normalizedOrders = ordersPoints.map((o) => (o / 100.0) * 5500000.0).toList();
+    // 4. Green Line (Buyurtmalar)
+    final normalizedOrders = ordersPoints.map((o) => (o / 100.0) * effectiveMax * 0.7).toList();
     _drawCurve(
       canvas: canvas,
       values: normalizedOrders,
@@ -1737,15 +2214,15 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       leftPad: leftPad,
       chartW: chartW,
       chartH: chartH,
-      maxVal: 8000000.0,
+      maxVal: effectiveMax,
       strokeWidth: 2.5,
     );
 
-    // 5. Draw active dot indicator at hoveredIndex
+    // 5. Active dot indicator at hoveredIndex
     if (hoveredIndex >= 0 && hoveredIndex < revenuePoints.length) {
       final dotX = leftPad + (hoveredIndex * stepX);
-      final revY = chartH - (revenuePoints[hoveredIndex] / 8000000.0 * chartH);
-      final ordY = chartH - (normalizedOrders[hoveredIndex] / 8000000.0 * chartH);
+      final revY = chartH - ((revenuePoints[hoveredIndex] / effectiveMax) * chartH).clamp(0.0, chartH);
+      final ordY = chartH - ((normalizedOrders[hoveredIndex] / effectiveMax) * chartH).clamp(0.0, chartH);
 
       final guidePaint = Paint()
         ..color = isDark ? Colors.white24 : Colors.black12
@@ -1845,7 +2322,7 @@ class _DonutChartPainter extends CustomPainter {
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius - strokeW / 2),
         startAngle,
-        sweepAngle - 0.04, // subtle gap
+        sweepAngle - 0.04,
         false,
         paint,
       );

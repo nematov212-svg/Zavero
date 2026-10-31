@@ -77,6 +77,13 @@ class ReceiptPrintData {
     }
     return buffer.toString().split('').reversed.join();
   }
+
+  static String formatCheckNumber(String rawId) {
+    final digits = RegExp(r'\d+').allMatches(rawId).map((m) => m.group(0)).join();
+    if (digits.isEmpty) return '000125';
+    if (digits.length >= 6) return digits.substring(digits.length - 6);
+    return digits.padLeft(6, '0');
+  }
 }
 
 /// ESC/POS Command generator supporting 80mm and 58mm thermal printers.
@@ -101,76 +108,76 @@ class EscPosBuilder {
       if (rune < 128) {
         res.add(rune);
       } else {
-        // Cyrillic & Special characters mapping to CP866
         switch (rune) {
-          case 0x0410: res.add(0x80); break; // А
-          case 0x0411: res.add(0x81); break; // Б
-          case 0x0412: res.add(0x82); break; // В
-          case 0x0413: res.add(0x83); break; // Г
-          case 0x0414: res.add(0x84); break; // Д
-          case 0x0415: res.add(0x85); break; // Е
-          case 0x0416: res.add(0x86); break; // Ж
-          case 0x0417: res.add(0x87); break; // З
-          case 0x0418: res.add(0x88); break; // И
-          case 0x0419: res.add(0x89); break; // Й
-          case 0x041A: res.add(0x8A); break; // К
-          case 0x041B: res.add(0x8B); break; // Л
-          case 0x041C: res.add(0x8C); break; // М
-          case 0x041D: res.add(0x8D); break; // Н
-          case 0x041E: res.add(0x8E); break; // О
-          case 0x041F: res.add(0x8F); break; // П
-          case 0x0420: res.add(0x90); break; // Р
-          case 0x0421: res.add(0x91); break; // С
-          case 0x0422: res.add(0x92); break; // Т
-          case 0x0423: res.add(0x93); break; // У
-          case 0x0424: res.add(0x94); break; // Ф
-          case 0x0425: res.add(0x95); break; // Х
-          case 0x0426: res.add(0x96); break; // Ц
-          case 0x0427: res.add(0x97); break; // Ч
-          case 0x0428: res.add(0x98); break; // Ш
-          case 0x0429: res.add(0x99); break; // Щ
-          case 0x042A: res.add(0x9A); break; // Ъ
-          case 0x042B: res.add(0x9B); break; // Ы
-          case 0x042C: res.add(0x9C); break; // Ь
-          case 0x042D: res.add(0x9D); break; // Э
-          case 0x042E: res.add(0x9E); break; // Ю
-          case 0x042F: res.add(0x9F); break; // Я
-          case 0x0430: res.add(0xA0); break; // а
-          case 0x0431: res.add(0xA1); break; // б
-          case 0x0432: res.add(0xA2); break; // в
-          case 0x0433: res.add(0xA3); break; // г
-          case 0x0434: res.add(0xA4); break; // д
-          case 0x0435: res.add(0xA5); break; // е
-          case 0x0436: res.add(0xA6); break; // ж
-          case 0x0437: res.add(0xA7); break; // з
-          case 0x0438: res.add(0xA8); break; // и
-          case 0x0439: res.add(0xA9); break; // й
-          case 0x043A: res.add(0xAA); break; // к
-          case 0x043B: res.add(0xAB); break; // л
-          case 0x043C: res.add(0xAC); break; // м
-          case 0x043D: res.add(0xAD); break; // н
-          case 0x043E: res.add(0xAE); break; // о
-          case 0x043F: res.add(0xAF); break; // п
-          case 0x0440: res.add(0xE0); break; // р
-          case 0x0441: res.add(0xE1); break; // с
-          case 0x0442: res.add(0xE2); break; // т
-          case 0x0443: res.add(0xE3); break; // у
-          case 0x0444: res.add(0xE4); break; // ф
-          case 0x0445: res.add(0xE5); break; // х
-          case 0x0446: res.add(0xE6); break; // ц
-          case 0x0447: res.add(0xE7); break; // ч
-          case 0x0448: res.add(0xE8); break; // ш
-          case 0x0449: res.add(0xE9); break; // щ
-          case 0x044A: res.add(0xEA); break; // ъ
-          case 0x044B: res.add(0xEB); break; // ы
-          case 0x044C: res.add(0xEC); break; // ь
-          case 0x044D: res.add(0xED); break; // э
-          case 0x044E: res.add(0xEE); break; // ю
-          case 0x044F: res.add(0xEF); break; // я
+          case 0x0410: res.add(0x80); break;
+          case 0x0411: res.add(0x81); break;
+          case 0x0412: res.add(0x82); break;
+          case 0x0413: res.add(0x83); break;
+          case 0x0414: res.add(0x84); break;
+          case 0x0415: res.add(0x85); break;
+          case 0x0416: res.add(0x86); break;
+          case 0x0417: res.add(0x87); break;
+          case 0x0418: res.add(0x88); break;
+          case 0x0419: res.add(0x89); break;
+          case 0x041A: res.add(0x8A); break;
+          case 0x041B: res.add(0x8B); break;
+          case 0x041C: res.add(0x8C); break;
+          case 0x041D: res.add(0x8D); break;
+          case 0x041E: res.add(0x8E); break;
+          case 0x041F: res.add(0x8F); break;
+          case 0x0420: res.add(0x90); break;
+          case 0x0421: res.add(0x91); break;
+          case 0x0422: res.add(0x92); break;
+          case 0x0423: res.add(0x93); break;
+          case 0x0424: res.add(0x94); break;
+          case 0x0425: res.add(0x95); break;
+          case 0x0426: res.add(0x96); break;
+          case 0x0427: res.add(0x97); break;
+          case 0x0428: res.add(0x98); break;
+          case 0x0429: res.add(0x99); break;
+          case 0x042A: res.add(0x9A); break;
+          case 0x042B: res.add(0x9B); break;
+          case 0x042C: res.add(0x9C); break;
+          case 0x042D: res.add(0x9D); break;
+          case 0x042E: res.add(0x9E); break;
+          case 0x042F: res.add(0x9F); break;
+          case 0x0430: res.add(0xA0); break;
+          case 0x0431: res.add(0xA1); break;
+          case 0x0432: res.add(0xA2); break;
+          case 0x0433: res.add(0xA3); break;
+          case 0x0434: res.add(0xA4); break;
+          case 0x0435: res.add(0xA5); break;
+          case 0x0436: res.add(0xA6); break;
+          case 0x0437: res.add(0xA7); break;
+          case 0x0438: res.add(0xA8); break;
+          case 0x0439: res.add(0xA9); break;
+          case 0x043A: res.add(0xAA); break;
+          case 0x043B: res.add(0xAB); break;
+          case 0x043C: res.add(0xAC); break;
+          case 0x043D: res.add(0xAD); break;
+          case 0x043E: res.add(0xAE); break;
+          case 0x043F: res.add(0xAF); break;
+          case 0x0440: res.add(0xE0); break;
+          case 0x0441: res.add(0xE1); break;
+          case 0x0442: res.add(0xE2); break;
+          case 0x0443: res.add(0xE3); break;
+          case 0x0444: res.add(0xE4); break;
+          case 0x0445: res.add(0xE5); break;
+          case 0x0446: res.add(0xE6); break;
+          case 0x0447: res.add(0xE7); break;
+          case 0x0448: res.add(0xE8); break;
+          case 0x0449: res.add(0xE9); break;
+          case 0x044A: res.add(0xEA); break;
+          case 0x044B: res.add(0xEB); break;
+          case 0x044C: res.add(0xEC); break;
+          case 0x044D: res.add(0xED); break;
+          case 0x044E: res.add(0xEE); break;
+          case 0x044F: res.add(0xEF); break;
           case 0x2022: res.add(0x2A); break; // • -> *
           case 0x2014: res.add(0x2D); break; // — -> -
           case 0x2116: res.add(0x23); break; // № -> #
-          default: res.add(0x3F); // ? for unknown
+          case 0x2661: res.add(0x3C); res.add(0x33); break; // ♡ -> <3
+          default: res.add(0x3F);
         }
       }
     }
@@ -199,8 +206,12 @@ class EscPosBuilder {
     _bytes.add(0x0A);
   }
 
-  void doubleDivider() {
-    _bytes.addAll(encodeText('=' * width));
+  void dashedDivider() {
+    final s = StringBuffer();
+    while (s.length < width) {
+      s.write('- ');
+    }
+    _bytes.addAll(encodeText(s.toString().substring(0, width)));
     _bytes.add(0x0A);
   }
 
@@ -222,37 +233,32 @@ class EscPosBuilder {
     final pH = (len >> 8) & 0xFF;
 
     alignCenter();
-    // 1. Model: Model 2
     _bytes.addAll([0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00]);
-    // 2. Module size
     _bytes.addAll([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, size]);
-    // 3. Error correction level M
     _bytes.addAll([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x31]);
-    // 4. Store symbol data
     _bytes.addAll([0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30, ...data]);
-    // 5. Print symbol
     _bytes.addAll([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30]);
   }
 
   void feedAndCut({int feedLines = 3}) {
-    _bytes.addAll([0x1B, 0x32]); // Default line spacing
+    _bytes.addAll([0x1B, 0x32]);
     _bytes.addAll([0x1B, 0x64, feedLines]);
     _bytes.addAll([0x1D, 0x56, 0x01]); // Partial cut
   }
 
   List<int> toBytes() => List<int>.unmodifiable(_bytes);
 
-  /// Generates the complete 80mm/58mm ESC/POS receipt strictly matching Image 5 (FAMILY CAFE).
+  /// Generates the complete 80mm/58mm ESC/POS receipt strictly matching the reference receipt.
   static List<int> buildReceiptBytes(ReceiptPrintData data, {int width = 48}) {
     final builder = EscPosBuilder(width: width);
 
-    // ── A. HEADER (Coffee cup & beans text emblem) ────────────────
+    // ── A. HEADER (Chef hat & Cafe Name) ──────────────────────────
     builder.alignCenter();
-    builder.printLine('---- (o)  ( U )  (o) ----');
+    builder.printLine('--- [ CHEF HAT ] ---');
 
     builder.boldOn();
     builder.doubleSizeOn();
-    builder.printLine(data.cafeName.toUpperCase());
+    builder.printLine(data.cafeName);
     builder.normalSize();
     builder.boldOff();
 
@@ -261,30 +267,31 @@ class EscPosBuilder {
     }
     builder.divider();
 
-    // ── B. BUSINESS INFORMATION (2 Columns - Image 5) ─────────────
+    // ── B. BUSINESS INFORMATION (2 Columns) ──────────────────────
     final dateStr =
         '${data.dateTime.day.toString().padLeft(2, '0')}.${data.dateTime.month.toString().padLeft(2, '0')}.${data.dateTime.year}';
     final timeStr =
         '${data.dateTime.hour.toString().padLeft(2, '0')}:${data.dateTime.minute.toString().padLeft(2, '0')}';
+    final formattedCheckId = ReceiptPrintData.formatCheckNumber(data.checkId);
 
     builder.alignLeft();
     builder.twoColumnRow(data.cafeName, dateStr);
     builder.twoColumnRow(data.address, timeStr);
-    builder.twoColumnRow(data.phone, 'Chek No: ${data.checkId}');
+    builder.twoColumnRow(data.phone, 'Chek #: $formattedCheckId');
     builder.twoColumnRow('', 'Kassir: ${data.cashierName}');
-    builder.divider();
+    builder.dashedDivider();
 
-    // ── C. PRODUCT TABLE (4 Columns: No, Nomi, Miqdori, Narx - Image 5) ─
+    // ── C. PRODUCT TABLE (5 Columns: No, Nomi, Miqdori, Narx, Summa) ─
     builder.boldOn();
     if (width >= 48) {
-      // 80mm: No (3), Nomi (22), Miqdori (10), Narx (13) = 48
+      // 80mm: No (3), Nomi (17), Miq (8), Narx (10), Summa (10) = 48
       builder.printLine(
-        '${'No'.padRight(3)}${'Nomi'.padRight(22)}${'Miqdori'.padRight(10)}${'Narx'.padLeft(13)}',
+        '${'No'.padRight(3)}${'Nomi'.padRight(17)}${'Miqdori'.padRight(8)}${'Narx'.padLeft(10)}${'Summa'.padLeft(10)}',
       );
     } else {
-      // 58mm: No (3), Nomi (12), Miqdori (7), Narx (10) = 32
+      // 58mm: No (3), Nomi (11), Miq (6), Summa (12) = 32
       builder.printLine(
-        '${'No'.padRight(3)}${'Nomi'.padRight(12)}${'Miqdori'.padRight(7)}${'Narx'.padLeft(10)}',
+        '${'No'.padRight(3)}${'Nomi'.padRight(11)}${'Miq'.padRight(6)}${'Summa'.padLeft(12)}',
       );
     }
     builder.boldOff();
@@ -293,49 +300,63 @@ class EscPosBuilder {
     for (final item in data.items) {
       final name = item.name;
       final qtyStr = '${item.qty} dona';
-      final priceStr = '${ReceiptPrintData.formatMoney(item.unitPrice)} UZS';
+      final priceStr = ReceiptPrintData.formatMoney(item.unitPrice);
+      final totalStr = ReceiptPrintData.formatMoney(item.lineTotal);
 
       if (width >= 48) {
-        if (name.length <= 21) {
+        if (name.length <= 16) {
           final noStr = '${item.index}'.padRight(3);
-          final nStr = name.padRight(22);
-          final qStr = qtyStr.padRight(10);
-          final pStr = priceStr.padLeft(13);
-          builder.printLine('$noStr$nStr$qStr$pStr');
+          final nStr = name.padRight(17);
+          final qStr = qtyStr.padRight(8);
+          final pStr = priceStr.padLeft(10);
+          final tStr = totalStr.padLeft(10);
+          builder.printLine('$noStr$nStr$qStr$pStr$tStr');
         } else {
           builder.boldOn();
           builder.printLine('${item.index}. $name');
           builder.boldOff();
-          builder.twoColumnRow('   $qtyStr', priceStr);
+          final qStr = qtyStr.padRight(8);
+          final pStr = priceStr.padLeft(10);
+          final tStr = totalStr.padLeft(10);
+          builder.printLine('   ${qStr.padRight(25)}$pStr$tStr');
         }
       } else {
-        if (name.length <= 11) {
+        if (name.length <= 10) {
           final noStr = '${item.index}'.padRight(3);
-          final nStr = name.padRight(12);
-          final qStr = qtyStr.padRight(7);
-          final pStr = priceStr.padLeft(10);
-          builder.printLine('$noStr$nStr$qStr$pStr');
+          final nStr = name.padRight(11);
+          final qStr = '${item.qty}'.padRight(6);
+          final tStr = totalStr.padLeft(12);
+          builder.printLine('$noStr$nStr$qStr$tStr');
         } else {
           builder.printLine('${item.index}. $name');
-          builder.twoColumnRow('   $qtyStr', priceStr);
+          builder.twoColumnRow('   ${item.qty} dona', '$totalStr UZS');
         }
       }
     }
     builder.divider();
 
-    // ── D. PAYMENT BOX (TO'LOV: | <summa> UZS - Image 5) ─────────
-    builder.doubleDivider();
+    // ── D. TOTALS BLOCK (Jami, Chegirma, To'lov - ramkasiz) ───────
+    builder.boldOn();
+    builder.twoColumnRow(
+      'Jami:',
+      '${ReceiptPrintData.formatMoney(data.subtotal)} so\'m',
+    );
+    builder.boldOff();
+    builder.twoColumnRow(
+      'Chegirma:',
+      '${ReceiptPrintData.formatMoney(data.discount)} so\'m',
+    );
     builder.boldOn();
     builder.doubleSizeOn();
     builder.twoColumnRow(
-      "TO'LOV:",
-      '${ReceiptPrintData.formatMoney(data.grandTotal)} UZS',
+      'To\'lov:',
+      '${ReceiptPrintData.formatMoney(data.grandTotal)} so\'m',
     );
     builder.normalSize();
     builder.boldOff();
-    builder.doubleDivider();
+    builder.dashedDivider();
 
-    // ── E. QR CODE (Centered + phone prompt - Image 5) ───────────
+    // ── E. QR CODE (Centered + prompt) ───────────────────────────
     if (data.qrUrl.isNotEmpty) {
       builder.alignCenter();
       builder.printLine();
@@ -345,14 +366,15 @@ class EscPosBuilder {
       builder.printLine('QR skaner qiling va');
       builder.printLine('Zavero web saytiga o\'ting!');
       builder.boldOff();
-      builder.printLine('----------- (o) -----------');
+      builder.divider();
     }
 
-    // ── F. FOOTER (Image 5) ──────────────────────────────────────
+    // ── F. FOOTER ────────────────────────────────────────────────
     builder.alignCenter();
     builder.printLine(data.footerMessage);
+    builder.printLine('<3');
     builder.boldOn();
-    builder.printLine('--- ${data.cafeName.toUpperCase()} ---');
+    builder.printLine('-- ${data.cafeName} --');
     builder.boldOff();
 
     // Clean cut
@@ -363,7 +385,7 @@ class EscPosBuilder {
 }
 
 /// PDF Receipt Generator guaranteeing exact 80mm thermal roll format.
-/// Matches Image 5 (FAMILY CAFE) with 100% precision.
+/// Matches the reference thermal receipt 100% with tight roll height.
 class ThermalPdfGenerator {
   ThermalPdfGenerator._();
 
@@ -373,8 +395,9 @@ class ThermalPdfGenerator {
     const double marginHorizontalPt = 2.0 * PdfPageFormat.mm;
 
     // Aniq ixcham balandlik: pastda ortiqcha bo'sh joy qoldirmasdan, chiroyli va qulay chiqishini ta'minlaydi
-    final double baseHeight = is58mm ? 255.0 : 277.0;
-    final double dynamicItemsHeight = data.items.length * (is58mm ? 14.5 : 13.5);
+    final double qrHeight = data.qrUrl.isNotEmpty ? (is58mm ? 70.0 : 80.0) : 0.0;
+    final double baseHeight = (is58mm ? 222.0 : 235.0) + qrHeight;
+    final double dynamicItemsHeight = data.items.length * (is58mm ? 14.0 : 13.0);
     final double totalHeight = baseHeight + dynamicItemsHeight;
 
     return PdfPageFormat(
@@ -398,97 +421,97 @@ class ThermalPdfGenerator {
         '${data.dateTime.day.toString().padLeft(2, '0')}.${data.dateTime.month.toString().padLeft(2, '0')}.${data.dateTime.year}';
     final timeStr =
         '${data.dateTime.hour.toString().padLeft(2, '0')}:${data.dateTime.minute.toString().padLeft(2, '0')}';
+    final formattedCheckId = ReceiptPrintData.formatCheckNumber(data.checkId);
 
-    // Image 5: Coffee Cup with Steam, Saucer, Arch & 2 Coffee Beans SVG
-    const coffeeCupEmblemSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 52" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="4" y1="28" x2="46" y2="28" stroke-width="1.8"/>
-  <g transform="translate(56, 26) rotate(-25)">
-    <ellipse cx="0" cy="0" rx="7" ry="4.5" fill="black"/>
-    <path d="M -5 0 C -2 -2.5, 2 2.5, 5 0" stroke="white" stroke-width="1.2" fill="none"/>
-  </g>
-  <path d="M 66 38 C 68 8, 92 8, 94 38" stroke-width="1.8" fill="none"/>
-  <ellipse cx="80" cy="38" rx="14" ry="2.5" stroke="black" stroke-width="1.6" fill="none"/>
-  <path d="M 72 25 L 88 25 C 88 35, 72 35, 72 25 Z" fill="black"/>
-  <path d="M 87 26 C 92 26, 92 33, 86 33" stroke="black" stroke-width="1.6" fill="none"/>
-  <path d="M 80 23 C 78 18, 82 14, 80 9" stroke="black" stroke-width="1.4" fill="none"/>
-  <path d="M 76 23 C 74 19, 78 16, 76 11" stroke="black" stroke-width="1.2" fill="none"/>
-  <path d="M 84 23 C 86 19, 82 16, 84 11" stroke="black" stroke-width="1.2" fill="none"/>
-  <g transform="translate(104, 26) rotate(25)">
-    <ellipse cx="0" cy="0" rx="7" ry="4.5" fill="black"/>
-    <path d="M -5 0 C -2 -2.5, 2 2.5, 5 0" stroke="white" stroke-width="1.2" fill="none"/>
-  </g>
-  <line x1="114" y1="28" x2="156" y2="28" stroke-width="1.8"/>
+    // Chef Hat Outline SVG with Fork & Knife inside
+    const chefHatSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+  <line x1="22" y1="64" x2="78" y2="64" stroke-width="2.2"/>
+  <line x1="24" y1="72" x2="76" y2="72" stroke-width="2.2"/>
+  <line x1="22" y1="64" x2="24" y2="72" stroke-width="2.2"/>
+  <line x1="78" y1="64" x2="76" y2="72" stroke-width="2.2"/>
+  <path d="M 22 64 C 6 64 6 36 20 30 C 14 18 32 8 42 16 C 46 8 54 8 58 16 C 68 8 86 18 80 30 C 94 36 94 64 78 64" stroke-width="2.4" fill="none"/>
+  <line x1="43" y1="32" x2="43" y2="56" stroke-width="1.8"/>
+  <path d="M 37 32 L 37 42 C 37 46 49 46 49 42 L 49 32" stroke-width="1.8" fill="none"/>
+  <line x1="43" y1="32" x2="43" y2="42" stroke-width="1.8"/>
+  <line x1="57" y1="32" x2="57" y2="56" stroke-width="1.8"/>
+  <path d="M 57 32 C 57 44 52 48 52 56" stroke-width="1.8" fill="none"/>
 </svg>''';
 
-    // Image 5: Coffee bean divider SVG
-    const coffeeBeanDividerSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 16" fill="none" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="4" y1="8" x2="70" y2="8"/>
-  <g transform="translate(80, 8) rotate(25)">
-    <ellipse cx="0" cy="0" rx="6.5" ry="4" fill="black"/>
-    <path d="M -4.5 0 C -2 -2, 2 2, 4.5 0" stroke="white" stroke-width="1.0" fill="none"/>
-  </g>
-  <line x1="90" y1="8" x2="156" y2="8"/>
-</svg>''';
-
-    // Corner brackets SVG around QR code
-    const cornerBracketsSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M 4 12 L 4 4 L 12 4"/>
-  <path d="M 48 4 L 56 4 L 56 12"/>
-  <path d="M 4 48 L 4 56 L 12 56"/>
-  <path d="M 48 56 L 56 56 L 56 48"/>
+    const heartOutlineSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
 </svg>''';
 
     doc.addPage(
       pw.Page(
         pageFormat: format,
         build: (context) {
+          final cafeNameFirst = data.cafeName.contains(' ') ? data.cafeName.split(' ').first : 'Family';
+          final cafeNameRest = data.cafeName.contains(' ') ? data.cafeName.split(' ').sublist(1).join(' ') : 'CAFE';
+
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             mainAxisSize: pw.MainAxisSize.min,
             children: [
-              // ── 1. HEADER: Coffee Cup Emblem + FAMILY CAFE + Slogan (Image 5) ──
-              pw.Center(child: pw.SvgImage(svg: coffeeCupEmblemSvg, width: is58mm ? 100 : 130, height: is58mm ? 32 : 40)),
-              pw.SizedBox(height: 2),
+              // ── 1. HEADER: Chef Hat Logo + Family Cafe + Slogan ───────────
+              pw.Center(
+                child: pw.SvgImage(
+                  svg: chefHatSvg,
+                  width: is58mm ? 44 : 52,
+                  height: is58mm ? 35 : 42,
+                ),
+              ),
+              pw.SizedBox(height: 1),
               pw.Center(
                 child: pw.Text(
-                  data.cafeName.toUpperCase(),
+                  cafeNameFirst,
+                  style: pw.TextStyle(
+                    font: fontOblique,
+                    fontSize: is58mm ? 18.0 : 21.0,
+                    fontWeight: pw.FontWeight.bold,
+                    fontStyle: pw.FontStyle.italic,
+                  ),
+                ),
+              ),
+              pw.Center(
+                child: pw.Text(
+                  cafeNameRest,
                   style: pw.TextStyle(
                     font: fontBold,
-                    fontSize: is58mm ? 13.0 : 16.0,
+                    fontSize: is58mm ? 12.5 : 14.5,
                     fontWeight: pw.FontWeight.bold,
-                    letterSpacing: 1.4,
+                    letterSpacing: 1.6,
                   ),
                 ),
               ),
               pw.SizedBox(height: 2),
               pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
-                pw.Container(width: 16, height: 0.8, color: PdfColors.black),
+                pw.Container(width: 18, height: 0.8, color: PdfColors.black),
                 pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(horizontal: 4),
                   child: pw.Row(
                     mainAxisSize: pw.MainAxisSize.min,
                     children: [
-                      pw.Text("Yaxshi ta'm ", style: pw.TextStyle(font: font, fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
-                      pw.Container(width: 2.5, height: 2.5, decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle)),
-                      pw.Text(" Baxtli onlar", style: pw.TextStyle(font: font, fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("Yaxshi ta'm ", style: pw.TextStyle(font: font, fontSize: 7.0, fontWeight: pw.FontWeight.bold)),
+                      pw.Container(width: 2.2, height: 2.2, decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle)),
+                      pw.Text(" Baxtli onlar", style: pw.TextStyle(font: font, fontSize: 7.0, fontWeight: pw.FontWeight.bold)),
                     ],
                   ),
                 ),
-                pw.Container(width: 16, height: 0.8, color: PdfColors.black),
+                pw.Container(width: 18, height: 0.8, color: PdfColors.black),
               ]),
-              pw.SizedBox(height: 4),
+              pw.SizedBox(height: 3),
               pw.Container(height: 1.0, color: PdfColors.black),
               pw.SizedBox(height: 3),
 
-              // ── 2. INFO BLOK (2 Columns divided by vertical line - Image 5) ──
+              // ── 2. INFO BLOK (2 Columns divided by vertical line) ─────────
               pw.Padding(
                 padding: const pw.EdgeInsets.symmetric(horizontal: 2),
                 child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                  // Left side
+                  // Chap ustun: Kafe, Manzil, Telefon
                   pw.Expanded(
                     flex: 11,
                     child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                      pw.Text(data.cafeName, style: pw.TextStyle(font: fontBold, fontSize: 7.6, fontWeight: pw.FontWeight.bold)),
+                      pw.Text(data.cafeName, style: pw.TextStyle(font: fontBold, fontSize: 7.5, fontWeight: pw.FontWeight.bold)),
                       pw.SizedBox(height: 2.0),
                       pw.Text(data.address, style: pw.TextStyle(font: font, fontSize: 6.8)),
                       pw.SizedBox(height: 2.0),
@@ -496,7 +519,7 @@ class ThermalPdfGenerator {
                     ]),
                   ),
                   pw.Container(width: 0.8, height: 32, color: PdfColors.black, margin: const pw.EdgeInsets.symmetric(horizontal: 4)),
-                  // Right side
+                  // O'ng ustun: Sana, Vaqt, Chek No, Kassir
                   pw.Expanded(
                     flex: 9,
                     child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
@@ -504,7 +527,7 @@ class ThermalPdfGenerator {
                       pw.SizedBox(height: 2.0),
                       pw.Text(timeStr, style: pw.TextStyle(font: font, fontSize: 6.8)),
                       pw.SizedBox(height: 2.0),
-                      pw.Text('Chek No: ${data.checkId}', style: pw.TextStyle(font: fontBold, fontSize: 6.8, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Chek No: $formattedCheckId', style: pw.TextStyle(font: fontBold, fontSize: 6.8, fontWeight: pw.FontWeight.bold)),
                       pw.SizedBox(height: 2.0),
                       pw.Text('Kassir: ${data.cashierName}', style: pw.TextStyle(font: fontBold, fontSize: 6.8, fontWeight: pw.FontWeight.bold)),
                     ]),
@@ -512,72 +535,103 @@ class ThermalPdfGenerator {
                 ]),
               ),
               pw.SizedBox(height: 3),
-              pw.Container(height: 1.0, color: PdfColors.black),
-              pw.SizedBox(height: 2.5),
-
-              // ── 3. PRODUCT TABLE HEADER (№ | Nomi | Miqdori | Narx - NO Summa - Image 5) ──
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.5),
-                child: pw.Row(children: [
-                  pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('No', style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                  pw.Expanded(child: pw.Text('Nomi', style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(width: is58mm ? 46 : 56, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                ]),
+              // Dashed divider line
+              pw.Text(
+                '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+                maxLines: 1,
+                overflow: pw.TextOverflow.clip,
+                style: pw.TextStyle(font: font, fontSize: 6.0, color: PdfColors.black),
               ),
-              pw.Container(height: 0.6, color: PdfColors.black),
               pw.SizedBox(height: 2),
 
-              // ── 4. PRODUCTS LIST (Image 5) ─────────────────
+              // ── 3. PRODUCT TABLE HEADER (5 Columns: No | Nomi | Miqdori | Narx | Summa) ──
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.0),
+                child: pw.Row(children: [
+                  pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('No', style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                  pw.Expanded(child: pw.Text('Nomi', style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(width: is58mm ? 30 : 38, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(width: is58mm ? 34 : 44, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(width: is58mm ? 36 : 48, child: pw.Text('Summa', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                ]),
+              ),
+              pw.Container(height: 0.8, color: PdfColors.black),
+              pw.SizedBox(height: 2),
+
+              // ── 4. PRODUCTS LIST ─────────────────────────────────────────
               ...List.generate(data.items.length, (index) {
                 final item = data.items[index];
                 return pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.8),
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.6),
                   child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
-                    pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('${item.index}', style: pw.TextStyle(font: font, fontSize: 7.2))),
-                    pw.Expanded(child: pw.Text(item.name, style: pw.TextStyle(font: fontBold, fontSize: 7.4, fontWeight: pw.FontWeight.bold))),
-                    pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: font, fontSize: 7.2))),
-                    pw.SizedBox(width: is58mm ? 46 : 56, child: pw.Text("${ReceiptPrintData.formatMoney(item.unitPrice)} UZS", textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.4, fontWeight: pw.FontWeight.bold))),
+                    pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('${item.index}', style: pw.TextStyle(font: font, fontSize: 7.2))),
+                    pw.Expanded(child: pw.Text(item.name, style: pw.TextStyle(font: fontBold, fontSize: 7.3, fontWeight: pw.FontWeight.bold))),
+                    pw.SizedBox(width: is58mm ? 30 : 38, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: font, fontSize: 7.2))),
+                    pw.SizedBox(width: is58mm ? 34 : 44, child: pw.Text(ReceiptPrintData.formatMoney(item.unitPrice), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: font, fontSize: 7.2))),
+                    pw.SizedBox(width: is58mm ? 36 : 48, child: pw.Text(ReceiptPrintData.formatMoney(item.lineTotal), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.3, fontWeight: pw.FontWeight.bold))),
                   ]),
                 );
               }),
               pw.SizedBox(height: 2),
-              pw.Container(height: 1.0, color: PdfColors.black),
+              pw.Container(height: 0.8, color: PdfColors.black),
               pw.SizedBox(height: 4),
 
-              // ── 5. PAYMENT BOX (Rounded border box: TO'LOV: | <summa> UZS - Image 5) ──
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: pw.BoxDecoration(
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-                  border: pw.Border.all(color: PdfColors.black, width: 1.4),
-                ),
+              // ── 5. TOTALS BLOCK (Jami, Chegirma, To'lov - ramkasiz) ───────
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.5),
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text("TO'LOV:", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 10.5 : 12.5, fontWeight: pw.FontWeight.bold)),
-                    pw.Container(width: 1.0, height: 16, color: PdfColors.black),
-                    pw.Text("${ReceiptPrintData.formatMoney(data.grandTotal)} UZS", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 11.5 : 13.5, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('Jami:', style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 8.5 : 9.5, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("${ReceiptPrintData.formatMoney(data.subtotal)} so'm", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 8.5 : 9.5, fontWeight: pw.FontWeight.bold)),
                   ],
                 ),
               ),
-              pw.SizedBox(height: 14),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.0),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('Chegirma:', style: pw.TextStyle(font: font, fontSize: 7.2)),
+                    pw.Text("${ReceiptPrintData.formatMoney(data.discount)} so'm", style: pw.TextStyle(font: font, fontSize: 7.2)),
+                  ],
+                ),
+              ),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.5),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text("To'lov:", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 9.5 : 10.5, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("${ReceiptPrintData.formatMoney(data.grandTotal)} so'm", style: pw.TextStyle(font: fontBold, fontSize: is58mm ? 9.5 : 10.5, fontWeight: pw.FontWeight.bold)),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 3),
+              pw.Text(
+                '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+                maxLines: 1,
+                overflow: pw.TextOverflow.clip,
+                style: pw.TextStyle(font: font, fontSize: 6.0, color: PdfColors.black),
+              ),
+              pw.SizedBox(height: 8),
 
-              // ── 6. QR CODE WITH CORNER BRACKETS & PHONE (Image 5) ──
+              // ── 6. QR CODE IN THIN ROUNDED BOX ───────────────────────────
               if (data.qrUrl.isNotEmpty) ...[
                 pw.Center(
-                  child: pw.Stack(
-                    alignment: pw.Alignment.center,
-                    children: [
-                      pw.SvgImage(svg: cornerBracketsSvg, width: is58mm ? 52 : 62, height: is58mm ? 52 : 62),
-                      pw.BarcodeWidget(
-                        barcode: pw.Barcode.qrCode(),
-                        data: data.qrUrl,
-                        width: is58mm ? 40 : 48,
-                        height: is58mm ? 40 : 48,
-                        color: PdfColors.black,
-                      ),
-                    ],
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(3.5),
+                    decoration: pw.BoxDecoration(
+                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                      border: pw.Border.all(color: PdfColors.black, width: 1.0),
+                    ),
+                    child: pw.BarcodeWidget(
+                      barcode: pw.Barcode.qrCode(),
+                      data: data.qrUrl,
+                      width: is58mm ? 40 : 48,
+                      height: is58mm ? 40 : 48,
+                      color: PdfColors.black,
+                    ),
                   ),
                 ),
                 pw.SizedBox(height: 4),
@@ -588,11 +642,11 @@ class ThermalPdfGenerator {
                     style: pw.TextStyle(font: fontBold, fontSize: 6.6, color: PdfColors.black),
                   ),
                 ),
-                pw.SizedBox(height: 10),
+                pw.SizedBox(height: 8),
               ],
 
-              // ── 7. FOOTER: COFFEE BEAN DIVIDER + THANKS NOTE + FAMILY CAFE (Image 5) ──
-              pw.Center(child: pw.SvgImage(svg: coffeeBeanDividerSvg, width: is58mm ? 100 : 130, height: 12)),
+              // ── 7. FOOTER: Chiziq + Rahmat matni + Yurakcha + Kafe nomi ──
+              pw.Container(height: 0.8, color: PdfColors.black),
               pw.SizedBox(height: 3),
               pw.Center(
                 child: pw.Text(
@@ -600,19 +654,23 @@ class ThermalPdfGenerator {
                   style: pw.TextStyle(font: fontOblique, fontSize: 8.2, fontStyle: pw.FontStyle.italic),
                 ),
               ),
-              pw.SizedBox(height: 3),
+              pw.SizedBox(height: 2),
+              pw.Center(
+                child: pw.SvgImage(svg: heartOutlineSvg, width: 10, height: 10),
+              ),
+              pw.SizedBox(height: 2),
               pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
                 pw.Container(width: 18, height: 0.8, color: PdfColors.black),
                 pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(horizontal: 4),
                   child: pw.Text(
-                    data.cafeName.toUpperCase(),
-                    style: pw.TextStyle(font: fontBold, fontSize: 8.2, fontWeight: pw.FontWeight.bold, letterSpacing: 0.8),
+                    data.cafeName,
+                    style: pw.TextStyle(font: fontBold, fontSize: 8.2, fontWeight: pw.FontWeight.bold, letterSpacing: 0.6),
                   ),
                 ),
                 pw.Container(width: 18, height: 0.8, color: PdfColors.black),
               ]),
-              pw.SizedBox(height: 10),
+              pw.SizedBox(height: 8),
             ],
           );
         },

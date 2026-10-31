@@ -20,7 +20,6 @@ import 'screens/director_screen.dart';
 import 'screens/pin_lock_screen.dart';
 import 'screens/tables_management_screen.dart';
 import 'screens/customer_orders_screen.dart';
-import 'screens/staff_tracking_screen.dart';
 import 'services/in_app_notification_service.dart';
 import 'services/staff_tracking_service.dart';
 import 'services/api_client.dart';
@@ -34,7 +33,6 @@ import 'services/sound_service.dart';
 import 'services/localization_service.dart';
 import 'services/offline_sync_service.dart';
 import 'services/receipt_printer_service.dart';
-import 'theme/design_tokens.dart';
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
 import 'widgets/receipt_widget.dart';
@@ -3263,398 +3261,6 @@ class NetworkPrinterService {
 // tizim "Print" oynasida ko'rinadi va tanlanadi)
 // ============================================================
 
-// SVG vektor belgilari
-const String _pdfZaveroSvg = '''<svg width="52" height="44" viewBox="0 0 100 88" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- CHAP Z -->
-  <path d="M0 0 H58 V15 H19 L50 73 H58 V88 H0 V73 H39 L8 15 H0 Z" fill="black"/>
-  <!-- O'NG Z -->
-  <path d="M42 0 H100 V15 H61 L92 73 H100 V88 H42 V73 H81 L50 15 H42 Z" fill="black"/>
-</svg>''';
-
-
-
-const String _pdfLocationSvg = '''<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-  <circle cx="12" cy="10" r="3"/>
-</svg>''';
-
-const String _pdfPhoneSvg = '''<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-</svg>''';
-
-const String _pdfCardSvg = '''<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="2" y="5" width="20" height="14" rx="2"/>
-  <line x1="2" y1="10" x2="22" y2="10"/>
-</svg>''';
-
-const String _pdfHeartSvg = '''<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-</svg>''';
-
-const String _pdfStoreSvg = '''<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-  <polyline points="9 22 9 12 15 12 15 22"/>
-</svg>''';
-
-const String _pdfCalendarSvg = '''<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-  <line x1="16" y1="2" x2="16" y2="6"/>
-  <line x1="8" y1="2" x2="8" y2="6"/>
-  <line x1="3" y1="10" x2="21" y2="10"/>
-</svg>''';
-
-const String _pdfClockSvg = '''<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <circle cx="12" cy="12" r="10"/>
-  <polyline points="12 6 12 12 16 14"/>
-</svg>''';
-
-const String _pdfReceiptSvg = '''<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <polyline points="9 11 12 14 22 4"/>
-  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-</svg>''';
-
-const String _pdfPersonSvg = '''<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-  <circle cx="12" cy="7" r="4"/>
-</svg>''';
-
-/// Rasm 4 ga 1:1 mos 80mm/58mm professional, ixcham termal chek PDF hujjati
-pw.Document _buildThermalReceiptPdf({
-  required String checkId,
-  required String cashierName,
-  required String? hallName,
-  required String? tableNumberStr,
-  required DateTime dateTime,
-  required List<CartItem> items,
-  required double grandTotal,
-}) {
-  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
-  final double widthPt = (is58mm ? 58.0 : 80.0) * PdfPageFormat.mm;
-  const double marginVerticalPt = 1.5 * PdfPageFormat.mm;
-  const double marginHorizontalPt = 2.0 * PdfPageFormat.mm;
-
-  // 1-rasmdagi ko'rinishga 100% mos to'liq balandlik (hech qanday qism kesilib qolmasligi uchun)
-  final double baseHeight = is58mm ? 480.0 : 510.0;
-  final double dynamicItemsHeight = items.length * (is58mm ? 20.0 : 18.0);
-  final double totalContentHeight = baseHeight + dynamicItemsHeight;
-
-  final format = PdfPageFormat(
-    widthPt,
-    totalContentHeight,
-    marginTop: marginVerticalPt,
-    marginBottom: marginVerticalPt,
-    marginLeft: marginHorizontalPt,
-    marginRight: marginHorizontalPt,
-  );
-
-  final doc = pw.Document();
-  final helvetica = pw.Font.helvetica();
-  final helveticaBold = pw.Font.helveticaBold();
-  final helveticaOblique = pw.Font.helveticaOblique();
-
-  final cafeName = appState.effectiveReceiptName.isNotEmpty
-      ? appState.effectiveReceiptName
-      : 'Family Cafe';
-  final address = appState.restaurantAddress.trim().isNotEmpty
-      ? appState.restaurantAddress.trim()
-      : "Navoiy ko'chasi 12, Buxoro";
-  final phone = appState.restaurantPhone.trim().isNotEmpty
-      ? appState.restaurantPhone.trim()
-      : '+998 90 123 45 67';
-  final slogan = appState.receiptSlogan.trim().isNotEmpty
-      ? appState.receiptSlogan.trim()
-      : "Yaxshi ta'm - Baxtli onlar";
-  final footerText = appState.receiptFooterNote.trim().isNotEmpty
-      ? appState.receiptFooterNote.trim()
-      : 'Bizni tanlaganingiz uchun rahmat!';
-
-  final dateStr =
-      '${dateTime.day.toString().padLeft(2, '0')}.${dateTime.month.toString().padLeft(2, '0')}.${dateTime.year}';
-  final timeStr =
-      '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-  final formattedCheckId = ReceiptWidget.formatCheckNumber(checkId);
-  final cashierDisplay = cashierName.trim().isNotEmpty ? cashierName.trim() : 'Admin';
-
-  // Logo
-  Uint8List? customLogoBytes;
-  final logoUrl = appState.appLogoUrl?.trim() ?? '';
-  if (logoUrl.isNotEmpty) {
-    try {
-      if (logoUrl.startsWith('data:image/')) {
-        final commaIdx = logoUrl.indexOf(',');
-        final base64Str = commaIdx != -1 ? logoUrl.substring(commaIdx + 1) : logoUrl;
-        customLogoBytes = base64Decode(base64Str);
-      } else if (!kIsWeb && File(logoUrl).existsSync()) {
-        customLogoBytes = File(logoUrl).readAsBytesSync();
-      }
-    } catch (_) {}
-  }
-
-  double productsSum = 0;
-  for (final item in items) {
-    productsSum += item.product.price * item.qty;
-  }
-
-  // Image 5: Coffee Cup with Steam, Saucer, Arch & 2 Coffee Beans SVG
-  const coffeeCupEmblemSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 52" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="4" y1="28" x2="46" y2="28" stroke-width="1.8"/>
-  <g transform="translate(56, 26) rotate(-25)">
-    <ellipse cx="0" cy="0" rx="7" ry="4.5" fill="black"/>
-    <path d="M -5 0 C -2 -2.5, 2 2.5, 5 0" stroke="white" stroke-width="1.2" fill="none"/>
-  </g>
-  <path d="M 66 38 C 68 8, 92 8, 94 38" stroke-width="1.8" fill="none"/>
-  <ellipse cx="80" cy="38" rx="14" ry="2.5" stroke="black" stroke-width="1.6" fill="none"/>
-  <path d="M 72 25 L 88 25 C 88 35, 72 35, 72 25 Z" fill="black"/>
-  <path d="M 87 26 C 92 26, 92 33, 86 33" stroke="black" stroke-width="1.6" fill="none"/>
-  <path d="M 80 23 C 78 18, 82 14, 80 9" stroke="black" stroke-width="1.4" fill="none"/>
-  <path d="M 76 23 C 74 19, 78 16, 76 11" stroke="black" stroke-width="1.2" fill="none"/>
-  <path d="M 84 23 C 86 19, 82 16, 84 11" stroke="black" stroke-width="1.2" fill="none"/>
-  <g transform="translate(104, 26) rotate(25)">
-    <ellipse cx="0" cy="0" rx="7" ry="4.5" fill="black"/>
-    <path d="M -5 0 C -2 -2.5, 2 2.5, 5 0" stroke="white" stroke-width="1.2" fill="none"/>
-  </g>
-  <line x1="114" y1="28" x2="156" y2="28" stroke-width="1.8"/>
-</svg>''';
-
-  // Image 5: Coffee bean divider SVG
-  const coffeeBeanDividerSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 16" fill="none" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="4" y1="8" x2="70" y2="8"/>
-  <g transform="translate(80, 8) rotate(25)">
-    <ellipse cx="0" cy="0" rx="6.5" ry="4" fill="black"/>
-    <path d="M -4.5 0 C -2 -2, 2 2, 4.5 0" stroke="white" stroke-width="1.0" fill="none"/>
-  </g>
-  <line x1="90" y1="8" x2="156" y2="8"/>
-</svg>''';
-
-  // Corner brackets SVG around QR code
-  const cornerBracketsSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M 4 12 L 4 4 L 12 4"/>
-  <path d="M 48 4 L 56 4 L 56 12"/>
-  <path d="M 4 48 L 4 56 L 12 56"/>
-  <path d="M 48 56 L 56 56 L 56 48"/>
-</svg>''';
-
-  doc.addPage(
-    pw.Page(
-      pageFormat: format,
-      build: (context) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-          mainAxisSize: pw.MainAxisSize.min,
-          children: [
-            // ── 1. HEADER: Emblem + Kafe nomi (qalin) + Slogan (Image 5) ──────
-            if (customLogoBytes != null && customLogoBytes.isNotEmpty)
-              pw.Center(
-                child: pw.Image(pw.MemoryImage(customLogoBytes), height: 34, fit: pw.BoxFit.contain),
-              )
-            else
-              pw.Center(child: pw.SvgImage(svg: coffeeCupEmblemSvg, width: is58mm ? 100 : 130, height: is58mm ? 32 : 40)),
-            pw.SizedBox(height: 2),
-            pw.Center(
-              child: pw.Text(
-                cafeName.toUpperCase(),
-                style: pw.TextStyle(
-                  font: helveticaBold,
-                  fontSize: is58mm ? 13.0 : 16.0,
-                  fontWeight: pw.FontWeight.bold,
-                  letterSpacing: 1.4,
-                ),
-              ),
-            ),
-            pw.SizedBox(height: 2),
-            // Slogan with lines
-            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
-              pw.Container(width: 16, height: 0.8, color: PdfColors.black),
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 4),
-                child: pw.Row(
-                  mainAxisSize: pw.MainAxisSize.min,
-                  children: [
-                    pw.Text("Yaxshi ta'm ", style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
-                    pw.Container(width: 2.5, height: 2.5, decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle)),
-                    pw.Text(" Baxtli onlar", style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
-                  ],
-                ),
-              ),
-              pw.Container(width: 16, height: 0.8, color: PdfColors.black),
-            ]),
-            pw.SizedBox(height: 4),
-
-            // ── Solid separator ──
-            pw.Container(height: 1.0, color: PdfColors.black),
-            pw.SizedBox(height: 3),
-
-            // ── 2. INFO BLOK (2 ustun) (Image 5) ──────────────────────────────
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 2),
-              child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                // LEFT
-                pw.Expanded(
-                  flex: 11,
-                  child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                    pw.Row(children: [
-                      pw.SvgImage(svg: _pdfStoreSvg, width: 7, height: 7),
-                      pw.SizedBox(width: 2.5),
-                      pw.Text(cafeName, style: pw.TextStyle(font: helveticaBold, fontSize: 7.6, fontWeight: pw.FontWeight.bold)),
-                    ]),
-                    pw.SizedBox(height: 2.0),
-                    pw.Row(children: [
-                      pw.SvgImage(svg: _pdfLocationSvg, width: 7, height: 7),
-                      pw.SizedBox(width: 2.5),
-                      pw.Expanded(child: pw.Text(address, style: pw.TextStyle(font: helvetica, fontSize: 6.8))),
-                    ]),
-                    pw.SizedBox(height: 2.0),
-                    pw.Row(children: [
-                      pw.SvgImage(svg: _pdfPhoneSvg, width: 7, height: 7),
-                      pw.SizedBox(width: 2.5),
-                      pw.Text(phone, style: pw.TextStyle(font: helvetica, fontSize: 6.8)),
-                    ]),
-                  ]),
-                ),
-                // DIVIDER
-                pw.Container(width: 0.8, height: 32, color: PdfColors.black, margin: const pw.EdgeInsets.symmetric(horizontal: 4)),
-                // RIGHT
-                pw.Expanded(
-                  flex: 9,
-                  child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                    pw.Row(children: [
-                      pw.SvgImage(svg: _pdfCalendarSvg, width: 7, height: 7),
-                      pw.SizedBox(width: 2.5),
-                      pw.Text(dateStr, style: pw.TextStyle(font: helvetica, fontSize: 6.8)),
-                    ]),
-                    pw.SizedBox(height: 2.0),
-                    pw.Row(children: [
-                      pw.SvgImage(svg: _pdfClockSvg, width: 7, height: 7),
-                      pw.SizedBox(width: 2.5),
-                      pw.Text(timeStr, style: pw.TextStyle(font: helvetica, fontSize: 6.8)),
-                    ]),
-                    pw.SizedBox(height: 2.0),
-                    pw.Row(children: [
-                      pw.SvgImage(svg: _pdfReceiptSvg, width: 7, height: 7),
-                      pw.SizedBox(width: 2.5),
-                      pw.Text('Chek No: $formattedCheckId', style: pw.TextStyle(font: helveticaBold, fontSize: 6.8, fontWeight: pw.FontWeight.bold)),
-                    ]),
-                    pw.SizedBox(height: 2.0),
-                    pw.Row(children: [
-                      pw.SvgImage(svg: _pdfPersonSvg, width: 7, height: 7),
-                      pw.SizedBox(width: 2.5),
-                      pw.Text('Kassir: $cashierDisplay', style: pw.TextStyle(font: helveticaBold, fontSize: 6.8, fontWeight: pw.FontWeight.bold)),
-                    ]),
-                  ]),
-                ),
-              ]),
-            ),
-            pw.SizedBox(height: 3),
-            pw.Container(height: 1.0, color: PdfColors.black),
-            pw.SizedBox(height: 2.5),
-
-            // ── 3. JADVAL SARLAVHASI (4 ustun: № | Nomi | Miqdori | Narx - Image 5) ──────────────────────────────
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.5),
-              child: pw.Row(children: [
-                pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('No', style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                pw.Expanded(child: pw.Text('Nomi', style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(width: is58mm ? 46 : 56, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-              ]),
-            ),
-            pw.Container(height: 0.6, color: PdfColors.black),
-            pw.SizedBox(height: 2),
-
-            // ── 4. MAHSULOTLAR (Image 5) ────────────────────────────────────
-            ...List.generate(items.length, (index) {
-              final item = items[index];
-              return pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.8),
-                child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
-                  pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('${index + 1}', style: pw.TextStyle(font: helvetica, fontSize: 7.2))),
-                  pw.Expanded(child: pw.Text(item.product.name, style: pw.TextStyle(font: helveticaBold, fontSize: 7.4, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helvetica, fontSize: 7.2))),
-                  pw.SizedBox(width: is58mm ? 46 : 56, child: pw.Text("${ReceiptWidget.money(item.product.price.round())} UZS", textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.4, fontWeight: pw.FontWeight.bold))),
-                ]),
-              );
-            }),
-            pw.SizedBox(height: 2),
-            pw.Container(height: 1.0, color: PdfColors.black),
-            pw.SizedBox(height: 4),
-
-            // ── 5. PAYMENT BOX (Rounded border container: TO'LOV: | <summa> UZS - Image 5) ───────────────────────
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              decoration: pw.BoxDecoration(
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-                border: pw.Border.all(color: PdfColors.black, width: 1.4),
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text("TO'LOV:", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 10.5 : 12.5, fontWeight: pw.FontWeight.bold)),
-                  pw.Container(width: 1.0, height: 16, color: PdfColors.black),
-                  pw.Text("${ReceiptWidget.money(grandTotal.round())} UZS", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 11.5 : 13.5, fontWeight: pw.FontWeight.bold)),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 14),
-
-            // ── 6. QR KOD WITH CORNER BRACKETS & PHONE (Image 5) ──
-            pw.Center(
-              child: pw.Stack(
-                alignment: pw.Alignment.center,
-                children: [
-                  pw.SvgImage(svg: cornerBracketsSvg, width: is58mm ? 52 : 62, height: is58mm ? 52 : 62),
-                  pw.BarcodeWidget(
-                    barcode: pw.Barcode.qrCode(),
-                    data: appState.receiptQrUrl.isNotEmpty
-                        ? appState.receiptQrUrl
-                        : 'https://zavero-backend-production-7dc9.up.railway.app',
-                    width: is58mm ? 40 : 48,
-                    height: is58mm ? 40 : 48,
-                    color: PdfColors.black,
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 4),
-            pw.Center(
-              child: pw.Text(
-                'QR skaner qiling va\nZavero web saytiga o\'ting!',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(font: helveticaBold, fontSize: 6.6, color: PdfColors.black),
-              ),
-            ),
-            pw.SizedBox(height: 10),
-
-            // ── 7. FOOTER: COFFEE BEAN DIVIDER + THANKS NOTE + FAMILY CAFE (Image 5) ──
-            pw.Center(child: pw.SvgImage(svg: coffeeBeanDividerSvg, width: is58mm ? 100 : 130, height: 12)),
-            pw.SizedBox(height: 3),
-            pw.Center(
-              child: pw.Text(
-                footerText,
-                style: pw.TextStyle(font: helveticaOblique, fontSize: 8.2, fontStyle: pw.FontStyle.italic),
-              ),
-            ),
-            pw.SizedBox(height: 3),
-            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
-              pw.Container(width: 18, height: 0.8, color: PdfColors.black),
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 4),
-                child: pw.Text(
-                  cafeName.toUpperCase(),
-                  style: pw.TextStyle(font: helveticaBold, fontSize: 8.2, fontWeight: pw.FontWeight.bold, letterSpacing: 0.8),
-                ),
-              ),
-              pw.Container(width: 18, height: 0.8, color: PdfColors.black),
-            ]),
-            pw.SizedBox(height: 10),
-          ],
-        );
-      },
-    ),
-  );
-
-  return doc;
-}
-
 bool _isPrintingWindowActive = false;
 int _lastPrintWindowTimestamp = 0;
 
@@ -3695,24 +3301,40 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
 
   if (!await _acquirePrintLock()) return;
   try {
-    final doc = _buildThermalReceiptPdf(
+    final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+    final printData = ReceiptPrintData(
       checkId: '${receipt.id}',
-      cashierName: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
-      hallName: receipt.hallName,
-      tableNumberStr: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
       dateTime: receipt.date,
-      items: receipt.items,
+      cashierName: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
+      cafeName: appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
+      address: appState.restaurantAddress.trim().isNotEmpty ? appState.restaurantAddress.trim() : "Navoi ko'chasi 12, Buxoro",
+      phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
+      slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
+      footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
+      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+      tableNumber: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
+      hallName: receipt.hallName,
+      items: receipt.items.asMap().entries.map((e) => ReceiptPrintItem(
+        index: e.key + 1,
+        name: e.value.product.name,
+        qty: e.value.qty,
+        unitPrice: e.value.product.price,
+        lineTotal: e.value.product.price * e.value.qty,
+      )).toList(),
+      subtotal: receipt.total,
+      discount: 0,
       grandTotal: receipt.total,
+      paymentMethod: receipt.method == PaymentMethod.card ? 'card' : 'cash',
+      is58mm: is58mm,
     );
 
-    final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
-    const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
-    final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+    final doc = ThermalPdfGenerator.buildReceiptDoc(printData, is58mm: is58mm);
+    final pageFormat = ThermalPdfGenerator.getFormat(printData, is58mm: is58mm);
 
     await Printing.layoutPdf(
       onLayout: (format) async => doc.save(),
       name: 'chek_${receipt.id}',
-      format: rollFormat,
+      format: pageFormat,
       dynamicLayout: false,
     );
   } finally {
@@ -3753,27 +3375,43 @@ Future<void> printBillPreview({
 
   final now = DateTime.now();
   final checkId = 'T${table?.number ?? 1}-${now.millisecondsSinceEpoch}';
+  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
 
-  final doc = _buildThermalReceiptPdf(
+  final printData = ReceiptPrintData(
     checkId: checkId,
-    cashierName: cashierName,
-    hallName: hallName,
-    tableNumberStr: table != null ? '${table.number}' : null,
     dateTime: now,
-    items: items,
+    cashierName: cashierName,
+    cafeName: appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
+    address: appState.restaurantAddress.trim().isNotEmpty ? appState.restaurantAddress.trim() : "Navoi ko'chasi 12, Buxoro",
+    phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
+    slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
+    footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
+    qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+    tableNumber: table != null ? '${table.number}' : null,
+    hallName: hallName,
+    items: items.asMap().entries.map((e) => ReceiptPrintItem(
+      index: e.key + 1,
+      name: e.value.product.name,
+      qty: e.value.qty,
+      unitPrice: e.value.product.price,
+      lineTotal: e.value.product.price * e.value.qty,
+    )).toList(),
+    subtotal: productsTotal,
+    discount: (productsTotal - grandTotal) > 0 ? (productsTotal - grandTotal) : 0,
     grandTotal: grandTotal,
+    paymentMethod: method == PaymentMethod.card ? 'card' : 'cash',
+    is58mm: is58mm,
   );
 
-  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
-  const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
-  final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+  final doc = ThermalPdfGenerator.buildReceiptDoc(printData, is58mm: is58mm);
+  final pageFormat = ThermalPdfGenerator.getFormat(printData, is58mm: is58mm);
 
   if (!await _acquirePrintLock()) return;
   try {
     await Printing.layoutPdf(
       onLayout: (format) async => doc.save(),
       name: 'hisob_${DateTime.now().millisecondsSinceEpoch}',
-      format: rollFormat,
+      format: pageFormat,
       dynamicLayout: false,
     );
   } finally {
@@ -7783,21 +7421,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         final screenWidth = MediaQuery.of(context).size.width;
         final isMobile = screenWidth < 700;
 
-        // Sidebar nav items — same tiles list
-        final navItems = <Map<String, dynamic>>[
-          if (isAdmin || isWaiter || isCourier || isCustomer) ...{
-            ...tiles.asMap().entries.map((e) {
-              final t = e.value;
-              return <String, dynamic>{
-                'label': t.label,
-                'icon': t.icon,
-                'onTap': t.onTap,
-                'badge': t.badge,
-              };
-            }),
-          }.toList(),
-        ];
-
         // ── Collapsible sidebar builder ──────────────────────
         Widget buildSidebar() {
           final collapsed = _sidebarCollapsed;
@@ -7898,9 +7521,18 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                         _buildSidebarItem(
                           icon: Icons.home_rounded,
                           title: 'Boshqaruv paneli',
-                          isActive: true,
+                          isActive: _mobileNavIndex == 0,
                           collapsed: _sidebarCollapsed,
-                          onTap: () {},
+                          onTap: () => setState(() => _mobileNavIndex = 0),
+                        ),
+                        const SizedBox(height: 3),
+                        // 2. Stollar (Jonli stollar gridi)
+                        _buildSidebarItem(
+                          icon: Icons.table_restaurant_rounded,
+                          title: 'Stollar',
+                          isActive: _mobileNavIndex == 1,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => setState(() => _mobileNavIndex = 1),
                         ),
                         const SizedBox(height: 3),
                         // 2. Hisobotlar (Collapsible Submenu - Image 2)
@@ -8328,15 +7960,12 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 ]),
               ),
 
-            // ── Main Section: Admin bo'lsa Executive Dashboard, Ofitsiant bo'lsa Stollar gridi ──
+            // ── Main Section: Admin bo'lsa Executive Dashboard (yoki Stollar tab), Ofitsiant bo'lsa Stollar gridi ──
             Expanded(
-              child: isAdmin
+              child: (isAdmin && _mobileNavIndex == 0)
                   ? CafeExecutiveDashboard(
                       onNewOrder: () {
-                        if (appState.tables.isNotEmpty) {
-                          appState.selectTable(appState.tables.first);
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const POSScreen()));
-                        }
+                        setState(() => _mobileNavIndex = 1);
                       },
                       onAddProduct: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen())),
                       onPrintReceipt: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen())),
@@ -8503,16 +8132,87 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
-                          // 1. Stollar
-                          _mobileNavBtn(
-                            Icons.table_restaurant_outlined,
-                            Icons.table_restaurant_rounded,
-                            'Stollar',
-                            0 == _mobileNavIndex,
-                            () => setState(() => _mobileNavIndex = 0),
-                          ),
-                          // 2. Buyurtmalar (FAQAT ofitsiant panelida chiqadi, Kafe admin panelida ko'rsatilmaydi)
-                          if (!isAdmin)
+                          if (isAdmin) ...[
+                            // 1. Bosh qism (Admin uchun bosh sahifa)
+                            _mobileNavBtn(
+                              Icons.home_outlined,
+                              Icons.home_rounded,
+                              'Bosh qism',
+                              0 == _mobileNavIndex,
+                              () => setState(() => _mobileNavIndex = 0),
+                            ),
+                            // 2. Stollar (Admin stollarni ham boshqara oladi)
+                            _mobileNavBtn(
+                              Icons.table_restaurant_outlined,
+                              Icons.table_restaurant_rounded,
+                              'Stollar',
+                              1 == _mobileNavIndex,
+                              () => setState(() => _mobileNavIndex = 1),
+                            ),
+                            // 3. Hisobotlar
+                            _mobileNavBtn(
+                              Icons.bar_chart_outlined,
+                              Icons.bar_chart_rounded,
+                              'Hisobotlar',
+                              2 == _mobileNavIndex,
+                              () async {
+                                setState(() => _mobileNavIndex = 2);
+                                await Future.delayed(const Duration(milliseconds: 80));
+                                if (context.mounted) {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                                  );
+                                }
+                                if (mounted) setState(() => _mobileNavIndex = 0);
+                              },
+                            ),
+                            // 4. Cheklar
+                            _mobileNavBtn(
+                              Icons.history_rounded,
+                              Icons.history_rounded,
+                              'Cheklar',
+                              3 == _mobileNavIndex,
+                              () async {
+                                setState(() => _mobileNavIndex = 3);
+                                await Future.delayed(const Duration(milliseconds: 80));
+                                if (context.mounted) {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
+                                  );
+                                }
+                                if (mounted) setState(() => _mobileNavIndex = 0);
+                              },
+                            ),
+                            // 5. Profil
+                            _mobileNavBtn(
+                              Icons.person_outline_rounded,
+                              Icons.person_rounded,
+                              'Profil',
+                              4 == _mobileNavIndex,
+                              () async {
+                                setState(() => _mobileNavIndex = 4);
+                                await Future.delayed(const Duration(milliseconds: 80));
+                                if (context.mounted) {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                                  );
+                                }
+                                if (mounted) setState(() => _mobileNavIndex = 0);
+                              },
+                            ),
+                          ] else ...[
+                            // 1. Stollar (Ofitsiant uchun asosiy stol buyurtmalari)
+                            _mobileNavBtn(
+                              Icons.table_restaurant_outlined,
+                              Icons.table_restaurant_rounded,
+                              'Stollar',
+                              0 == _mobileNavIndex,
+                              () => setState(() => _mobileNavIndex = 0),
+                            ),
+                            // 2. Buyurtmalar (Ofitsiant paneli)
                             _mobileNavBtn(
                               Icons.receipt_long_outlined,
                               Icons.receipt_long_rounded,
@@ -8531,12 +8231,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               },
                               badge: appState.pendingOrdersCount,
                             ),
-                          // 3. Hisobotlar (Kafe admin paneli uchun markaziy hisobotlar)
-                          if (isAdmin)
+                            // 3. Cheklar
                             _mobileNavBtn(
-                              Icons.bar_chart_outlined,
-                              Icons.bar_chart_rounded,
-                              'Hisobotlar',
+                              Icons.history_rounded,
+                              Icons.history_rounded,
+                              'Cheklar',
                               2 == _mobileNavIndex,
                               () async {
                                 setState(() => _mobileNavIndex = 2);
@@ -8544,48 +8243,31 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                 if (context.mounted) {
                                   await Navigator.push(
                                     context,
-                                    MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                                    MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
                                   );
                                 }
                                 if (mounted) setState(() => _mobileNavIndex = 0);
                               },
                             ),
-                          // 4. Cheklar
-                          _mobileNavBtn(
-                            Icons.history_rounded,
-                            Icons.history_rounded,
-                            'Cheklar',
-                            3 == _mobileNavIndex,
-                            () async {
-                              setState(() => _mobileNavIndex = 3);
-                              await Future.delayed(const Duration(milliseconds: 80));
-                              if (context.mounted) {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
-                                );
-                              }
-                              if (mounted) setState(() => _mobileNavIndex = 0);
-                            },
-                          ),
-                          // 5. Profil
-                          _mobileNavBtn(
-                            Icons.person_outline_rounded,
-                            Icons.person_rounded,
-                            'Profil',
-                            4 == _mobileNavIndex,
-                            () async {
-                              setState(() => _mobileNavIndex = 4);
-                              await Future.delayed(const Duration(milliseconds: 80));
-                              if (context.mounted) {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                                );
-                              }
-                              if (mounted) setState(() => _mobileNavIndex = 0);
-                            },
-                          ),
+                            // 4. Profil
+                            _mobileNavBtn(
+                              Icons.person_outline_rounded,
+                              Icons.person_rounded,
+                              'Profil',
+                              3 == _mobileNavIndex,
+                              () async {
+                                setState(() => _mobileNavIndex = 3);
+                                await Future.delayed(const Duration(milliseconds: 80));
+                                if (context.mounted) {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                                  );
+                                }
+                                if (mounted) setState(() => _mobileNavIndex = 0);
+                              },
+                            ),
+                          ],
                         ],
                       ),
                     ),
