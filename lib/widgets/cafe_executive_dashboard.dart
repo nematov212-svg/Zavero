@@ -8,6 +8,8 @@ import 'receipt_widget.dart';
 /// Barcha ko'rsatkichlar real vaqtda bazadagi to'langan cheklar asosida hisoblanadi.
 /// Ofitsiant buyurtma qilib to'lovni bajarganida ("To'landi" bosilganda),
 /// "Bugungi daromad", "Jami daromad", grafiklar va jadvallarga 100% real vaqtda kelib tushadi.
+
+
 class CafeExecutiveDashboard extends StatefulWidget {
   final VoidCallback? onNewOrder;
   final VoidCallback? onAddProduct;
@@ -39,6 +41,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   _SalesChartPeriod _selectedChartPeriod = _SalesChartPeriod.kun;
   _DashboardPeriod _selectedPeriod = _DashboardPeriod.bugun;
   int? _hoveredIndex;
+  int? _hoveredDonutIndex;
+
+  DateTime _toTashkent(DateTime dt) {
+    return dt.toUtc().add(const Duration(hours: 5));
+  }
 
   String _formatMoney(num val) {
     final s = val.round().toString();
@@ -54,51 +61,87 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     return buffer.toString().split('').reversed.join();
   }
 
+  String _calcGrowthString(double current, double prev) {
+    if (current == 0 && prev == 0) return '—';
+    if (prev <= 0) return current > 0 ? 'Yangi' : '—';
+    final diff = ((current - prev) / prev) * 100;
+    if (diff > 150) return 'Yangi';
+    if (diff >= 0) return '+${diff.round()}%';
+    return '${diff.round()}%';
+  }
+
+  String _calcOrdersGrowthString(int current, int prev) {
+    if (current == 0 && prev == 0) return '—';
+    if (prev <= 0) return current > 0 ? 'Yangi' : '—';
+    final diff = ((current - prev) / prev) * 100;
+    if (diff > 150) return 'Yangi';
+    if (diff >= 0) return '+${diff.round()}%';
+    return '${diff.round()}%';
+  }
+
   bool _isSameDay(DateTime a, DateTime b) {
-    final aLoc = a.toLocal();
-    final bLoc = b.toLocal();
-    return aLoc.year == bLoc.year && aLoc.month == bLoc.month && aLoc.day == bLoc.day;
+    final aT = _toTashkent(a);
+    final bT = _toTashkent(b);
+    return aT.year == bT.year && aT.month == bT.month && aT.day == bT.day;
   }
 
   List<Receipt> _filterReceipts(List<Receipt> receipts, _DashboardPeriod period) {
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
+    final nowT = _toTashkent(DateTime.now());
+    final todayStart = DateTime(nowT.year, nowT.month, nowT.day);
     switch (period) {
       case _DashboardPeriod.bugun:
-        return receipts.where((r) => r.date.isAfter(todayStart) || _isSameDay(r.date, now)).toList();
+        return receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return rT.isAfter(todayStart) || (rT.year == nowT.year && rT.month == nowT.month && rT.day == nowT.day);
+        }).toList();
       case _DashboardPeriod.kecha:
         final yesterdayStart = todayStart.subtract(const Duration(days: 1));
-        return receipts.where((r) => r.date.isAfter(yesterdayStart) && r.date.isBefore(todayStart)).toList();
+        return receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return (rT.isAfter(yesterdayStart) || rT.isAtSameMomentAs(yesterdayStart)) && rT.isBefore(todayStart);
+        }).toList();
       case _DashboardPeriod.hafta:
         final weekStart = todayStart.subtract(const Duration(days: 7));
-        return receipts.where((r) => r.date.isAfter(weekStart)).toList();
+        return receipts.where((r) => _toTashkent(r.date).isAfter(weekStart)).toList();
       case _DashboardPeriod.oy:
-        final monthStart = DateTime(now.year, now.month, 1);
-        return receipts.where((r) => r.date.isAfter(monthStart)).toList();
+        final monthStart = DateTime(nowT.year, nowT.month, 1);
+        return receipts.where((r) => _toTashkent(r.date).isAfter(monthStart)).toList();
       case _DashboardPeriod.barchasi:
         return receipts;
     }
   }
 
   List<Receipt> _getPreviousPeriodReceipts(List<Receipt> receipts, _DashboardPeriod period) {
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
+    final nowT = _toTashkent(DateTime.now());
+    final todayStart = DateTime(nowT.year, nowT.month, nowT.day);
     switch (period) {
       case _DashboardPeriod.bugun:
         final yesterdayStart = todayStart.subtract(const Duration(days: 1));
-        return receipts.where((r) => r.date.isAfter(yesterdayStart) && r.date.isBefore(todayStart)).toList();
+        return receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return (rT.isAfter(yesterdayStart) || rT.isAtSameMomentAs(yesterdayStart)) && rT.isBefore(todayStart);
+        }).toList();
       case _DashboardPeriod.kecha:
         final beforeYesterday = todayStart.subtract(const Duration(days: 2));
         final yesterdayStart = todayStart.subtract(const Duration(days: 1));
-        return receipts.where((r) => r.date.isAfter(beforeYesterday) && r.date.isBefore(yesterdayStart)).toList();
+        return receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return (rT.isAfter(beforeYesterday) || rT.isAtSameMomentAs(beforeYesterday)) && rT.isBefore(yesterdayStart);
+        }).toList();
       case _DashboardPeriod.hafta:
         final prevWeekStart = todayStart.subtract(const Duration(days: 14));
         final currentWeekStart = todayStart.subtract(const Duration(days: 7));
-        return receipts.where((r) => r.date.isAfter(prevWeekStart) && r.date.isBefore(currentWeekStart)).toList();
+        return receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return (rT.isAfter(prevWeekStart) || rT.isAtSameMomentAs(prevWeekStart)) && rT.isBefore(currentWeekStart);
+        }).toList();
       case _DashboardPeriod.oy:
-        final prevMonthStart = DateTime(now.year, now.month - 1, 1);
-        final currentMonthStart = DateTime(now.year, now.month, 1);
-        return receipts.where((r) => r.date.isAfter(prevMonthStart) && r.date.isBefore(currentMonthStart)).toList();
+        final prevMonthStart = DateTime(nowT.year, nowT.month - 1, 1);
+        final currentMonthStart = DateTime(nowT.year, nowT.month, 1);
+        return receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return (rT.isAfter(prevMonthStart) || rT.isAtSameMomentAs(prevMonthStart)) && rT.isBefore(currentMonthStart);
+        }).toList();
       case _DashboardPeriod.barchasi:
         return [];
     }
@@ -123,15 +166,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
 
         final double totalRevenue = periodReceipts.fold(0.0, (sum, r) => sum + r.total);
         final double prevRevenue = prevPeriodReceipts.fold(0.0, (sum, r) => sum + r.total);
-        final int revenueGrowth = prevRevenue > 0
-            ? (((totalRevenue - prevRevenue) / prevRevenue) * 100).round()
-            : (totalRevenue > 0 ? 12 : 0);
+        final String revenueGrowth = _calcGrowthString(totalRevenue, prevRevenue);
 
         final int totalOrders = periodReceipts.length;
         final int prevOrders = prevPeriodReceipts.length;
-        final int ordersGrowth = prevOrders > 0
-            ? (((totalOrders - prevOrders) / prevOrders) * 100).round()
-            : (totalOrders > 0 ? 8 : 0);
+        final String ordersGrowth = _calcOrdersGrowthString(totalOrders, prevOrders);
 
         final double avgCheck = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
         final int uniqueCustomers = totalOrders > 0 ? (totalOrders * 0.78).round().clamp(1, 999999) : 0;
@@ -179,22 +218,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         }
         final sortedProducts = productSalesCount.entries.toList()
           ..sort((a, b) => b.value.compareTo(a.value));
-
-        // Toifalar ulushi (Donut chart)
-        final Map<String, int> categorySales = {};
-        for (final r in periodReceipts) {
-          for (final item in r.items) {
-            String cat = 'Boshqa';
-            for (final c in appState.categories) {
-              if (c.id == item.product.categoryId) {
-                cat = c.name;
-                break;
-              }
-            }
-            categorySales[cat] = (categorySales[cat] ?? 0) + item.qty;
-          }
-        }
-        final int totalCategoryItems = categorySales.values.fold(0, (s, v) => s + v);
 
         // So'nggi cheklar ro'yxati
         final recentReceipts = (List<Receipt>.from(periodReceipts)
@@ -249,7 +272,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               if (isMobile) ...[
                 _buildSalesDynamicsCard(cardBg, cardBorder, isDark, allReceipts),
                 const SizedBox(height: 16),
-                _buildCategoryDonutCard(cardBg, cardBorder, isDark, categorySales, totalCategoryItems, totalOrders),
+                _buildProductSalesDonutCard(cardBg, cardBorder, isDark, periodReceipts),
                 const SizedBox(height: 16),
                 _buildRightSidePanel(cardBg, cardBorder, isDark, todayRevenue, todayOrders, todayAvgCheck),
               ] else ...[
@@ -263,7 +286,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                     const SizedBox(width: 16),
                     Expanded(
                       flex: isTablet ? 5 : 4,
-                      child: _buildCategoryDonutCard(cardBg, cardBorder, isDark, categorySales, totalCategoryItems, totalOrders),
+                      child: _buildProductSalesDonutCard(cardBg, cardBorder, isDark, periodReceipts),
                     ),
                     if (!isTablet) ...[
                       const SizedBox(width: 16),
@@ -381,9 +404,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     required Color cardBorder,
     required bool isDark,
     required int totalOrders,
-    required int ordersGrowth,
+    required String ordersGrowth,
     required double totalRevenue,
-    required int revenueGrowth,
+    required String revenueGrowth,
     required int uniqueCustomers,
     required double avgCheck,
   }) {
@@ -391,7 +414,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       _KpiData(
         title: 'Jami Buyurtmalar',
         value: '$totalOrders ta',
-        trend: '${ordersGrowth >= 0 ? '+' : ''}$ordersGrowth%',
+        trend: ordersGrowth,
         icon: Icons.shopping_cart_outlined,
         iconBg: const Color(0xFFEEF4FF),
         iconColor: const Color(0xFF2563EB),
@@ -401,7 +424,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       _KpiData(
         title: 'Jami Daromad',
         value: '${_formatMoney(totalRevenue)} UZS',
-        trend: '${revenueGrowth >= 0 ? '+' : ''}$revenueGrowth%',
+        trend: revenueGrowth,
         icon: Icons.account_balance_wallet_outlined,
         iconBg: const Color(0xFFECFDF5),
         iconColor: const Color(0xFF10B981),
@@ -452,6 +475,55 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     });
   }
 
+  Widget _buildTrendBadge(String trend, bool isDark) {
+    Color badgeBg;
+    Color textColor;
+    IconData? icon;
+
+    if (trend == '—') {
+      badgeBg = isDark ? Colors.white10 : const Color(0xFFF1F5F9);
+      textColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+      icon = null;
+    } else if (trend == 'Yangi') {
+      badgeBg = const Color(0xFF10B981).withValues(alpha: 0.15);
+      textColor = const Color(0xFF10B981);
+      icon = Icons.auto_awesome;
+    } else if (trend.startsWith('-')) {
+      badgeBg = const Color(0xFFEF4444).withValues(alpha: 0.15);
+      textColor = const Color(0xFFEF4444);
+      icon = Icons.arrow_downward_rounded;
+    } else {
+      badgeBg = const Color(0xFF10B981).withValues(alpha: 0.15);
+      textColor = const Color(0xFF10B981);
+      icon = Icons.arrow_upward_rounded;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: badgeBg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: textColor),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            trend,
+            style: TextStyle(
+              color: textColor,
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildKpiCard(_KpiData data, Color bg, Color border, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -482,28 +554,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 ),
                 child: Icon(data.icon, color: data.iconColor, size: 22),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.arrow_upward_rounded, size: 12, color: Color(0xFF10B981)),
-                    const SizedBox(width: 2),
-                    Text(
-                      data.trend,
-                      style: const TextStyle(
-                        color: Color(0xFF10B981),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _buildTrendBadge(data.trend, isDark),
             ],
           ),
           const SizedBox(height: 14),
@@ -847,21 +898,103 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   // 4. SAVDO DINAMIKASI (Dual-line Interactive Chart)
   // =========================================================================
   Widget _buildSalesDynamicsCard(Color bg, Color border, bool isDark, List<Receipt> receipts) {
-    final now = DateTime.now();
-    final List<DateTime> days = List.generate(7, (i) => now.subtract(Duration(days: 6 - i)));
+    final nowT = _toTashkent(DateTime.now());
     final List<double> revenuePoints = [];
     final List<int> ordersPoints = [];
-    final List<String> dayLabels = [];
+    final List<String> labels = [];
+    final List<String> fullDateLabels = [];
 
-    for (final d in days) {
-      final dayReceipts = receipts.where((r) => _isSameDay(r.date, d)).toList();
-      final double rev = dayReceipts.fold(0.0, (s, r) => s + r.total);
-      revenuePoints.add(rev);
-      ordersPoints.add(dayReceipts.length);
-      dayLabels.add('${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}');
+    if (_selectedChartPeriod == _SalesChartPeriod.kun) {
+      // So'nggi 7 kun
+      final days = List.generate(
+        7,
+        (i) => DateTime(nowT.year, nowT.month, nowT.day).subtract(Duration(days: 6 - i)),
+      );
+      for (final d in days) {
+        final dayReceipts = receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return rT.year == d.year && rT.month == d.month && rT.day == d.day;
+        }).toList();
+        revenuePoints.add(dayReceipts.fold(0.0, (s, r) => s + r.total));
+        ordersPoints.add(dayReceipts.length);
+        labels.add('${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}');
+        fullDateLabels.add('${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}');
+      }
+    } else if (_selectedChartPeriod == _SalesChartPeriod.hafta) {
+      // So'nggi 8 hafta
+      final todayMidnight = DateTime(nowT.year, nowT.month, nowT.day);
+      for (int i = 7; i >= 0; i--) {
+        final start = todayMidnight.subtract(Duration(days: (i * 7) + 6));
+        final end = todayMidnight.subtract(Duration(days: i * 7)).add(const Duration(days: 1));
+        final weekReceipts = receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return (rT.isAfter(start) || rT.isAtSameMomentAs(start)) && rT.isBefore(end);
+        }).toList();
+        revenuePoints.add(weekReceipts.fold(0.0, (s, r) => s + r.total));
+        ordersPoints.add(weekReceipts.length);
+        labels.add('${start.day.toString().padLeft(2, '0')}.${start.month.toString().padLeft(2, '0')}');
+        fullDateLabels.add('${start.day.toString().padLeft(2, '0')}.${start.month.toString().padLeft(2, '0')} - ${end.day.toString().padLeft(2, '0')}.${end.month.toString().padLeft(2, '0')}');
+      }
+    } else if (_selectedChartPeriod == _SalesChartPeriod.oy) {
+      // So'nggi 12 oy
+      final monthNames = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyun', 'Iyul', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'];
+      for (int i = 11; i >= 0; i--) {
+        final monthDate = DateTime(nowT.year, nowT.month - i, 1);
+        final nextMonthDate = DateTime(nowT.year, nowT.month - i + 1, 1);
+        final monthReceipts = receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return (rT.isAfter(monthDate) || rT.isAtSameMomentAs(monthDate)) && rT.isBefore(nextMonthDate);
+        }).toList();
+        revenuePoints.add(monthReceipts.fold(0.0, (s, r) => s + r.total));
+        ordersPoints.add(monthReceipts.length);
+        labels.add(monthNames[monthDate.month - 1]);
+        fullDateLabels.add('${monthNames[monthDate.month - 1]} ${monthDate.year}');
+      }
+    } else {
+      // Yillar
+      final currentYear = nowT.year;
+      final years = [currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+      for (final y in years) {
+        final yearReceipts = receipts.where((r) {
+          final rT = _toTashkent(r.date);
+          return rT.year == y;
+        }).toList();
+        revenuePoints.add(yearReceipts.fold(0.0, (s, r) => s + r.total));
+        ordersPoints.add(yearReceipts.length);
+        labels.add('$y');
+        fullDateLabels.add('$y-yil');
+      }
     }
 
-    final double maxRevenue = revenuePoints.fold(1.0, math.max);
+    final double rawMaxRev = revenuePoints.fold(0.0, math.max);
+    double effectiveMaxRevenue;
+    if (rawMaxRev <= 0) {
+      effectiveMaxRevenue = 1000000;
+    } else if (rawMaxRev >= 10000000) {
+      effectiveMaxRevenue = (rawMaxRev / 2000000).ceil() * 2000000;
+    } else if (rawMaxRev >= 1000000) {
+      effectiveMaxRevenue = (rawMaxRev / 500000).ceil() * 500000;
+    } else if (rawMaxRev >= 100000) {
+      effectiveMaxRevenue = (rawMaxRev / 100000).ceil() * 100000;
+    } else {
+      effectiveMaxRevenue = (rawMaxRev / 10000).ceil() * 10000;
+    }
+
+    final int rawMaxOrders = ordersPoints.fold(0, math.max);
+    int effectiveMaxOrders;
+    if (rawMaxOrders <= 4) {
+      effectiveMaxOrders = 4;
+    } else if (rawMaxOrders <= 8) {
+      effectiveMaxOrders = 8;
+    } else if (rawMaxOrders <= 16) {
+      effectiveMaxOrders = 16;
+    } else if (rawMaxOrders <= 40) {
+      effectiveMaxOrders = (rawMaxOrders / 4).ceil() * 4;
+    } else {
+      effectiveMaxOrders = (rawMaxOrders / 20).ceil() * 20;
+    }
+
+    final bool hasNoData = rawMaxRev == 0 && rawMaxOrders == 0;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -912,9 +1045,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _legendItem(const Color(0xFF2563EB), 'Daromad', isDark),
+                  _legendItem(const Color(0xFF2563EB), 'Daromad (chap Y)', isDark),
                   const SizedBox(width: 14),
-                  _legendItem(const Color(0xFF10B981), 'Buyurtmalar', isDark),
+                  _legendItem(const Color(0xFF10B981), 'Buyurtmalar (o\'ng Y)', isDark),
                 ],
               ),
               Container(
@@ -936,8 +1069,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             ],
           ),
 
-          
-
           const SizedBox(height: 20),
 
           SizedBox(
@@ -946,13 +1077,13 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               builder: (context, constraints) {
                 return MouseRegion(
                   onHover: (event) {
-                    final chartWidth = constraints.maxWidth - 44;
-                    final step = chartWidth / (dayLabels.length - 1);
-                    final localX = (event.localPosition.dx - 40).clamp(0.0, chartWidth);
-                    final idx = (localX / step).round().clamp(0, dayLabels.length - 1);
+                    final chartWidth = constraints.maxWidth - 84;
+                    final step = chartWidth / (labels.length - 1 == 0 ? 1 : labels.length - 1);
+                    final localX = (event.localPosition.dx - 48).clamp(0.0, chartWidth);
+                    final idx = (localX / step).round().clamp(0, labels.length - 1);
                     setState(() => _hoveredIndex = idx);
                   },
-                  onExit: (_) => setState(() => _hoveredIndex = dayLabels.length - 1),
+                  onExit: (_) => setState(() => _hoveredIndex = labels.length - 1),
                   child: Stack(
                     children: [
                       Positioned.fill(
@@ -960,22 +1091,56 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           painter: _SalesDynamicsChartPainter(
                             revenuePoints: revenuePoints,
                             ordersPoints: ordersPoints,
-                            labels: dayLabels,
-                            maxRevenue: maxRevenue > 0 ? maxRevenue : 1000000,
+                            labels: labels,
+                            maxRevenue: effectiveMaxRevenue,
+                            maxOrders: effectiveMaxOrders,
                             isDark: isDark,
-                            hoveredIndex: _hoveredIndex ?? (dayLabels.length - 1),
+                            hoveredIndex: _hoveredIndex ?? (labels.length - 1),
                           ),
                         ),
                       ),
-                      _buildFloatingTooltip(
-                        constraints.maxWidth,
-                        constraints.maxHeight,
-                        _hoveredIndex ?? (dayLabels.length - 1),
-                        dayLabels,
-                        revenuePoints,
-                        ordersPoints,
-                        isDark,
-                      ),
+                      if (hasNoData)
+                        Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: border),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.05),
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.info_outline, size: 16, color: isDark ? Colors.white60 : Colors.grey.shade600),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Hozircha savdo yo\'q',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (!hasNoData)
+                        _buildFloatingTooltip(
+                          constraints.maxWidth,
+                          constraints.maxHeight,
+                          _hoveredIndex ?? (labels.length - 1),
+                          fullDateLabels,
+                          revenuePoints,
+                          ordersPoints,
+                          isDark,
+                        ),
                     ],
                   ),
                 );
@@ -1045,12 +1210,13 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     List<int> orders,
     bool isDark,
   ) {
+    if (labels.isEmpty) return const SizedBox.shrink();
     final safeIdx = idx.clamp(0, labels.length - 1);
-    final chartWidth = totalWidth - 44;
-    final step = chartWidth / (labels.length - 1);
-    final xPos = 40 + (safeIdx * step);
+    final chartWidth = totalWidth - 84;
+    final step = chartWidth / (labels.length - 1 == 0 ? 1 : labels.length - 1);
+    final xPos = 48 + (safeIdx * step);
 
-    final tooltipLeft = (xPos - 80).clamp(40.0, totalWidth - 170.0);
+    final tooltipLeft = (xPos - 80).clamp(48.0, (totalWidth - 190.0).clamp(48.0, double.infinity));
 
     return Positioned(
       left: tooltipLeft,
@@ -1077,7 +1243,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${labels[safeIdx]}.2026',
+              labels[safeIdx],
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.w800,
@@ -1092,9 +1258,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 Text(
                   'Daromad: ${_formatMoney(revenues[safeIdx])} UZS',
                   style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
                   ),
                 ),
               ],
@@ -1105,11 +1271,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
                 Text(
-                  'Buyurtmalar: ${orders[safeIdx]}',
+                  'Buyurtmalar: ${orders[safeIdx]} ta',
                   style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
                   ),
                 ),
               ],
@@ -1121,39 +1287,69 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   // =========================================================================
-  // 5. MAHSULOTLAR BO'YICHA SAVDO (Donut Chart)
+  // 5. MAHSULOTLAR BO'YICHA SAVDO (Donut Chart & Mahsulotlar reytingi)
   // =========================================================================
-  Widget _buildCategoryDonutCard(
+  Widget _buildProductSalesDonutCard(
     Color bg,
     Color border,
     bool isDark,
-    Map<String, int> categories,
-    int totalItems,
-    int totalOrders,
+    List<Receipt> periodReceipts,
   ) {
-    final colors = [
-      const Color(0xFF3B82F6),
-      const Color(0xFF10B981),
-      const Color(0xFF06B6D4),
-      const Color(0xFF8B5CF6),
-      const Color(0xFFF59E0B),
-      const Color(0xFF64748B),
-    ];
+    // 1. To'langan cheklardagi barcha mahsulotlarni nomi bo'yicha guruhlaymiz
+    final Map<String, int> productQty = {};
+    final Map<String, double> productRev = {};
 
-    final List<_CategorySegment> segments = [];
-    if (categories.isNotEmpty && totalItems > 0) {
-      int colorIdx = 0;
-      for (final entry in categories.entries) {
-        final pct = ((entry.value / totalItems) * 100).round();
-        if (pct > 0) {
-          segments.add(_CategorySegment(entry.key, pct, colors[colorIdx % colors.length]));
-          colorIdx++;
-        }
+    for (final r in periodReceipts) {
+      for (final item in r.items) {
+        final name = item.product.name.trim();
+        if (name.isEmpty) continue;
+        productQty[name] = (productQty[name] ?? 0) + item.qty;
+        productRev[name] = (productRev[name] ?? 0.0) + (item.product.price * item.qty);
       }
     }
 
-    if (segments.isEmpty) {
-      segments.add(_CategorySegment('Taomlar', 100, const Color(0xFF3B82F6)));
+    final int totalUnits = productQty.values.fold(0, (s, v) => s + v);
+    final sorted = productQty.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    final colors = [
+      const Color(0xFF3B82F6), // Blue
+      const Color(0xFF10B981), // Emerald
+      const Color(0xFFF59E0B), // Amber
+      const Color(0xFF8B5CF6), // Purple
+      const Color(0xFF06B6D4), // Cyan
+      const Color(0xFF64748B), // Slate for Boshqalar
+    ];
+
+    final List<_ProductSegment> segments = [];
+    if (totalUnits > 0) {
+      final top5 = sorted.take(5).toList();
+      for (int i = 0; i < top5.length; i++) {
+        final name = top5[i].key;
+        final qty = top5[i].value;
+        final rev = productRev[name] ?? 0.0;
+        final pct = ((qty / totalUnits) * 100).round();
+        segments.add(_ProductSegment(
+          name: name,
+          count: qty,
+          revenue: rev,
+          pct: pct,
+          color: colors[i % colors.length],
+        ));
+      }
+
+      if (sorted.length > 5) {
+        final others = sorted.skip(5).toList();
+        final otherQty = others.fold(0, (s, e) => s + e.value);
+        final otherRev = others.fold(0.0, (s, e) => s + (productRev[e.key] ?? 0.0));
+        final otherPct = ((otherQty / totalUnits) * 100).round();
+        segments.add(_ProductSegment(
+          name: 'Boshqalar',
+          count: otherQty,
+          revenue: otherRev,
+          pct: otherPct,
+          color: colors[5],
+        ));
+      }
     }
 
     return Container(
@@ -1195,89 +1391,146 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               ),
             ],
           ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              SizedBox(
-                width: 130,
-                height: 130,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CustomPaint(
-                      size: const Size(130, 130),
-                      painter: _DonutChartPainter(segments),
+          const SizedBox(height: 20),
+          if (totalUnits == 0)
+            Container(
+              height: 140,
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.inventory_2_outlined, size: 38, color: Colors.grey.shade400),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Hozircha sotuv yo\'q',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white60 : Colors.grey.shade600,
                     ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Jami',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                          ),
-                        ),
-                        Text(
-                          '$totalOrders',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.5,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                        Text(
-                          'buyurtma',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: segments.take(5).map((c) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3.5),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Container(width: 8, height: 8, decoration: BoxDecoration(color: c.color, shape: BoxShape.circle)),
-                            const SizedBox(width: 8),
-                            Text(
-                              c.name,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
-                              ),
+            )
+          else
+            Row(
+              children: [
+                SizedBox(
+                  width: 130,
+                  height: 130,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CustomPaint(
+                        size: const Size(130, 130),
+                        painter: _DonutChartPainter(segments, hoveredIndex: _hoveredDonutIndex),
+                      ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Jami',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                             ),
-                          ],
-                        ),
-                        Text(
-                          '${c.pct}%',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                          ),
+                          Text(
+                            '$totalUnits',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                          ),
+                          Text(
+                            'dona',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: segments.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final seg = entry.value;
+                      final isHovered = _hoveredDonutIndex == idx;
+
+                      return MouseRegion(
+                        onEnter: (_) => setState(() => _hoveredDonutIndex = idx),
+                        onExit: (_) => setState(() => _hoveredDonutIndex = null),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(vertical: 3.5, horizontal: 4),
+                          decoration: BoxDecoration(
+                            color: isHovered
+                                ? (isDark ? Colors.white10 : Colors.grey.shade100)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(width: 8, height: 8, decoration: BoxDecoration(color: seg.color, shape: BoxShape.circle)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  seg.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isHovered ? FontWeight.bold : FontWeight.w600,
+                                    color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '${seg.count} ta',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '${seg.pct}%',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${_formatMoney(seg.revenue)} UZS',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  )).toList(),
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
@@ -2127,11 +2380,19 @@ class _KpiData {
   });
 }
 
-class _CategorySegment {
+class _ProductSegment {
   final String name;
+  final int count;
+  final double revenue;
   final int pct;
   final Color color;
-  _CategorySegment(this.name, this.pct, this.color);
+  _ProductSegment({
+    required this.name,
+    required this.count,
+    required this.revenue,
+    required this.pct,
+    required this.color,
+  });
 }
 
 class _WaiterSales {
@@ -2202,12 +2463,13 @@ class _SparklinePainter extends CustomPainter {
   bool shouldRepaint(covariant _SparklinePainter oldDelegate) => true;
 }
 
-/// Dual-line interactive bezier curve painter for Savdo Dinamikasi
+/// Dual-line interactive bezier curve painter for Savdo Dinamikasi (Left Y = Money, Right Y = Orders)
 class _SalesDynamicsChartPainter extends CustomPainter {
   final List<double> revenuePoints;
   final List<int> ordersPoints;
   final List<String> labels;
   final double maxRevenue;
+  final int maxOrders;
   final bool isDark;
   final int hoveredIndex;
 
@@ -2216,46 +2478,82 @@ class _SalesDynamicsChartPainter extends CustomPainter {
     required this.ordersPoints,
     required this.labels,
     required this.maxRevenue,
+    required this.maxOrders,
     required this.isDark,
     required this.hoveredIndex,
   });
 
+  String _compactMoney(double val) {
+    if (val >= 1000000) {
+      final m = val / 1000000.0;
+      return m % 1 == 0 ? '${m.round()}M' : '${m.toStringAsFixed(1)}M';
+    } else if (val >= 1000) {
+      final k = val / 1000.0;
+      return k % 1 == 0 ? '${k.round()}K' : '${k.toStringAsFixed(1)}K';
+    }
+    return val.round().toString();
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
-    const leftPad = 40.0;
+    const leftPad = 48.0;
+    const rightPad = 36.0;
     const bottomPad = 26.0;
-    final chartW = size.width - leftPad;
+    final chartW = size.width - leftPad - rightPad;
     final chartH = size.height - bottomPad;
+
+    if (chartW <= 10 || chartH <= 10) return;
 
     final gridPaint = Paint()
       ..color = isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.05)
       ..strokeWidth = 1.0;
 
-    final textStyle = TextStyle(
+    final leftTextStyle = TextStyle(
       fontSize: 10.5,
       fontWeight: FontWeight.w600,
       color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
     );
 
-    // 1. Horizontal grid lines
-    final yLabels = ['8M', '6M', '4M', '2M', '0'];
-    for (int i = 0; i < 5; i++) {
-      final y = (chartH / 4) * i;
-      canvas.drawLine(Offset(leftPad, y), Offset(size.width, y), gridPaint);
+    final rightTextStyle = const TextStyle(
+      fontSize: 10.5,
+      fontWeight: FontWeight.w700,
+      color: Color(0xFF10B981),
+    );
 
-      final tp = TextPainter(
-        text: TextSpan(text: yLabels[i], style: textStyle),
+    final effectiveMaxRev = maxRevenue > 0 ? maxRevenue : 1000000.0;
+    final effectiveMaxOrd = maxOrders > 0 ? maxOrders : 10;
+
+    // 1. Horizontal grid lines & Dual Y-axis labels
+    for (int i = 0; i <= 4; i++) {
+      final y = (chartH / 4) * i;
+      canvas.drawLine(Offset(leftPad, y), Offset(size.width - rightPad, y), gridPaint);
+
+      // Left Y-axis (Revenue)
+      final revVal = effectiveMaxRev * (4 - i) / 4.0;
+      final leftText = _compactMoney(revVal);
+      final ltp = TextPainter(
+        text: TextSpan(text: leftText, style: leftTextStyle),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, Offset(leftPad - tp.width - 8, y - tp.height / 2));
+      ltp.paint(canvas, Offset(leftPad - ltp.width - 6, y - ltp.height / 2));
+
+      // Right Y-axis (Orders)
+      final ordVal = (effectiveMaxOrd * (4 - i) / 4.0).round();
+      final rtp = TextPainter(
+        text: TextSpan(text: '$ordVal', style: rightTextStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      rtp.paint(canvas, Offset(size.width - rightPad + 6, y - rtp.height / 2));
     }
 
+    if (labels.isEmpty) return;
+
     // 2. X-axis date labels
-    final stepX = chartW / (labels.length - 1);
+    final stepX = chartW / (labels.length - 1 == 0 ? 1 : labels.length - 1);
     for (int i = 0; i < labels.length; i++) {
       final x = leftPad + (i * stepX);
       final tp = TextPainter(
-        text: TextSpan(text: labels[i], style: textStyle),
+        text: TextSpan(text: labels[i], style: leftTextStyle),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, Offset(x - tp.width / 2, size.height - bottomPad + 8));
@@ -2263,9 +2561,7 @@ class _SalesDynamicsChartPainter extends CustomPainter {
 
     if (revenuePoints.isEmpty) return;
 
-    final effectiveMax = maxRevenue > 0 ? maxRevenue : 8000000.0;
-
-    // 3. Blue Line (Daromad)
+    // 3. Blue Line (Daromad - Revenue)
     _drawCurve(
       canvas: canvas,
       values: revenuePoints,
@@ -2274,29 +2570,29 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       leftPad: leftPad,
       chartW: chartW,
       chartH: chartH,
-      maxVal: effectiveMax,
+      maxVal: effectiveMaxRev,
       strokeWidth: 2.8,
     );
 
-    // 4. Green Line (Buyurtmalar)
-    final normalizedOrders = ordersPoints.map((o) => (o / 100.0) * effectiveMax * 0.7).toList();
+    // 4. Green Line (Buyurtmalar - Orders)
     _drawCurve(
       canvas: canvas,
-      values: normalizedOrders,
+      values: ordersPoints.map((o) => o.toDouble()).toList(),
       color: const Color(0xFF10B981),
       fillColor: const Color(0xFF10B981),
       leftPad: leftPad,
       chartW: chartW,
       chartH: chartH,
-      maxVal: effectiveMax,
-      strokeWidth: 2.5,
+      maxVal: effectiveMaxOrd.toDouble(),
+      strokeWidth: 2.4,
+      drawFill: false,
     );
 
     // 5. Active dot indicator at hoveredIndex
     if (hoveredIndex >= 0 && hoveredIndex < revenuePoints.length) {
       final dotX = leftPad + (hoveredIndex * stepX);
-      final revY = chartH - ((revenuePoints[hoveredIndex] / effectiveMax) * chartH).clamp(0.0, chartH);
-      final ordY = chartH - ((normalizedOrders[hoveredIndex] / effectiveMax) * chartH).clamp(0.0, chartH);
+      final revY = chartH - ((revenuePoints[hoveredIndex] / effectiveMaxRev) * chartH).clamp(0.0, chartH);
+      final ordY = chartH - ((ordersPoints[hoveredIndex] / effectiveMaxOrd) * chartH).clamp(0.0, chartH);
 
       final guidePaint = Paint()
         ..color = isDark ? Colors.white24 : Colors.black12
@@ -2305,12 +2601,12 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       canvas.drawLine(Offset(dotX, 0), Offset(dotX, chartH), guidePaint);
 
       // Blue dot
-      canvas.drawCircle(Offset(dotX, revY), 5.5, Paint()..color = const Color(0xFF2563EB));
+      canvas.drawCircle(Offset(dotX, revY), 6.0, Paint()..color = const Color(0xFF2563EB));
       canvas.drawCircle(Offset(dotX, revY), 2.5, Paint()..color = Colors.white);
 
       // Green dot
-      canvas.drawCircle(Offset(dotX, ordY), 5.0, Paint()..color = const Color(0xFF10B981));
-      canvas.drawCircle(Offset(dotX, ordY), 2.0, Paint()..color = Colors.white);
+      canvas.drawCircle(Offset(dotX, ordY), 5.5, Paint()..color = const Color(0xFF10B981));
+      canvas.drawCircle(Offset(dotX, ordY), 2.2, Paint()..color = Colors.white);
     }
   }
 
@@ -2324,8 +2620,10 @@ class _SalesDynamicsChartPainter extends CustomPainter {
     required double chartH,
     required double maxVal,
     required double strokeWidth,
+    bool drawFill = true,
   }) {
-    final stepX = chartW / (values.length - 1);
+    if (values.isEmpty) return;
+    final stepX = chartW / (values.length - 1 == 0 ? 1 : values.length - 1);
     final path = Path();
     final fillPath = Path();
 
@@ -2350,13 +2648,16 @@ class _SalesDynamicsChartPainter extends CustomPainter {
     fillPath.lineTo(leftPad + chartW, chartH);
     fillPath.close();
 
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        colors: [fillColor.withValues(alpha: 0.16), fillColor.withValues(alpha: 0.0)],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ).createShader(Rect.fromLTWH(leftPad, 0, chartW, chartH))
-      ..style = PaintingStyle.fill;
+    if (drawFill) {
+      final fillPaint = Paint()
+        ..shader = LinearGradient(
+          colors: [fillColor.withValues(alpha: 0.16), fillColor.withValues(alpha: 0.0)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ).createShader(Rect.fromLTWH(leftPad, 0, chartW, chartH))
+        ..style = PaintingStyle.fill;
+      canvas.drawPath(fillPath, fillPaint);
+    }
 
     final strokePaint = Paint()
       ..color = color
@@ -2365,7 +2666,6 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
-    canvas.drawPath(fillPath, fillPaint);
     canvas.drawPath(path, strokePaint);
   }
 
@@ -2375,8 +2675,9 @@ class _SalesDynamicsChartPainter extends CustomPainter {
 
 /// Custom Donut Chart Painter for Mahsulotlar Bo'yicha Savdo
 class _DonutChartPainter extends CustomPainter {
-  final List<_CategorySegment> segments;
-  _DonutChartPainter(this.segments);
+  final List<_ProductSegment> segments;
+  final int? hoveredIndex;
+  _DonutChartPainter(this.segments, {this.hoveredIndex});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2384,19 +2685,32 @@ class _DonutChartPainter extends CustomPainter {
     final radius = size.width / 2;
     const strokeW = 16.0;
 
+    if (segments.isEmpty) {
+      final paint = Paint()
+        ..color = Colors.grey.withValues(alpha: 0.18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeW;
+      canvas.drawCircle(center, radius - strokeW / 2, paint);
+      return;
+    }
+
     double startAngle = -math.pi / 2;
-    for (final seg in segments) {
+    for (int i = 0; i < segments.length; i++) {
+      final seg = segments[i];
       final sweepAngle = (seg.pct / 100.0) * (2 * math.pi);
+      final isHovered = hoveredIndex == i;
+      final currentStroke = isHovered ? strokeW + 5 : strokeW;
+
       final paint = Paint()
         ..color = seg.color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeW
+        ..strokeWidth = currentStroke
         ..strokeCap = StrokeCap.butt;
 
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius - strokeW / 2),
         startAngle,
-        sweepAngle - 0.04,
+        sweepAngle > 0.05 ? sweepAngle - 0.03 : sweepAngle,
         false,
         paint,
       );

@@ -859,6 +859,17 @@ class AppState extends ChangeNotifier {
   Future<void> loadCloudDataForOwner(String cafeId) =>
       loadCloudDataForCafe(cafeId);
 
+  /// O'zbekiston kafelari uchun tayyor menyuni serverdan yuklab, state ga sinxronlash
+  Future<bool> restoreDefaultMenu() async {
+    final success = await _cloudService.restoreDefaultMenu();
+    final cafeId = currentCafeId.isNotEmpty ? currentCafeId : (_activeLoadedCafeId ?? '');
+    if (cafeId.isNotEmpty) {
+      await loadCloudDataForCafe(cafeId);
+    }
+    notifyListeners();
+    return success;
+  }
+
   void _startRealtimeListeners(String cafeId) {
     try {
       SocketService().connect(token: ApiClient().token, cafeId: cafeId);
@@ -13393,11 +13404,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
         appState.notifyChanges();
       }
 
-      // 2. AVTOMATIK CHEK CHIQARISH: faqat sozlangan tarmoq printeri bo'lsa fonda yuboriladi
+      // 2. AVTOMATIK CHEK CHIQARISH: fon rejimida asinxron ishlaydi (UI to'xtab qolmaydi)
       try {
-        if (appState.printerConfigured) {
-          unawaited(printReceipt(receipt, isAutoCheckout: true));
-        }
+        unawaited(printReceipt(receipt, isAutoCheckout: true));
       } catch (e) {
         debugPrint('Avtomatik chek chiqarishda xatolik: $e');
       }
@@ -13408,115 +13417,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       appMessengerKey.currentState?.showSnackBar(
         const SnackBar(
-          content: Text("To'lov qabul qilindi va chek chiqarildi"),
+          content: Text("To'lov muvaffaqiyatli qabul qilindi"),
           backgroundColor: Color(0xFF10B981),
           duration: Duration(seconds: 2),
         ),
       );
 
-      if (!mounted) return;
-      setState(() => confirming = false);
-
-      // 4-rasmdagi chek oynasini 1 MARTA ochamiz:
-      final selTableNum = receipt.tableNumber ?? selTable?.number;
-      await showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (sheetCtx) {
-          return DraggableScrollableSheet(
-            initialChildSize: 0.85,
-            minChildSize: 0.5,
-            maxChildSize: 0.95,
-            expand: false,
-            builder: (context, scrollController) {
-              return Container(
-                decoration: const BoxDecoration(
-                  color: Color(0xFFEDEDED),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                ),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 10),
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Center(
-                          child: Material(
-                            elevation: 2,
-                            borderRadius: BorderRadius.circular(4),
-                            child: ReceiptWidget(
-                              checkId: '${receipt.id}',
-                              waiter: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Ali',
-                              hallName: hallBeforeCheckout?.name ?? 'Zal',
-                              table: selTableNum != null ? '$selTableNum' : '',
-                              customer: '1',
-                              dateTime: receipt.date.toIso8601String(),
-                              customTotal: receipt.total > 0 ? receipt.total : _grandTotal,
-                              paymentMethod: method == PaymentMethod.card ? 'Karta' : 'Naqd',
-                              items: receipt.items.isNotEmpty
-                                  ? receipt.items
-                                      .map(
-                                        (c) => ReceiptItem(
-                                          name: c.product.name,
-                                          quantity: '${c.qty} dona',
-                                          price: ReceiptWidget.money(c.product.price.round()),
-                                        ),
-                                      )
-                                      .toList()
-                                  : appState.cart
-                                      .map(
-                                        (c) => ReceiptItem(
-                                          name: c.product.name,
-                                          quantity: '${c.qty} dona',
-                                          price: ReceiptWidget.money(c.product.price.round()),
-                                        ),
-                                      )
-                                      .toList(),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF3B6E91),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: () {
-                            Navigator.pop(sheetCtx);
-                            try {
-                              printReceipt(receipt, isAutoCheckout: false);
-                            } catch (_) {}
-                          },
-                          icon: const Icon(Icons.print),
-                          label: const Text('Chop etish', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
-      );
-
+      // 3. TO'G'RI VA ANIQ 1 MARTA NAVIGATSIYA (DashboardScreen ga bitta silliq o'tish)
       final nav = appNavigatorKey.currentState;
       if (nav != null) {
         nav.pushAndRemoveUntil(
@@ -13595,21 +13502,47 @@ class _PaymentScreenState extends State<PaymentScreen> {
         }
 
         if (appState.cart.isEmpty) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            final nav = appNavigatorKey.currentState;
-            if (nav != null) {
-              nav.pushAndRemoveUntil(
-                MaterialPageRoute(
-                  settings: const RouteSettings(name: 'dashboard'),
-                  builder: (_) => const DashboardScreen(),
-                ),
-                (r) => false,
-              );
-            }
-          });
-          return const Scaffold(
-            backgroundColor: Color(0xFFF8F9FA),
-            body: Center(child: CircularProgressIndicator()),
+          return Scaffold(
+            backgroundColor: const Color(0xFFF8F9FA),
+            appBar: AppBar(
+              backgroundColor: Colors.white,
+              elevation: 0,
+              title: const Text("To'lov", style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold)),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Color(0xFF0F172A)),
+                onPressed: () => _backToTableSelection(),
+              ),
+            ),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.shopping_bag_outlined, size: 64, color: Colors.grey.shade400),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "Savat bo'sh",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "To'lov qilish uchun buyurtma mavjud emas.",
+                    style: TextStyle(color: Color(0xFF64748B)),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE25C1D),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: () => _backToTableSelection(),
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text("Bosh sahifaga qaytish", style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
           );
         }
 
@@ -17142,13 +17075,88 @@ class _ProductsScreenState extends State<ProductsScreen> {
     appState.addListener(_onAppStateChanged);
   }
 
+  final Set<int> _selectedIds = {};
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  int? _selectedCategoryId;
+  bool _loadingSeed = false;
+
   @override
   void dispose() {
     appState.removeListener(_onAppStateChanged);
+    _searchCtrl.dispose();
     super.dispose();
   }
 
-  final Set<int> _selectedIds = {};
+  Future<void> _loadReadyMenu() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.restaurant_menu_rounded, color: Color(0xFFE25C1D)),
+            SizedBox(width: 10),
+            Text('Tayyor menyuni yuklash', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+          ],
+        ),
+        content: const Text(
+          'O‘zbekiston kafelari uchun to‘liq tayyor menyu (Shashlik, Milliy taomlar, Fast food, Salatlar, Garnirlar, Shirinliklar, Issiq va Sovuq ichimliklar) qo‘shiladi.\n\nMavjud mahsulotlaringiz o‘chmaydi va dublikat qilinmaydi.',
+          style: TextStyle(fontSize: 13.5, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Bekor qilish'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE25C1D),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yuklash', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _loadingSeed = true);
+    try {
+      final success = await appState.restoreDefaultMenu();
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Tayyor menyu muvaffaqiyatli yuklandi!'),
+              backgroundColor: Color(0xFF10B981),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Menyuni yuklashda xatolik yuz berdi'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Xatolik: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingSeed = false);
+    }
+  }
 
   void _edit([Product? product]) {
     showDialog(
@@ -17226,12 +17234,24 @@ class _ProductsScreenState extends State<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     final isSelectionMode = _selectedIds.isNotEmpty;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final displayedProducts = appState.products.where((p) {
+      if (_selectedCategoryId != null && p.categoryId != _selectedCategoryId) {
+        return false;
+      }
+      if (_searchQuery.trim().isNotEmpty) {
+        final q = _searchQuery.trim().toLowerCase();
+        return p.name.toLowerCase().contains(q);
+      }
+      return true;
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: Text(isSelectionMode
             ? '${_selectedIds.length} ta tanlandi'
-            : 'Mahsulotlar'),
+            : 'Mahsulotlar (${displayedProducts.length})'),
         actions: [
           if (isSelectionMode) ...[
             IconButton(
@@ -17239,10 +17259,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
               tooltip: 'Barchasini tanlash',
               onPressed: () {
                 setState(() {
-                  if (_selectedIds.length == appState.products.length) {
+                  if (_selectedIds.length == displayedProducts.length) {
                     _selectedIds.clear();
                   } else {
-                    _selectedIds.addAll(appState.products.map((e) => e.id));
+                    _selectedIds.addAll(displayedProducts.map((e) => e.id));
                   }
                 });
               },
@@ -17252,100 +17272,231 @@ class _ProductsScreenState extends State<ProductsScreen> {
               tooltip: 'Tanlanganlarni o\'chirish',
               onPressed: _deleteSelected,
             ),
+          ] else ...[
+            if (_loadingSeed)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2, color: Color(0xFFE25C1D)),
+                  ),
+                ),
+              )
+            else
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFE25C1D),
+                  backgroundColor: const Color(0xFFE25C1D).withValues(alpha: 0.1),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: _loadReadyMenu,
+                icon: const Icon(Icons.restaurant_menu_rounded, size: 18),
+                label: const Text('Tayyor menyuni yuklash', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              ),
+            const SizedBox(width: 8),
           ],
         ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _edit(),
-        child: const Icon(Icons.add),
+        backgroundColor: const Color(0xFFE25C1D),
+        child: const Icon(Icons.add, color: Colors.white),
       ),
-      body: appState.products.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+      body: Column(
+        children: [
+          // ── Search Bar ──────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              decoration: InputDecoration(
+                hintText: 'Taom yoki ichimlik qidirish (nomi bo\'yicha)...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+
+          // ── Category Filter Chips ───────────────────────────────────
+          if (appState.categories.isNotEmpty)
+            SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 children: [
-                  Icon(
-                    Icons.no_food_outlined,
-                    size: 56,
-                    color: Colors.grey.shade400,
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      selected: _selectedCategoryId == null,
+                      label: Text('Barchasi (${appState.products.length})'),
+                      selectedColor: const Color(0xFFE25C1D),
+                      checkmarkColor: Colors.white,
+                      labelStyle: TextStyle(
+                        color: _selectedCategoryId == null ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                        fontWeight: _selectedCategoryId == null ? FontWeight.bold : FontWeight.w500,
+                        fontSize: 12,
+                      ),
+                      onSelected: (_) => setState(() => _selectedCategoryId = null),
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Hozircha mahsulot yo\'q. "+" tugmasi bilan qo\'shing.',
-                    style: TextStyle(color: Colors.grey.shade500),
-                  ),
+                  ...appState.categories.map((cat) {
+                    final isSel = _selectedCategoryId == cat.id;
+                    final count = appState.products.where((p) => p.categoryId == cat.id).length;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        selected: isSel,
+                        label: Text('${cat.name} ($count)'),
+                        selectedColor: const Color(0xFFE25C1D),
+                        checkmarkColor: Colors.white,
+                        labelStyle: TextStyle(
+                          color: isSel ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                          fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                          fontSize: 12,
+                        ),
+                        onSelected: (_) => setState(() => _selectedCategoryId = isSel ? null : cat.id),
+                      ),
+                    );
+                  }),
                 ],
               ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: appState.products.length,
-              itemBuilder: (context, i) {
-                final p = appState.products[i];
-                final isSelected = _selectedIds.contains(p.id);
-                final catName = appState.categories
-                    .firstWhere(
-                      (c) => c.id == p.categoryId,
-                      orElse: () => appState.categories.first,
-                    )
-                    .name;
-                return Card(
-                  color: isSelected ? Colors.amber.withValues(alpha: 0.15) : null,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: isSelected
-                        ? const BorderSide(color: Color(0xFFFFC107), width: 1.5)
-                        : BorderSide.none,
-                  ),
-                  child: ListTile(
-                    leading: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Checkbox(
-                          value: isSelected,
-                          activeColor: const Color(0xFFFFC107),
-                          checkColor: Colors.black,
-                          onChanged: (val) {
-                            setState(() {
-                              if (val == true) {
-                                _selectedIds.add(p.id);
-                              } else {
-                                _selectedIds.remove(p.id);
-                              }
-                            });
-                          },
-                        ),
-                        SizedBox(
-                          width: 40,
-                          height: 40,
-                          child: _ProductThumb(product: p, iconSize: 22),
-                        ),
-                      ],
-                    ),
-                    title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(
-                      '$catName · ${formatSum(p.price)} · Zaxira ${p.stock}',
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.blueAccent),
-                          onPressed: () => _edit(p),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.delete_outline,
-                            color: Colors.red,
-                          ),
-                          onPressed: () => _delete(p),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
             ),
+          const SizedBox(height: 6),
+
+          // ── Product List ───────────────────────────────────────────
+          Expanded(
+            child: displayedProducts.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.no_food_outlined,
+                            size: 56,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _searchQuery.isNotEmpty
+                                ? '"$_searchQuery" bo\'yicha mahsulot topilmadi'
+                                : 'Hozircha mahsulot yo\'q.',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white70 : Colors.grey.shade700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (appState.products.isEmpty)
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFE25C1D),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: _loadReadyMenu,
+                              icon: const Icon(Icons.restaurant_menu_rounded),
+                              label: const Text('Tayyor menyuni yuklash', style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: displayedProducts.length,
+                    itemBuilder: (context, i) {
+                      final p = displayedProducts[i];
+                      final isSelected = _selectedIds.contains(p.id);
+                      final catName = appState.categories
+                          .firstWhere(
+                            (c) => c.id == p.categoryId,
+                            orElse: () => appState.categories.isNotEmpty ? appState.categories.first : Category(id: 0, name: 'Boshqa', icon: Icons.fastfood),
+                          )
+                          .name;
+                      return Card(
+                        color: isSelected ? Colors.amber.withValues(alpha: 0.15) : null,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: isSelected
+                              ? const BorderSide(color: Color(0xFFFFC107), width: 1.5)
+                              : BorderSide.none,
+                        ),
+                        child: ListTile(
+                          leading: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Checkbox(
+                                value: isSelected,
+                                activeColor: const Color(0xFFFFC107),
+                                checkColor: Colors.black,
+                                onChanged: (val) {
+                                  setState(() {
+                                    if (val == true) {
+                                      _selectedIds.add(p.id);
+                                    } else {
+                                      _selectedIds.remove(p.id);
+                                    }
+                                  });
+                                },
+                              ),
+                              SizedBox(
+                                width: 42,
+                                height: 42,
+                                child: _ProductThumb(product: p, iconSize: 22),
+                              ),
+                            ],
+                          ),
+                          title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(
+                            '$catName · ${formatSum(p.price)} · Zaxira ${p.stock}',
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.blueAccent),
+                                onPressed: () => _edit(p),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () => _delete(p),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
