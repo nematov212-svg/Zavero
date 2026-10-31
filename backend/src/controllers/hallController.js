@@ -24,22 +24,36 @@ const save = async (req, res) => {
     const safeIcon = iconCodePoint ? parseInt(iconCodePoint, 10) : 0xe318; // default home/room icon
 
     let row;
-    if (id) {
-      const existing = await db.query('SELECT id FROM halls WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
-      if (existing.rows.length === 0) {
-        return res.status(404).json({ success: false, message: 'Zal topilmadi' });
+    if (id && parseInt(id, 10) > 0) {
+      const existing = await db.query('SELECT id FROM halls WHERE id = $1 AND cafe_id = $2', [parseInt(id, 10), cafeId]);
+      if (existing.rows.length > 0) {
+        const result = await db.query(
+          'UPDATE halls SET name = $1, icon_code_point = $2, image_asset = $3 WHERE id = $4 AND cafe_id = $5 RETURNING *',
+          [cleanName, safeIcon, imageAsset || null, parseInt(id, 10), cafeId]
+        );
+        row = result.rows[0];
       }
-      const result = await db.query(
-        'UPDATE halls SET name = $1, icon_code_point = $2, image_asset = $3 WHERE id = $4 AND cafe_id = $5 RETURNING *',
-        [cleanName, safeIcon, imageAsset || null, id, cafeId]
+    }
+
+    if (!row && cleanName) {
+      const existingByName = await db.query(
+        'SELECT id FROM halls WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2',
+        [cleanName, cafeId]
       );
-      row = result.rows[0];
-    } else {
-      const result = await db.query(
-        'INSERT INTO halls (cafe_id, name, icon_code_point, image_asset) VALUES ($1, $2, $3, $4) RETURNING *',
-        [cafeId, cleanName, safeIcon, imageAsset || null]
-      );
-      row = result.rows[0];
+      if (existingByName.rows.length > 0) {
+        const existingId = existingByName.rows[0].id;
+        const result = await db.query(
+          'UPDATE halls SET name = $1, icon_code_point = $2, image_asset = $3 WHERE id = $4 AND cafe_id = $5 RETURNING *',
+          [cleanName, safeIcon, imageAsset || null, existingId, cafeId]
+        );
+        row = result.rows[0];
+      } else {
+        const result = await db.query(
+          'INSERT INTO halls (cafe_id, name, icon_code_point, image_asset) VALUES ($1, $2, $3, $4) RETURNING *',
+          [cafeId, cleanName, safeIcon, imageAsset || null]
+        );
+        row = result.rows[0];
+      }
     }
 
     const mapped = mapHall(row);

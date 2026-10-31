@@ -936,6 +936,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             ],
           ),
 
+          
+
           const SizedBox(height: 20),
 
           SizedBox(
@@ -1629,20 +1631,24 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 ],
               ),
               InkWell(
-                onTap: widget.onViewAllProducts,
-                child: const Row(
-                  children: [
-                    Text(
-                      'Barchasi',
-                      style: TextStyle(
-                        color: Color(0xFF2563EB),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
+                onTap: () => _showAllTopDishesModal(context, sortedProducts, revenues, isDark),
+                borderRadius: BorderRadius.circular(8),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Barchasi',
+                        style: TextStyle(
+                          color: Color(0xFF2563EB),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
                       ),
-                    ),
-                    SizedBox(width: 2),
-                    Icon(Icons.arrow_forward_rounded, size: 14, color: Color(0xFF2563EB)),
-                  ],
+                      SizedBox(width: 2),
+                      Icon(Icons.arrow_forward_rounded, size: 14, color: Color(0xFF2563EB)),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1672,6 +1678,14 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               final i = entry.key;
               final p = entry.value;
               final rev = revenues[p.key] ?? 0.0;
+              Product? matchedProd;
+              try {
+                matchedProd = appState.products.firstWhere(
+                  (prod) => prod.name.trim().toLowerCase() == p.key.trim().toLowerCase(),
+                );
+              } catch (_) {}
+              final double unitPrice = matchedProd?.price ?? (p.value > 0 ? (rev / p.value) : 0.0);
+              final String? imgUrl = matchedProd?.imageUrl;
 
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6.5),
@@ -1684,7 +1698,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                          color: i == 0
+                              ? const Color(0xFFF59E0B)
+                              : (isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8)),
                         ),
                       ),
                     ),
@@ -1693,27 +1709,54 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                       child: Row(
                         children: [
                           Container(
-                            width: 32,
-                            height: 32,
+                            width: 34,
+                            height: 34,
                             decoration: BoxDecoration(
                               color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
                               borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                                width: 0.8,
+                              ),
                             ),
-                            child: Center(
-                              child: Text(_emojiForName(p.key), style: const TextStyle(fontSize: 16)),
-                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: (imgUrl != null && imgUrl.isNotEmpty)
+                                ? Image.network(
+                                    imgUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Center(
+                                      child: Text(_emojiForName(p.key), style: const TextStyle(fontSize: 16)),
+                                    ),
+                                  )
+                                : Center(
+                                    child: Text(_emojiForName(p.key), style: const TextStyle(fontSize: 16)),
+                                  ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              p.key,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: isDark ? Colors.white : const Color(0xFF0F172A),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  p.key,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 1.5),
+                                Text(
+                                  '${_formatMoney(unitPrice)} UZS',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -1749,6 +1792,26 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             }),
           ],
         ],
+      ),
+    );
+  }
+
+  void _showAllTopDishesModal(
+    BuildContext context,
+    List<MapEntry<String, int>> sortedProducts,
+    Map<String, double> revenues,
+    bool isDark,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AllTopDishesModal(
+        sortedProducts: sortedProducts,
+        revenues: revenues,
+        isDark: isDark,
+        formatMoney: _formatMoney,
+        emojiForName: _emojiForName,
       ),
     );
   }
@@ -2344,4 +2407,414 @@ class _DonutChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DonutChartPainter old) => true;
+}
+
+// =========================================================================
+// ENG MASHHUR TAOMLAR TO'LIQ REYTINGI MODAL / DIALOG
+// =========================================================================
+class _AllTopDishesModal extends StatefulWidget {
+  final List<MapEntry<String, int>> sortedProducts;
+  final Map<String, double> revenues;
+  final bool isDark;
+  final String Function(num) formatMoney;
+  final String Function(String) emojiForName;
+
+  const _AllTopDishesModal({
+    required this.sortedProducts,
+    required this.revenues,
+    required this.isDark,
+    required this.formatMoney,
+    required this.emojiForName,
+  });
+
+  @override
+  State<_AllTopDishesModal> createState() => _AllTopDishesModalState();
+}
+
+class _AllTopDishesModalState extends State<_AllTopDishesModal> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final totalQty = widget.sortedProducts.fold(0, (sum, p) => sum + p.value);
+    final totalRev = widget.revenues.values.fold(0.0, (sum, r) => sum + r);
+    final maxQty = widget.sortedProducts.isNotEmpty ? widget.sortedProducts.first.value : 1;
+
+    final filtered = widget.sortedProducts.where((p) {
+      if (_searchQuery.isEmpty) return true;
+      return p.key.toLowerCase().contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      minChildSize: 0.5,
+      builder: (_, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 20,
+                offset: const Offset(0, -4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Drag handle
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 6),
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white24 : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.emoji_events_rounded, color: Color(0xFFF59E0B), size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Eng Mashhur Taomlar Reytingi',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Jami ${widget.sortedProducts.length} xil taom • $totalQty ta sotilgan • ${widget.formatMoney(totalRev)} UZS',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Search bar
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Taom nomini qidirish...',
+                    hintStyle: TextStyle(
+                      color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                      fontSize: 13.5,
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                      size: 20,
+                    ),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded, size: 18),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+
+              const Divider(height: 16),
+
+              // Table header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 44,
+                      child: Text(
+                        'O\'rin',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 5,
+                      child: Text(
+                        'Taom',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        'Soni',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Text(
+                        'Jami Daromad',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // List of dishes
+              Expanded(
+                child: filtered.isEmpty
+                    ? Center(
+                        child: Text(
+                          _searchQuery.isEmpty ? 'Taomlar ro\'yxati bo\'sh' : 'Taom topilmadi',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark ? Colors.white54 : Colors.black45,
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => Divider(
+                          height: 14,
+                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                        ),
+                        itemBuilder: (ctx, index) {
+                          final item = filtered[index];
+                          final rank = widget.sortedProducts.indexOf(item) + 1;
+                          final rev = widget.revenues[item.key] ?? 0.0;
+                          Product? matchedProd;
+                          try {
+                            matchedProd = appState.products.firstWhere(
+                              (prod) => prod.name.trim().toLowerCase() == item.key.trim().toLowerCase(),
+                            );
+                          } catch (_) {}
+                          final double unitPrice = matchedProd?.price ?? (item.value > 0 ? (rev / item.value) : 0.0);
+                          final String? imgUrl = matchedProd?.imageUrl;
+
+                          Color rankColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+                          Color rankBg = isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9);
+                          String medal = '';
+                          if (rank == 1) {
+                            rankColor = const Color(0xFFB45309);
+                            rankBg = const Color(0xFFFEF3C7);
+                            medal = '🥇';
+                          } else if (rank == 2) {
+                            rankColor = const Color(0xFF475569);
+                            rankBg = const Color(0xFFE2E8F0);
+                            medal = '🥈';
+                          } else if (rank == 3) {
+                            rankColor = const Color(0xFF9A3412);
+                            rankBg = const Color(0xFFFFEDD5);
+                            medal = '🥉';
+                          }
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                // Rank
+                                SizedBox(
+                                  width: 44,
+                                  child: Container(
+                                    height: 28,
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: rankBg,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        medal.isNotEmpty ? medal : '#$rank',
+                                        style: TextStyle(
+                                          fontSize: medal.isNotEmpty ? 14 : 11.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: rankColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                // Dish image + name + unit price
+                                Expanded(
+                                  flex: 5,
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 42,
+                                        height: 42,
+                                        decoration: BoxDecoration(
+                                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(
+                                            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        clipBehavior: Clip.antiAlias,
+                                        child: (imgUrl != null && imgUrl.isNotEmpty)
+                                            ? Image.network(
+                                                imgUrl,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) => Center(
+                                                  child: Text(widget.emojiForName(item.key), style: const TextStyle(fontSize: 18)),
+                                                ),
+                                              )
+                                            : Center(
+                                                child: Text(widget.emojiForName(item.key), style: const TextStyle(fontSize: 18)),
+                                              ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.key,
+                                              style: TextStyle(
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.w700,
+                                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              '${widget.formatMoney(unitPrice)} UZS / dona',
+                                              style: TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w500,
+                                                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(3),
+                                              child: LinearProgressIndicator(
+                                                value: (item.value / maxQty).clamp(0.05, 1.0),
+                                                minHeight: 4,
+                                                backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                                                valueColor: AlwaysStoppedAnimation<Color>(
+                                                  rank == 1
+                                                      ? const Color(0xFFF59E0B)
+                                                      : (rank == 2
+                                                          ? const Color(0xFF64748B)
+                                                          : const Color(0xFF2563EB)),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                // Soni
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    '${item.value} ta',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B),
+                                    ),
+                                  ),
+                                ),
+
+                                // Daromad
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    '${widget.formatMoney(rev)} UZS',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

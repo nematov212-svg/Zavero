@@ -16,26 +16,47 @@ const save = async (req, res) => {
     const { id, name, iconCodePoint } = req.body;
 
     let row;
-    if (id) {
-      const existing = await db.query('SELECT id FROM categories WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
-      if (existing.rows.length === 0) {
-        return res.status(404).json({ success: false, message: 'Kategoriya topilmadi' });
+    const cleanName = name ? name.trim() : '';
+    const safeIcon = iconCodePoint ? parseInt(iconCodePoint, 10) : 0xe532;
+
+    if (id && parseInt(id, 10) > 0) {
+      const existing = await db.query('SELECT id FROM categories WHERE id = $1 AND cafe_id = $2', [parseInt(id, 10), cafeId]);
+      if (existing.rows.length > 0) {
+        const result = await db.query(
+          'UPDATE categories SET name = $1, icon_code_point = $2 WHERE id = $3 AND cafe_id = $4 RETURNING *',
+          [cleanName, safeIcon, parseInt(id, 10), cafeId]
+        );
+        row = result.rows[0];
       }
-      const result = await db.query(
-        'UPDATE categories SET name = $1, icon_code_point = $2 WHERE id = $3 AND cafe_id = $4 RETURNING *',
-        [name, iconCodePoint, id, cafeId]
-      );
-      row = result.rows[0];
-    } else {
-      const result = await db.query(
-        'INSERT INTO categories (cafe_id, name, icon_code_point) VALUES ($1,$2,$3) RETURNING *',
-        [cafeId, name, iconCodePoint]
-      );
-      row = result.rows[0];
     }
 
-    notifyCafe(cafeId, 'CATEGORIES_UPDATED', { category: mapCategory(row) });
-    res.json({ success: true, category: mapCategory(row) });
+    if (!row && cleanName) {
+      const existingByName = await db.query(
+        'SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2',
+        [cleanName, cafeId]
+      );
+      if (existingByName.rows.length > 0) {
+        const existingId = existingByName.rows[0].id;
+        const result = await db.query(
+          'UPDATE categories SET name = $1, icon_code_point = $2 WHERE id = $3 AND cafe_id = $4 RETURNING *',
+          [cleanName, safeIcon, existingId, cafeId]
+        );
+        row = result.rows[0];
+      } else {
+        const result = await db.query(
+          'INSERT INTO categories (cafe_id, name, icon_code_point) VALUES ($1,$2,$3) RETURNING *',
+          [cafeId, cleanName, safeIcon]
+        );
+        row = result.rows[0];
+      }
+    }
+
+    if (row) {
+      notifyCafe(cafeId, 'CATEGORIES_UPDATED', { category: mapCategory(row) });
+      return res.json({ success: true, category: mapCategory(row) });
+    }
+
+    return res.status(400).json({ success: false, message: 'Kategoriya nomi kiritilishi shart' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -709,14 +709,14 @@ class AppState extends ChangeNotifier {
       final cloudData = await _cloudService.loadFullCafeData(cafeId);
 
       final cloudCats = cloudData['categories'] as List<Category>?;
-      if (cloudCats != null) {
+      if (cloudCats != null && (cloudCats.isNotEmpty || categories.isEmpty)) {
         categories
           ..clear()
           ..addAll(cloudCats);
       }
 
       final cloudProds = cloudData['products'] as List<Product>?;
-      if (cloudProds != null) {
+      if (cloudProds != null && (cloudProds.isNotEmpty || products.isEmpty)) {
         final deduped = _deduplicateProducts(cloudProds);
         products
           ..clear()
@@ -2310,7 +2310,7 @@ class AppState extends ChangeNotifier {
     final normOrigName = originalName?.trim().toLowerCase();
     final idx = products.indexWhere(
       (e) =>
-          e.id == p.id ||
+          (p.id > 0 && e.id == p.id) ||
           e.name.trim().toLowerCase() == normName ||
           (normOrigName != null && e.name.trim().toLowerCase() == normOrigName),
     );
@@ -2325,7 +2325,16 @@ class AppState extends ChangeNotifier {
         imageUrl: p.imageUrl,
       );
     } else {
-      products.add(p);
+      final tempId = p.id > 0 ? p.id : nextId();
+      products.add(Product(
+        id: tempId,
+        name: p.name.trim(),
+        price: p.price,
+        categoryId: p.categoryId,
+        stock: p.stock,
+        icon: p.icon,
+        imageUrl: p.imageUrl,
+      ));
     }
     saveData();
     notifyListeners();
@@ -12183,7 +12192,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                             (c) => c.id == categoryId,
                           );
                           final p = Product(
-                            id: widget.product?.id ?? appState.nextId(),
+                            id: widget.product?.id ?? 0,
                             name: nameCtrl.text.trim(),
                             price: double.tryParse(priceCtrl.text) ?? 0,
                             categoryId: categoryId,
