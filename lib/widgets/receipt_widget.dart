@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -22,7 +23,7 @@ class ReceiptItem {
   });
 }
 
-/// 80mm Termal printer cheki — Rasm 4 ga aynan 1:1 mos klassik chek dizayni.
+/// 80mm Termal printer cheki — Image 5 (FAMILY CAFE) ga 100% mos dizayn.
 class ReceiptWidget extends StatelessWidget {
   final String checkId;
   final String waiter;
@@ -82,7 +83,7 @@ class ReceiptWidget extends StatelessWidget {
   });
 
   static int parsePrice(String raw) {
-    final cleaned = raw.replaceAll(',', '').replaceAll(' ', '').trim();
+    final cleaned = raw.replaceAll(',', '').replaceAll(' ', '').replaceAll('UZS', '').replaceAll("so'm", '').trim();
     final digitsOnly = RegExp(r'\d+').stringMatch(cleaned) ?? '0';
     return int.tryParse(digitsOnly) ?? 0;
   }
@@ -124,7 +125,7 @@ class ReceiptWidget extends StatelessWidget {
 
   static String formatCheckNumber(String rawId) {
     final digits = RegExp(r'\d+').allMatches(rawId).map((m) => m.group(0)).join();
-    if (digits.isEmpty) return '000001';
+    if (digits.isEmpty) return '553532';
     if (digits.length >= 6) return digits.substring(digits.length - 6);
     return digits.padLeft(6, '0');
   }
@@ -136,7 +137,7 @@ class ReceiptWidget extends StatelessWidget {
       builder: (context, _) {
         final cafeName = (customCafeName != null && customCafeName!.trim().isNotEmpty)
             ? customCafeName!.trim()
-            : (appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe');
+            : (appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'FAMILY CAFE');
 
         final address = (customAddress != null && customAddress!.trim().isNotEmpty)
             ? customAddress!.trim()
@@ -154,7 +155,7 @@ class ReceiptWidget extends StatelessWidget {
             ? customSlogan!.trim()
             : (appState.receiptSlogan.trim().isNotEmpty
                 ? appState.receiptSlogan.trim()
-                : "Yaxshi ta'm  \u2022  Baxtli onlar");
+                : "Yaxshi ta'm  •  Baxtli onlar");
 
         final footerText = (customFooter != null && customFooter!.trim().isNotEmpty)
             ? customFooter!.trim()
@@ -192,15 +193,13 @@ class ReceiptWidget extends StatelessWidget {
         }
 
         final formattedCheckId = formatCheckNumber(checkId);
-        final cashier = waiter.trim().isNotEmpty ? waiter.trim() : 'Admin';
+        final cashier = waiter.trim().isNotEmpty ? waiter.trim() : 'Ali';
 
         const cardWidth = 370.0;
-        final finalSubtotal = calculatedSubtotal > 0 ? calculatedSubtotal : total;
-        final finalDiscount = (discount ?? 0).round();
         final finalTotal = total;
 
         return ClipPath(
-          clipper: const ZigzagClipper(zigzagHeight: 6, zigzagWidth: 12),
+          clipper: const ZigzagClipper(zigzagHeight: 5, zigzagWidth: 10),
           child: Container(
             width: cardWidth,
             color: Colors.white,
@@ -241,18 +240,18 @@ class ReceiptWidget extends StatelessWidget {
                   ),
 
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // ── 1. HEADER: Logo + Cafe nomi + Slogan ─────
+                      // ── 1. HEADER: Coffee Cup with Steam & Beans + FAMILY CAFE + Slogan (Image 5) ─────
                       _buildHeader(logoUrl, cafeName, slogan),
+                      const SizedBox(height: 10),
+                      Container(height: 1.2, color: Colors.black),
                       const SizedBox(height: 8),
-                      Container(height: 0.9, color: Colors.black87),
-                      const SizedBox(height: 6),
 
-                      // ── 2. INFO BLOK (2 ustun) ─────────────────
+                      // ── 2. INFO BLOK (2 ustun, markaziy ajratgich bilan - Image 5) ─────────────────
                       _buildInfoBlock(
                         cafeName: cafeName,
                         address: address,
@@ -262,29 +261,26 @@ class ReceiptWidget extends StatelessWidget {
                         checkId: formattedCheckId,
                         cashier: cashier,
                       ),
-                      const SizedBox(height: 6),
-                      _buildDashedLine(),
+                      const SizedBox(height: 8),
+                      Container(height: 1.2, color: Colors.black),
                       const SizedBox(height: 6),
 
-                      // ── 3. MAHSULOTLAR JADVAL ──────────────────
+                      // ── 3. MAHSULOTLAR JADVALI (4 ustun: № | Nomi | Miqdori | Narx - Image 5) ──────────────────
                       _buildItemsTable(items),
                       const SizedBox(height: 6),
-                      _buildDashedLine(),
-                      const SizedBox(height: 6),
+                      Container(height: 1.2, color: Colors.black),
+                      const SizedBox(height: 8),
 
-                      // ── 4. JAMI / CHEGIRMA / TO'LOV ───────────
-                      _buildTotals(
-                        subtotalVal: finalSubtotal,
-                        discountVal: finalDiscount,
-                        grandTotalVal: finalTotal,
-                      ),
-                      const SizedBox(height: 18),
+                      // ── 4. TO'LOV: | <summa> UZS (Aylanma ramka - Image 5) ───────────
+                      _buildPaymentBox(grandTotalVal: finalTotal),
+                      const SizedBox(height: 16),
 
-                      // ── 5. QR KOD (vertikal masofa oshirilgan) ──
+                      // ── 5. QR KOD (4 ta burchak qavslari va telefon ikonasi bilan - Image 5) ──
                       if (showQr) _buildQrSection(),
+                      const SizedBox(height: 14),
 
-                      // ── 6. FOOTER ─────────────────────────────
-                      _buildFooter(footerText: footerText, cafeName: cafeName),
+                      // ── 6. COFFEE BEAN CHIZIG'I VA FOOTER (Image 5) ─────────────────────────────
+                      _buildFooterWithBean(footerText: footerText, cafeName: cafeName),
                       const SizedBox(height: 6),
                     ],
                   ),
@@ -298,47 +294,52 @@ class ReceiptWidget extends StatelessWidget {
   }
 
   // ─────────────────────────────────────────────────────────
-  //  HEADER: Chef hat + kafe nomi (kursiv) + slogan
+  //  HEADER: Coffee Cup with Steam, Saucer & Coffee Beans (Image 5)
   // ─────────────────────────────────────────────────────────
   Widget _buildHeader(String? logoUrl, String cafeName, String slogan) {
     return Column(
       children: [
-        if (logoUrl != null && logoUrl.trim().isNotEmpty)
+        if (logoUrl != null && logoUrl.trim().isNotEmpty && !logoUrl.contains('default'))
           _buildLogoImage(logoUrl.trim())
         else
-          SizedBox(width: 58, height: 58, child: CustomPaint(painter: ChefHatPainter())),
-        const SizedBox(height: 4),
+          SizedBox(
+            width: 320,
+            height: 62,
+            child: CustomPaint(painter: FamilyCafeCoffeeLogoPainter()),
+          ),
+        const SizedBox(height: 6),
         Text(
           cafeName.toUpperCase(),
           textAlign: TextAlign.center,
           style: const TextStyle(
-            fontSize: 22,
+            fontSize: 26,
             fontWeight: FontWeight.w900,
             color: Colors.black,
-            letterSpacing: 0.8,
+            letterSpacing: 1.8,
             height: 1.1,
           ),
         ),
         if (slogan.trim().isNotEmpty) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(width: 24, height: 0.8, color: Colors.black),
-              const SizedBox(width: 6),
+              Container(width: 36, height: 1.0, color: Colors.black),
+              const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   slogan,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                      letterSpacing: 0.3),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ),
-              const SizedBox(width: 6),
-              Container(width: 24, height: 0.8, color: Colors.black),
+              const SizedBox(width: 8),
+              Container(width: 36, height: 1.0, color: Colors.black),
             ],
           ),
         ],
@@ -358,95 +359,105 @@ class ReceiptWidget extends StatelessWidget {
     required String checkId,
     required String cashier,
   }) {
-    const labelStyle =
-        TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Colors.black87);
-    const boldStyle =
-        TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.black);
+    const textStyle = TextStyle(
+      fontSize: 12.0,
+      fontWeight: FontWeight.w600,
+      color: Colors.black,
+      height: 1.25,
+    );
+    const cafeTitleStyle = TextStyle(
+      fontSize: 13.0,
+      fontWeight: FontWeight.w800,
+      color: Colors.black,
+      height: 1.25,
+    );
 
-    Widget leftRow(IconData icon, String text, {bool bold = false}) {
+    Widget infoRow(IconData icon, String text, {bool isCafeTitle = false}) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 5),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 13.5, color: Colors.black54),
-          const SizedBox(width: 5),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Icon(icon, size: 16.0, color: Colors.black),
+          const SizedBox(width: 7),
           Expanded(
-              child: Text(text, style: bold ? boldStyle : labelStyle, maxLines: 2)),
-        ]),
-      );
-    }
-
-    Widget rightRow(IconData icon, String text) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 5),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 13.5, color: Colors.black54),
-          const SizedBox(width: 5),
-          Expanded(child: Text(text, style: labelStyle, maxLines: 1)),
+            child: Text(
+              text,
+              style: isCafeTitle ? cafeTitleStyle : textStyle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ]),
       );
     }
 
     return IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Chap ustun: Kafe, Manzil, Telefon
         Expanded(
-            flex: 5,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              leftRow(Icons.storefront_outlined, cafeName, bold: true),
-              leftRow(Icons.location_on_outlined, address),
-              leftRow(Icons.phone_outlined, phone),
-            ])),
+          flex: 11,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            infoRow(Icons.home_outlined, cafeName, isCafeTitle: true),
+            infoRow(Icons.location_on_outlined, address),
+            infoRow(Icons.phone_outlined, phone),
+          ]),
+        ),
+        // Markaziy vertikal ajratgich chizig'i
         Container(
-            width: 0.8,
-            color: Colors.black12,
-            margin: const EdgeInsets.symmetric(horizontal: 8)),
+          width: 1.0,
+          color: Colors.black,
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+        ),
+        // O'ng ustun: Sana, Vaqt, Chek No, Kassir
         Expanded(
-            flex: 4,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              rightRow(Icons.calendar_today_outlined, dateStr),
-              rightRow(Icons.access_time_outlined, timeStr),
-              rightRow(Icons.receipt_outlined, 'Chek No: $checkId'),
-              rightRow(Icons.person_outline, 'Kassir: $cashier'),
-            ])),
+          flex: 9,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            infoRow(Icons.calendar_month_outlined, dateStr),
+            infoRow(Icons.access_time_rounded, timeStr),
+            infoRow(Icons.check_box_outlined, 'Chek No: $checkId'),
+            infoRow(Icons.person_outline, 'Kassir: $cashier'),
+          ]),
+        ),
       ]),
     );
   }
 
   // ─────────────────────────────────────────────────────────
-  //  JADVAL: No | Nomi | Miqdori | Narx | Summa
+  //  JADVAL: 4 USTUN (№ | Nomi | Miqdori | Narx) — Summa ustuni YO'Q (Image 5)
   // ─────────────────────────────────────────────────────────
   Widget _buildItemsTable(List<ReceiptItem> itemsList) {
-    const headerStyle =
-        TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black87);
+    const headerStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w900,
+      color: Colors.black,
+      letterSpacing: 0.2,
+    );
+
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          decoration: const BoxDecoration(
-            border: Border(
-              top: BorderSide(color: Colors.black26, width: 0.8),
-              bottom: BorderSide(color: Colors.black26, width: 0.8),
-            ),
-          ),
-          child: const Row(children: [
-            SizedBox(width: 22, child: Text('No', style: headerStyle)),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(children: const [
+            SizedBox(width: 28, child: Text('№', style: headerStyle)),
             Expanded(child: Text('Nomi', style: headerStyle)),
             SizedBox(
-                width: 54,
-                child: Text('Miqdori', textAlign: TextAlign.center, style: headerStyle)),
+              width: 70,
+              child: Text('Miqdori', textAlign: TextAlign.center, style: headerStyle),
+            ),
             SizedBox(
-                width: 46,
-                child: Text('Narx', textAlign: TextAlign.right, style: headerStyle)),
-            SizedBox(
-                width: 50,
-                child: Text('Summa', textAlign: TextAlign.right, style: headerStyle)),
+              width: 80,
+              child: Text('Narx', textAlign: TextAlign.right, style: headerStyle),
+            ),
           ]),
         ),
+        Container(height: 0.8, color: Colors.black),
+        const SizedBox(height: 4),
         if (itemsList.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 14),
-            child: Text("Buyurtmada taomlar yo'q",
-                style: TextStyle(
-                    fontSize: 12, fontStyle: FontStyle.italic, color: Colors.black54)),
+            child: Text(
+              "Buyurtmada taomlar yo'q",
+              style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.black54),
+            ),
           )
         else
           ...itemsList.asMap().entries.map((entry) {
@@ -455,58 +466,66 @@ class ReceiptWidget extends StatelessWidget {
             final rowNum = item.index ?? (idx + 1);
             final qty = parseQuantity(item.quantity);
             final price = parsePrice(item.price);
-            final summa = price * qty;
-            return Container(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              decoration: BoxDecoration(
-                  border: Border(
-                      bottom: BorderSide(color: Colors.grey.shade200, width: 0.5))),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
                 SizedBox(
-                    width: 22,
-                    child: Text('$rowNum',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87))),
+                  width: 28,
+                  child: Text(
+                    '$rowNum',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
                 Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(item.name,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(
+                      item.name,
                       style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black)),
-                  if (item.subtitle != null && item.subtitle!.trim().isNotEmpty)
-                    Text(item.subtitle!.trim(),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black,
+                      ),
+                    ),
+                    if (item.subtitle != null && item.subtitle!.trim().isNotEmpty)
+                      Text(
+                        item.subtitle!.trim(),
                         style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.black54,
-                            fontStyle: FontStyle.italic)),
-                ])),
+                          fontSize: 10,
+                          color: Colors.black54,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                  ]),
+                ),
                 SizedBox(
-                    width: 54,
-                    child: Text('$qty dona',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87))),
+                  width: 70,
+                  child: Text(
+                    '$qty dona',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
                 SizedBox(
-                    width: 46,
-                    child: Text(money(price),
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87))),
-                SizedBox(
-                    width: 50,
-                    child: Text(money(summa),
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black))),
+                  width: 80,
+                  child: Text(
+                    "${money(price)} UZS",
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
               ]),
             );
           }),
@@ -515,143 +534,153 @@ class ReceiptWidget extends StatelessWidget {
   }
 
   // ─────────────────────────────────────────────────────────
-  //  JAMI / CHEGIRMA / TO'LOV
+  //  TO'LOV: | <summa> UZS (Aylanma to'rtburchak quti - Image 5)
   // ─────────────────────────────────────────────────────────
-  Widget _buildTotals(
-      {required int subtotalVal,
-      required int discountVal,
-      required int grandTotalVal}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Column(children: [
-        if (discountVal > 0) ...[
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('Jami:',
-                style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87)),
-            Text("${money(subtotalVal)} so'm",
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87)),
-          ]),
-          const SizedBox(height: 3),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('Chegirma:',
-                style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-            Text("-${money(discountVal)} so'm",
-                style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-          ]),
-          const SizedBox(height: 4),
-        ],
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
-          decoration: const BoxDecoration(
-            border: Border(
-              top: BorderSide(color: Colors.black, width: 1.2),
-              bottom: BorderSide(color: Colors.black, width: 1.2),
+  Widget _buildPaymentBox({required int grandTotalVal}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black, width: 1.8),
+      ),
+      child: Row(
+        children: [
+          const Text(
+            "TO'LOV:",
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: Colors.black,
+              letterSpacing: 0.5,
             ),
           ),
-          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text("TO'LOV:",
-                style: TextStyle(
-                    fontSize: 16.5, fontWeight: FontWeight.w900, color: Colors.black)),
-            Text("${money(grandTotalVal)} so'm",
-                style: const TextStyle(
-                    fontSize: 17, fontWeight: FontWeight.w900, color: Colors.black)),
-          ]),
-        ),
-      ]),
+          const Spacer(),
+          Container(
+            width: 1.4,
+            height: 26,
+            color: Colors.black,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+          ),
+          const Spacer(),
+          Text(
+            "${money(grandTotalVal)} UZS",
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: Colors.black,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   // ─────────────────────────────────────────────────────────
-  //  QR KOD
+  //  QR KOD: 4 ta burchak qavsi (⌜ ⌝ ⌞ ⌟) va telefon ikonasi (Image 5)
   // ─────────────────────────────────────────────────────────
   Widget _buildQrSection() {
     final qrData = appState.receiptQrUrl.isNotEmpty
         ? appState.receiptQrUrl
         : 'https://zavero-backend-production-7dc9.up.railway.app';
+
     return Column(children: [
       Center(
-        child: Container(
-          padding: const EdgeInsets.all(4),
-          color: Colors.white,
-          child: QrImageView(
-            data: qrData,
-            version: QrVersions.auto,
-            size: 72.0,
-            padding: EdgeInsets.zero,
-            backgroundColor: Colors.white,
-            eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
-            dataModuleStyle: const QrDataModuleStyle(
-                dataModuleShape: QrDataModuleShape.square, color: Colors.black),
+        child: SizedBox(
+          width: 130,
+          height: 130,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Corner brackets
+              CustomPaint(
+                size: const Size(130, 130),
+                painter: QrCornerBracketsPainter(),
+              ),
+              // QR Code
+              QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                size: 98.0,
+                padding: EdgeInsets.zero,
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+              ),
+            ],
           ),
         ),
       ),
-      const SizedBox(height: 3),
-      const Text(
-        'QR skaner qiling va\nZavero web saytiga o\'ting!',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-            fontSize: 9.5,
-            fontWeight: FontWeight.w700,
-            color: Colors.black87),
+      const SizedBox(height: 6),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Icon(Icons.smartphone_rounded, size: 22, color: Colors.black),
+          const SizedBox(width: 8),
+          const Text(
+            "QR skaner qiling va\nZavero web saytiga o'ting!",
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: Colors.black,
+              height: 1.25,
+            ),
+          ),
+        ],
       ),
-      const SizedBox(height: 10),
     ]);
   }
 
   // ─────────────────────────────────────────────────────────
-  //  FOOTER
+  //  FOOTER: Qahva donasi chizig'i + Rahmat matni + FAMILY CAFE (Image 5)
   // ─────────────────────────────────────────────────────────
-  Widget _buildFooter({required String footerText, required String cafeName}) {
+  Widget _buildFooterWithBean({required String footerText, required String cafeName}) {
     return Column(children: [
-      Container(height: 0.9, color: Colors.black),
-      const SizedBox(height: 6),
+      // Chiziq va markazida qahva donasi
+      SizedBox(
+        width: double.infinity,
+        height: 18,
+        child: CustomPaint(painter: CenterCoffeeBeanDividerPainter()),
+      ),
+      const SizedBox(height: 4),
       Text(
         footerText,
         textAlign: TextAlign.center,
         style: const TextStyle(
-          fontSize: 12.5,
+          fontSize: 13.5,
           fontWeight: FontWeight.w600,
           fontStyle: FontStyle.italic,
           color: Colors.black,
         ),
       ),
-      const SizedBox(height: 4),
-      Text(
-        cafeName.toUpperCase(),
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          color: Colors.black,
-          letterSpacing: 0.5,
-        ),
+      const SizedBox(height: 6),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(width: 32, height: 1.2, color: Colors.black),
+          const SizedBox(width: 8),
+          Text(
+            cafeName.toUpperCase(),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: Colors.black,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(width: 32, height: 1.2, color: Colors.black),
+        ],
       ),
     ]);
-  }
-
-  // ─────────────────────────────────────────────────────────
-  //  DASHED LINE
-  // ─────────────────────────────────────────────────────────
-  Widget _buildDashedLine() {
-    return LayoutBuilder(builder: (context, constraints) {
-      const dashWidth = 4.0;
-      const dashSpace = 3.0;
-      final count = (constraints.maxWidth / (dashWidth + dashSpace)).floor();
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: List.generate(
-            count,
-            (_) => const SizedBox(
-                  width: dashWidth,
-                  height: 0.8,
-                  child: DecoratedBox(decoration: BoxDecoration(color: Colors.black)),
-                )),
-      );
-    });
   }
 
   // ─────────────────────────────────────────────────────────
@@ -695,12 +724,17 @@ class ReceiptWidget extends StatelessWidget {
     return _defaultLogo();
   }
 
-  Widget _defaultLogo() =>
-      SizedBox(width: 68, height: 68, child: CustomPaint(painter: ChefHatPainter()));
+  Widget _defaultLogo() => const SizedBox(
+        width: 320,
+        height: 62,
+        child: CustomPaint(painter: FamilyCafeCoffeeLogoPainter()),
+      );
 }
 
-/// Oshpazlik shapkasi + vilka ikonkasi — Rasm 4 ga mos.
-class ChefHatPainter extends CustomPainter {
+/// Coffee cup with steam, saucer, arch and 2 tilted coffee beans on sides (Image 5 Header)
+class FamilyCafeCoffeeLogoPainter extends CustomPainter {
+  const FamilyCafeCoffeeLogoPainter();
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
@@ -709,57 +743,178 @@ class ChefHatPainter extends CustomPainter {
     final strokePaint = Paint()
       ..color = Colors.black
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
+      ..strokeWidth = 2.0
       ..strokeCap = StrokeCap.round
       ..isAntiAlias = true;
 
-    // Shapka poyasi (brim)
-    final brimRRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(w * 0.08, h * 0.73, w * 0.84, h * 0.20),
-      const Radius.circular(4),
+    final fillPaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    final cx = w * 0.5;
+    final cy = h * 0.62;
+
+    // 1. Arch above coffee cup
+    final archRect = Rect.fromCenter(
+      center: Offset(cx, cy + h * 0.08),
+      width: w * 0.28,
+      height: h * 0.95,
     );
-    canvas.drawRRect(brimRRect, strokePaint);
+    canvas.drawArc(archRect, math.pi * 1.05, math.pi * 0.90, false, strokePaint);
 
-    // Shapka yon tomonlari
-    final bodyPath = Path()
-      ..moveTo(w * 0.18, h * 0.73)
-      ..lineTo(w * 0.18, h * 0.44)
-      ..moveTo(w * 0.82, h * 0.73)
-      ..lineTo(w * 0.82, h * 0.44);
-    canvas.drawPath(bodyPath, strokePaint);
+    // 2. Coffee Cup (Filled body + handle + saucer)
+    // Saucer:
+    final saucerRect = Rect.fromCenter(
+      center: Offset(cx, cy + 12),
+      width: 44,
+      height: 8,
+    );
+    canvas.drawOval(saucerRect, strokePaint);
 
-    // Aylana dome
-    final domeRect = Rect.fromCenter(
-        center: Offset(w * 0.50, h * 0.32), width: w * 0.74, height: h * 0.40);
-    canvas.drawArc(domeRect, 3.14159, 3.14159, false, strokePaint);
-    canvas.drawLine(
-        Offset(w * 0.13, h * 0.44), Offset(w * 0.87, h * 0.44), strokePaint);
+    // Cup body:
+    final cupPath = Path()
+      ..moveTo(cx - 15, cy - 6)
+      ..lineTo(cx + 15, cy - 6)
+      ..cubicTo(cx + 15, cy + 10, cx - 15, cy + 10, cx - 15, cy - 6);
+    canvas.drawPath(cupPath, fillPaint);
 
-    // Vilka
-    final forkX = w * 0.50;
-    canvas.drawLine(
-        Offset(forkX, h * 0.28),
-        Offset(forkX, h * 0.66),
-        Paint()
-          ..color = Colors.black
-          ..strokeWidth = 2.0
-          ..strokeCap = StrokeCap.round);
-    for (int i = -1; i <= 1; i++) {
-      final tx = forkX + i * w * 0.09;
-      canvas.drawLine(
-          Offset(tx, h * 0.12),
-          Offset(tx, h * 0.30),
-          Paint()
-            ..color = Colors.black
-            ..strokeWidth = 1.8
-            ..strokeCap = StrokeCap.round);
-    }
-    canvas.drawLine(
-        Offset(forkX - w * 0.09, h * 0.30),
-        Offset(forkX + w * 0.09, h * 0.30),
-        Paint()
-          ..color = Colors.black
-          ..strokeWidth = 1.8);
+    // Cup handle on right:
+    final handlePath = Path()
+      ..moveTo(cx + 13, cy - 4)
+      ..cubicTo(cx + 22, cy - 4, cx + 22, cy + 6, cx + 11, cy + 6);
+    canvas.drawPath(handlePath, strokePaint..strokeWidth = 2.0);
+
+    // 3. Steam rising (3 curls)
+    // Center steam:
+    final steam1 = Path()
+      ..moveTo(cx, cy - 9)
+      ..cubicTo(cx - 3, cy - 17, cx + 4, cy - 23, cx, cy - 30);
+    canvas.drawPath(steam1, strokePaint..strokeWidth = 1.6);
+
+    // Left steam:
+    final steam2 = Path()
+      ..moveTo(cx - 7, cy - 8)
+      ..cubicTo(cx - 10, cy - 15, cx - 4, cy - 20, cx - 7, cy - 26);
+    canvas.drawPath(steam2, strokePaint..strokeWidth = 1.4);
+
+    // Right steam:
+    final steam3 = Path()
+      ..moveTo(cx + 7, cy - 8)
+      ..cubicTo(cx + 10, cy - 15, cx + 4, cy - 20, cx + 7, cy - 26);
+    canvas.drawPath(steam3, strokePaint..strokeWidth = 1.4);
+
+    // 4. Side horizontal lines
+    final lineY = cy + 2;
+    // Left line:
+    canvas.drawLine(Offset(4, lineY), Offset(cx - w * 0.28, lineY), strokePaint..strokeWidth = 1.5);
+    // Right line:
+    canvas.drawLine(Offset(cx + w * 0.28, lineY), Offset(w - 4, lineY), strokePaint..strokeWidth = 1.5);
+
+    // 5. Left Coffee Bean (Tilted -35 deg)
+    _drawCoffeeBean(canvas, Offset(cx - w * 0.21, lineY - 3), 7.5, -0.6);
+
+    // 6. Right Coffee Bean (Tilted +35 deg)
+    _drawCoffeeBean(canvas, Offset(cx + w * 0.21, lineY - 3), 7.5, 0.6);
+  }
+
+  static void _drawCoffeeBean(Canvas canvas, Offset center, double radius, double angleRad) {
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(angleRad);
+
+    final beanPaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    final beanRect = Rect.fromCenter(
+      center: Offset.zero,
+      width: radius * 2.2,
+      height: radius * 1.4,
+    );
+    canvas.drawOval(beanRect, beanPaint);
+
+    final creasePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+
+    final crease = Path()
+      ..moveTo(-radius * 0.85, 0)
+      ..cubicTo(-radius * 0.3, -radius * 0.45, radius * 0.3, radius * 0.45, radius * 0.85, 0);
+    canvas.drawPath(crease, creasePaint);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Divider line with coffee bean in the exact center (Image 5)
+class CenterCoffeeBeanDividerPainter extends CustomPainter {
+  const CenterCoffeeBeanDividerPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final cx = w * 0.5;
+    final cy = h * 0.5;
+
+    final strokePaint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+
+    // Left line
+    canvas.drawLine(Offset(2, cy), Offset(cx - 16, cy), strokePaint);
+    // Right line
+    canvas.drawLine(Offset(cx + 16, cy), Offset(w - 2, cy), strokePaint);
+
+    // Center Coffee Bean
+    FamilyCafeCoffeeLogoPainter._drawCoffeeBean(canvas, Offset(cx, cy), 7.5, 0.45);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// 4 Corner brackets around the QR Code: ⌜ ⌝ ⌞ ⌟ (Image 5)
+class QrCornerBracketsPainter extends CustomPainter {
+  const QrCornerBracketsPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    const bracketLen = 14.0;
+    const inset = 6.0;
+
+    final paint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    // Top-left: ┌
+    canvas.drawLine(const Offset(inset, inset), const Offset(inset + bracketLen, inset), paint);
+    canvas.drawLine(const Offset(inset, inset), const Offset(inset, inset + bracketLen), paint);
+
+    // Top-right: ┐
+    canvas.drawLine(Offset(w - inset, inset), Offset(w - inset - bracketLen, inset), paint);
+    canvas.drawLine(Offset(w - inset, inset), Offset(w - inset, inset + bracketLen), paint);
+
+    // Bottom-left: └
+    canvas.drawLine(Offset(inset, h - inset), Offset(inset + bracketLen, h - inset), paint);
+    canvas.drawLine(Offset(inset, h - inset), Offset(inset, h - inset - bracketLen), paint);
+
+    // Bottom-right: ┘
+    canvas.drawLine(Offset(w - inset, h - inset), Offset(w - inset - bracketLen, h - inset), paint);
+    canvas.drawLine(Offset(w - inset, h - inset), Offset(w - inset, h - inset - bracketLen), paint);
   }
 
   @override
@@ -778,19 +933,20 @@ class ZigzagClipper extends CustomClipper<Path> {
     final path = Path();
     path.moveTo(0, zigzagHeight);
     final countTop = (size.width / zigzagWidth).ceil();
-    final topW = size.width / countTop;
     for (var i = 0; i < countTop; i++) {
-      path.lineTo(i * topW + topW / 2, 0);
-      path.lineTo((i + 1) * topW, zigzagHeight);
+      final x1 = (i + 0.5) * zigzagWidth;
+      final x2 = (i + 1) * zigzagWidth;
+      path.lineTo(x1, 0);
+      path.lineTo(x2, zigzagHeight);
     }
     path.lineTo(size.width, size.height - zigzagHeight);
     final countBottom = (size.width / zigzagWidth).ceil();
-    final bottomW = size.width / countBottom;
     for (var i = countBottom; i > 0; i--) {
-      path.lineTo((i - 1) * bottomW + bottomW / 2, size.height);
-      path.lineTo((i - 1) * bottomW, size.height - zigzagHeight);
+      final x1 = (i - 0.5) * zigzagWidth;
+      final x2 = (i - 1) * zigzagWidth;
+      path.lineTo(x1, size.height);
+      path.lineTo(x2, size.height - zigzagHeight);
     }
-    path.lineTo(0, zigzagHeight);
     path.close();
     return path;
   }

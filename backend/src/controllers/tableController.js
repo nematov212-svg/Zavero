@@ -117,9 +117,11 @@ const saveOrder = async (req, res) => {
     console.error('saveOrder error:', error);
     return res.status(error.status || 500).json({ success: false, message: error.message });
   }
-};
+}
+
 
 // POST /api/tables/:id/release
+
 const release = async (req, res) => {
   const cafeId = getTenantCafeId(req);
   const tableId = parseInt(req.params.id, 10);
@@ -177,7 +179,7 @@ const updateStatus = async (req, res) => {
     await db.query(
       'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
       [cafeId, 'TABLE_STATUS_CHANGE', `${row.number}-stol holati '${status}' ga o'zgartirildi`, req.user?.name || req.user?.username || 'Foydalanuvchi']
-    ).catch(() => {});
+    ).catch(() => { });
 
     return res.json({ success: true, table: mapped });
   } catch (error) {
@@ -205,7 +207,7 @@ const createTable = async (req, res) => {
     await db.query(
       'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
       [cafeId, 'TABLE_CREATED', `Yangi ${num}-stol yaratildi (${s} o'rinlik)`, req.user?.name || req.user?.username || 'Admin']
-    ).catch(() => {});
+    ).catch(() => { });
 
     return res.status(201).json({ success: true, table: newTable });
   } catch (error) {
@@ -254,7 +256,7 @@ const updateTable = async (req, res) => {
     await db.query(
       'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
       [cafeId, 'TABLE_UPDATED', `${updated.number}-stol ma'lumotlari tahrirlandi`, req.user?.name || req.user?.username || 'Admin']
-    ).catch(() => {});
+    ).catch(() => { });
 
     return res.json({ success: true, table: updated });
   } catch (error) {
@@ -294,7 +296,7 @@ const removeTable = async (req, res) => {
       await db.query(
         'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
         [cafeId, 'TABLE_DELETED', `Stol (ID: ${tableId}) o'chirildi`, req.user?.name || req.user?.username || 'Admin']
-      ).catch(() => {});
+      ).catch(() => { });
     }
     return res.json({ success: true, tableId });
   } catch (error) {

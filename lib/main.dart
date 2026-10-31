@@ -995,7 +995,8 @@ class AppState extends ChangeNotifier {
 
     _customerOrdersPollTimer?.cancel();
     _customerOrdersPollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (currentUser != null && currentUser?.role != UserRole.director) {
+      // FAQAT ofitsiant paneliga kelishi kerak (Admin/Kafe paneliga emas)
+      if (currentUser != null && currentUser?.role == UserRole.waiter) {
         forceRefreshCustomerOrders();
       }
     });
@@ -2026,7 +2027,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> forceRefreshCustomerOrders() async {
-    if (currentUser == null || currentUser?.role == UserRole.director) return;
+    // SMS / bildirishnomalar va buyurtmalar faqat ofitsiant paneliga kelishi kerak
+    if (currentUser == null || currentUser?.role != UserRole.waiter) return;
     try {
       final res = await ApiClient().get('/customer-orders');
       if (res['customerOrders'] is List) {
@@ -2039,8 +2041,8 @@ class AppState extends ChangeNotifier {
   }
 
   void _handleIncomingCustomerOrders(List<CustomerOrder> newOrders) {
-    // 1. Director panelida QR buyurtma SMS / pop-up / ovozli xabarlari umuman chiqmasin:
-    if (currentUser?.role == UserRole.director) {
+    // FAQAT ofitsiant paneliga SMS / pop-up / audio xabarlari kelishi kerak (Admin/Kafe paneliga kelmasin):
+    if (currentUser?.role != UserRole.waiter) {
       return;
     }
 
@@ -3392,18 +3394,43 @@ pw.Document _buildThermalReceiptPdf({
     productsSum += item.product.price * item.qty;
   }
 
-  // 1-rasmdagi ChefHatPainter bilan 1:1 aynan bir xil oshpaz qalpog'i + vilka SVG emblemasi
-  const chefHatForkSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="12" y="58" width="76" height="15" rx="3.5" stroke-width="3"/>
-  <line x1="20" y1="58" x2="20" y2="35" stroke-width="3"/>
-  <line x1="80" y1="58" x2="80" y2="35" stroke-width="3"/>
-  <path d="M 16 35 C 16 14, 84 14, 84 35 Z" stroke-width="3"/>
-  <line x1="16" y1="35" x2="84" y2="35" stroke-width="3"/>
-  <line x1="50" y1="23" x2="50" y2="52" stroke-width="2.6"/>
-  <line x1="43" y1="10" x2="43" y2="24" stroke-width="2.4"/>
-  <line x1="50" y1="10" x2="50" y2="24" stroke-width="2.4"/>
-  <line x1="57" y1="10" x2="57" y2="24" stroke-width="2.4"/>
-  <line x1="43" y1="24" x2="57" y2="24" stroke-width="2.4"/>
+  // Image 5: Coffee Cup with Steam, Saucer, Arch & 2 Coffee Beans SVG
+  const coffeeCupEmblemSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 52" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <line x1="4" y1="28" x2="46" y2="28" stroke-width="1.8"/>
+  <g transform="translate(56, 26) rotate(-25)">
+    <ellipse cx="0" cy="0" rx="7" ry="4.5" fill="black"/>
+    <path d="M -5 0 C -2 -2.5, 2 2.5, 5 0" stroke="white" stroke-width="1.2" fill="none"/>
+  </g>
+  <path d="M 66 38 C 68 8, 92 8, 94 38" stroke-width="1.8" fill="none"/>
+  <ellipse cx="80" cy="38" rx="14" ry="2.5" stroke="black" stroke-width="1.6" fill="none"/>
+  <path d="M 72 25 L 88 25 C 88 35, 72 35, 72 25 Z" fill="black"/>
+  <path d="M 87 26 C 92 26, 92 33, 86 33" stroke="black" stroke-width="1.6" fill="none"/>
+  <path d="M 80 23 C 78 18, 82 14, 80 9" stroke="black" stroke-width="1.4" fill="none"/>
+  <path d="M 76 23 C 74 19, 78 16, 76 11" stroke="black" stroke-width="1.2" fill="none"/>
+  <path d="M 84 23 C 86 19, 82 16, 84 11" stroke="black" stroke-width="1.2" fill="none"/>
+  <g transform="translate(104, 26) rotate(25)">
+    <ellipse cx="0" cy="0" rx="7" ry="4.5" fill="black"/>
+    <path d="M -5 0 C -2 -2.5, 2 2.5, 5 0" stroke="white" stroke-width="1.2" fill="none"/>
+  </g>
+  <line x1="114" y1="28" x2="156" y2="28" stroke-width="1.8"/>
+</svg>''';
+
+  // Image 5: Coffee bean divider SVG
+  const coffeeBeanDividerSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 16" fill="none" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <line x1="4" y1="8" x2="70" y2="8"/>
+  <g transform="translate(80, 8) rotate(25)">
+    <ellipse cx="0" cy="0" rx="6.5" ry="4" fill="black"/>
+    <path d="M -4.5 0 C -2 -2, 2 2, 4.5 0" stroke="white" stroke-width="1.0" fill="none"/>
+  </g>
+  <line x1="90" y1="8" x2="156" y2="8"/>
+</svg>''';
+
+  // Corner brackets SVG around QR code
+  const cornerBracketsSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M 4 12 L 4 4 L 12 4"/>
+  <path d="M 48 4 L 56 4 L 56 12"/>
+  <path d="M 4 48 L 4 56 L 12 56"/>
+  <path d="M 48 56 L 56 56 L 56 48"/>
 </svg>''';
 
   doc.addPage(
@@ -3414,68 +3441,68 @@ pw.Document _buildThermalReceiptPdf({
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           mainAxisSize: pw.MainAxisSize.min,
           children: [
-            // ── 1. HEADER: Emblem + Kafe nomi (qalin) + Slogan ──────
+            // ── 1. HEADER: Emblem + Kafe nomi (qalin) + Slogan (Image 5) ──────
             if (customLogoBytes != null && customLogoBytes.isNotEmpty)
               pw.Center(
                 child: pw.Image(pw.MemoryImage(customLogoBytes), height: 34, fit: pw.BoxFit.contain),
               )
             else
-              pw.Center(child: pw.SvgImage(svg: chefHatForkSvg, width: 36, height: 28)),
+              pw.Center(child: pw.SvgImage(svg: coffeeCupEmblemSvg, width: is58mm ? 100 : 130, height: is58mm ? 32 : 40)),
             pw.SizedBox(height: 2),
             pw.Center(
               child: pw.Text(
                 cafeName.toUpperCase(),
                 style: pw.TextStyle(
                   font: helveticaBold,
-                  fontSize: is58mm ? 12.0 : 14.5,
+                  fontSize: is58mm ? 13.0 : 16.0,
                   fontWeight: pw.FontWeight.bold,
-                  letterSpacing: 0.8,
+                  letterSpacing: 1.4,
                 ),
               ),
             ),
             pw.SizedBox(height: 2),
             // Slogan with lines
             pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
-              pw.Container(width: 14, height: 0.8, color: PdfColors.black),
+              pw.Container(width: 16, height: 0.8, color: PdfColors.black),
               pw.Padding(
                 padding: const pw.EdgeInsets.symmetric(horizontal: 4),
                 child: pw.Row(
                   mainAxisSize: pw.MainAxisSize.min,
                   children: [
-                    pw.Text("Yaxshi ta'm ", style: pw.TextStyle(font: helveticaOblique, fontSize: 6.8, fontStyle: pw.FontStyle.italic)),
-                    pw.Container(width: 2.2, height: 2.2, decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle)),
-                    pw.Text(" Baxtli onlar", style: pw.TextStyle(font: helveticaOblique, fontSize: 6.8, fontStyle: pw.FontStyle.italic)),
+                    pw.Text("Yaxshi ta'm ", style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
+                    pw.Container(width: 2.5, height: 2.5, decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle)),
+                    pw.Text(" Baxtli onlar", style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
                   ],
                 ),
               ),
-              pw.Container(width: 14, height: 0.8, color: PdfColors.black),
+              pw.Container(width: 16, height: 0.8, color: PdfColors.black),
             ]),
-            pw.SizedBox(height: 3),
+            pw.SizedBox(height: 4),
 
             // ── Solid separator ──
-            pw.Container(height: 0.8, color: PdfColors.black),
+            pw.Container(height: 1.0, color: PdfColors.black),
             pw.SizedBox(height: 3),
 
-            // ── 2. INFO BLOK (2 ustun) ──────────────────────────────
+            // ── 2. INFO BLOK (2 ustun) (Image 5) ──────────────────────────────
             pw.Padding(
               padding: const pw.EdgeInsets.symmetric(horizontal: 2),
               child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                 // LEFT
                 pw.Expanded(
-                  flex: 5,
+                  flex: 11,
                   child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                     pw.Row(children: [
                       pw.SvgImage(svg: _pdfStoreSvg, width: 7, height: 7),
                       pw.SizedBox(width: 2.5),
-                      pw.Text(cafeName, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
+                      pw.Text(cafeName, style: pw.TextStyle(font: helveticaBold, fontSize: 7.6, fontWeight: pw.FontWeight.bold)),
                     ]),
-                    pw.SizedBox(height: 1.8),
+                    pw.SizedBox(height: 2.0),
                     pw.Row(children: [
                       pw.SvgImage(svg: _pdfLocationSvg, width: 7, height: 7),
                       pw.SizedBox(width: 2.5),
                       pw.Expanded(child: pw.Text(address, style: pw.TextStyle(font: helvetica, fontSize: 6.8))),
                     ]),
-                    pw.SizedBox(height: 1.8),
+                    pw.SizedBox(height: 2.0),
                     pw.Row(children: [
                       pw.SvgImage(svg: _pdfPhoneSvg, width: 7, height: 7),
                       pw.SizedBox(width: 2.5),
@@ -3484,29 +3511,29 @@ pw.Document _buildThermalReceiptPdf({
                   ]),
                 ),
                 // DIVIDER
-                pw.Container(width: 0.6, color: PdfColors.grey400, margin: const pw.EdgeInsets.symmetric(horizontal: 4)),
+                pw.Container(width: 0.8, height: 32, color: PdfColors.black, margin: const pw.EdgeInsets.symmetric(horizontal: 4)),
                 // RIGHT
                 pw.Expanded(
-                  flex: 4,
+                  flex: 9,
                   child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                     pw.Row(children: [
                       pw.SvgImage(svg: _pdfCalendarSvg, width: 7, height: 7),
                       pw.SizedBox(width: 2.5),
                       pw.Text(dateStr, style: pw.TextStyle(font: helvetica, fontSize: 6.8)),
                     ]),
-                    pw.SizedBox(height: 1.8),
+                    pw.SizedBox(height: 2.0),
                     pw.Row(children: [
                       pw.SvgImage(svg: _pdfClockSvg, width: 7, height: 7),
                       pw.SizedBox(width: 2.5),
                       pw.Text(timeStr, style: pw.TextStyle(font: helvetica, fontSize: 6.8)),
                     ]),
-                    pw.SizedBox(height: 1.8),
+                    pw.SizedBox(height: 2.0),
                     pw.Row(children: [
                       pw.SvgImage(svg: _pdfReceiptSvg, width: 7, height: 7),
                       pw.SizedBox(width: 2.5),
                       pw.Text('Chek No: $formattedCheckId', style: pw.TextStyle(font: helveticaBold, fontSize: 6.8, fontWeight: pw.FontWeight.bold)),
                     ]),
-                    pw.SizedBox(height: 1.8),
+                    pw.SizedBox(height: 2.0),
                     pw.Row(children: [
                       pw.SvgImage(svg: _pdfPersonSvg, width: 7, height: 7),
                       pw.SizedBox(width: 2.5),
@@ -3517,117 +3544,73 @@ pw.Document _buildThermalReceiptPdf({
               ]),
             ),
             pw.SizedBox(height: 3),
-
-            // ── Dashed line separator (1-rasmga 100% mos) ──
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: List.generate(
-                is58mm ? 22 : 30,
-                (_) => pw.Container(width: 3.5, height: 0.8, color: PdfColors.black),
-              ),
-            ),
+            pw.Container(height: 1.0, color: PdfColors.black),
             pw.SizedBox(height: 2.5),
 
-            // ── 3. JADVAL SARLAVHASI ──────────────────────────────
+            // ── 3. JADVAL SARLAVHASI (4 ustun: № | Nomi | Miqdori | Narx - Image 5) ──────────────────────────────
             pw.Container(
               padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.5),
-              decoration: const pw.BoxDecoration(
-                border: pw.Border(
-                  top: pw.BorderSide(color: PdfColors.black, width: 0.8),
-                  bottom: pw.BorderSide(color: PdfColors.black, width: 0.8),
-                ),
-              ),
               child: pw.Row(children: [
-                pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('No', style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
-                pw.Expanded(child: pw.Text('Nomi', style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(width: is58mm ? 32 : 40, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(width: is58mm ? 36 : 44, child: pw.Text('Summa', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.0, fontWeight: pw.FontWeight.bold))),
+                pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('No', style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                pw.Expanded(child: pw.Text('Nomi', style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                pw.SizedBox(width: is58mm ? 46 : 56, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
               ]),
             ),
+            pw.Container(height: 0.6, color: PdfColors.black),
             pw.SizedBox(height: 2),
 
-            // ── 4. MAHSULOTLAR ────────────────────────────────────
+            // ── 4. MAHSULOTLAR (Image 5) ────────────────────────────────────
             ...List.generate(items.length, (index) {
               final item = items[index];
-              final itemSumma = item.product.price * item.qty;
-              return pw.Column(children: [
-                pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.0),
-                  child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                    pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('${index + 1}', style: pw.TextStyle(font: helvetica, fontSize: 7.0))),
-                    pw.Expanded(child: pw.Text(item.product.name, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                    pw.SizedBox(width: is58mm ? 26 : 32, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helvetica, fontSize: 7.0))),
-                    pw.SizedBox(width: is58mm ? 32 : 40, child: pw.Text(ReceiptWidget.money(item.product.price.round()), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helvetica, fontSize: 7.0))),
-                    pw.SizedBox(width: is58mm ? 36 : 44, child: pw.Text(ReceiptWidget.money(itemSumma.round()), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                  ]),
-                ),
-                if (index < items.length - 1)
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.symmetric(vertical: 1.0),
-                    child: pw.Container(height: 0.4, color: PdfColors.grey300),
-                  ),
-              ]);
+              return pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.8),
+                child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
+                  pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('${index + 1}', style: pw.TextStyle(font: helvetica, fontSize: 7.2))),
+                  pw.Expanded(child: pw.Text(item.product.name, style: pw.TextStyle(font: helveticaBold, fontSize: 7.4, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: helvetica, fontSize: 7.2))),
+                  pw.SizedBox(width: is58mm ? 46 : 56, child: pw.Text("${ReceiptWidget.money(item.product.price.round())} UZS", textAlign: pw.TextAlign.right, style: pw.TextStyle(font: helveticaBold, fontSize: 7.4, fontWeight: pw.FontWeight.bold))),
+                ]),
+              );
             }),
             pw.SizedBox(height: 2),
+            pw.Container(height: 1.0, color: PdfColors.black),
+            pw.SizedBox(height: 4),
 
-            // ── Dashed line separator (1-rasmga 100% mos) ──
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: List.generate(
-                is58mm ? 22 : 30,
-                (_) => pw.Container(width: 3.5, height: 0.8, color: PdfColors.black),
+            // ── 5. PAYMENT BOX (Rounded border container: TO'LOV: | <summa> UZS - Image 5) ───────────────────────
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: pw.BoxDecoration(
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                border: pw.Border.all(color: PdfColors.black, width: 1.4),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text("TO'LOV:", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 10.5 : 12.5, fontWeight: pw.FontWeight.bold)),
+                  pw.Container(width: 1.0, height: 16, color: PdfColors.black),
+                  pw.Text("${ReceiptWidget.money(grandTotal.round())} UZS", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 11.5 : 13.5, fontWeight: pw.FontWeight.bold)),
+                ],
               ),
             ),
-            pw.SizedBox(height: 3),
+            pw.SizedBox(height: 14),
 
-            // ── 5. JAMI / CHEGIRMA / TO'LOV ───────────────────────
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 2),
-              child: pw.Column(children: [
-                if (grandTotal < productsSum) ...[
-                  pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                    pw.Text('Jami:', style: pw.TextStyle(font: helveticaBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
-                    pw.Text("${ReceiptWidget.money(productsSum.round())} so'm", style: pw.TextStyle(font: helveticaBold, fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
-                  ]),
-                  pw.SizedBox(height: 1.5),
-                  pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                    pw.Text('Chegirma:', style: pw.TextStyle(font: helvetica, fontSize: 7.5)),
-                    pw.Text("-${ReceiptWidget.money((productsSum - grandTotal).round())} so'm", style: pw.TextStyle(font: helvetica, fontSize: 7.5)),
-                  ]),
-                  pw.SizedBox(height: 2),
-                ],
-                pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                  decoration: const pw.BoxDecoration(
-                    border: pw.Border(
-                      top: pw.BorderSide(color: PdfColors.black, width: 1.2),
-                      bottom: pw.BorderSide(color: PdfColors.black, width: 1.2),
-                    ),
-                  ),
-                  child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                    pw.Text("TO'LOV:", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 11.0 : 13.0, fontWeight: pw.FontWeight.bold)),
-                    pw.Text("${ReceiptWidget.money(grandTotal.round())} so'm", style: pw.TextStyle(font: helveticaBold, fontSize: is58mm ? 11.5 : 13.5, fontWeight: pw.FontWeight.bold)),
-                  ]),
-                ),
-              ]),
-            ),
-            pw.SizedBox(height: 18),
-
-            // ── 6. QR KOD (1-rasmga 100% mos, vertikal masofa oshirilgan) ──
+            // ── 6. QR KOD WITH CORNER BRACKETS & PHONE (Image 5) ──
             pw.Center(
-              child: pw.Container(
-                padding: const pw.EdgeInsets.all(2),
-                color: PdfColors.white,
-                child: pw.BarcodeWidget(
-                  barcode: pw.Barcode.qrCode(),
-                  data: appState.receiptQrUrl.isNotEmpty
-                      ? appState.receiptQrUrl
-                      : 'https://zavero-backend-production-7dc9.up.railway.app',
-                  width: is58mm ? 44 : 52,
-                  height: is58mm ? 44 : 52,
-                  color: PdfColors.black,
-                ),
+              child: pw.Stack(
+                alignment: pw.Alignment.center,
+                children: [
+                  pw.SvgImage(svg: cornerBracketsSvg, width: is58mm ? 52 : 62, height: is58mm ? 52 : 62),
+                  pw.BarcodeWidget(
+                    barcode: pw.Barcode.qrCode(),
+                    data: appState.receiptQrUrl.isNotEmpty
+                        ? appState.receiptQrUrl
+                        : 'https://zavero-backend-production-7dc9.up.railway.app',
+                    width: is58mm ? 40 : 48,
+                    height: is58mm ? 40 : 48,
+                    color: PdfColors.black,
+                  ),
+                ],
               ),
             ),
             pw.SizedBox(height: 4),
@@ -3635,30 +3618,33 @@ pw.Document _buildThermalReceiptPdf({
               child: pw.Text(
                 'QR skaner qiling va\nZavero web saytiga o\'ting!',
                 textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(font: helveticaBold, fontSize: 6.8, color: PdfColors.black),
+                style: pw.TextStyle(font: helveticaBold, fontSize: 6.6, color: PdfColors.black),
               ),
             ),
-            pw.SizedBox(height: 8),
+            pw.SizedBox(height: 10),
 
-            // ── Solid separator ──
-            pw.Container(height: 0.8, color: PdfColors.black),
-            pw.SizedBox(height: 5),
-
-            // ── 7. FOOTER ─────────────────────────────────────────
-            pw.Center(
-              child: pw.Text(
-                footerText,
-                style: pw.TextStyle(font: helveticaOblique, fontSize: 8.5, fontStyle: pw.FontStyle.italic),
-              ),
-            ),
+            // ── 7. FOOTER: COFFEE BEAN DIVIDER + THANKS NOTE + FAMILY CAFE (Image 5) ──
+            pw.Center(child: pw.SvgImage(svg: coffeeBeanDividerSvg, width: is58mm ? 100 : 130, height: 12)),
             pw.SizedBox(height: 3),
             pw.Center(
               child: pw.Text(
-                cafeName.toUpperCase(),
-                style: pw.TextStyle(font: helveticaBold, fontSize: 8.0, fontWeight: pw.FontWeight.bold),
+                footerText,
+                style: pw.TextStyle(font: helveticaOblique, fontSize: 8.2, fontStyle: pw.FontStyle.italic),
               ),
             ),
-            pw.SizedBox(height: 12),
+            pw.SizedBox(height: 3),
+            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
+              pw.Container(width: 18, height: 0.8, color: PdfColors.black),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 4),
+                child: pw.Text(
+                  cafeName.toUpperCase(),
+                  style: pw.TextStyle(font: helveticaBold, fontSize: 8.2, fontWeight: pw.FontWeight.bold, letterSpacing: 0.8),
+                ),
+              ),
+              pw.Container(width: 18, height: 0.8, color: PdfColors.black),
+            ]),
+            pw.SizedBox(height: 10),
           ],
         );
       },
@@ -7699,25 +7685,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           // ADMIN (CAFE EGASI) UCHUN ASOSIY BO'LIMLAR
           // ==========================================
           if (isAdmin) ...[
-            // 1. Yangi buyurtma — dashboard ichida stollar ko'rsatiladi, navigatsiya shart emas
-            _DashTile(
-              tr('tile_new_order'),
-              Icons.point_of_sale_rounded,
-              () {},
-            ),
-
-            // 2. Mijozlardan buyurtma
-            _DashTile(
-              'Mijozlardan buyurtma',
-              Icons.receipt_long_rounded,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
-              ),
-              badge: appState.pendingOrdersCount,
-            ),
-
-            // 3. Cheklar tarixi
+            // Cheklar tarixi
             _DashTile(
               tr('tile_receipt_history'),
               Icons.history_rounded,
@@ -7786,16 +7754,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               ),
             ),
 
-          // 8.5. Xodimlarni kuzatish (Live monitoring & Radar)
-          if (isAdmin)
-            _DashTile(
-              'Xodimlarni kuzatish',
-              Icons.radar_rounded,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const StaffTrackingScreen()),
-              ),
-            ),
 
           // 10. Stollar boshqaruvi
           if (isAdmin)
@@ -8259,43 +8217,45 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                             0 == _mobileNavIndex,
                             () => setState(() => _mobileNavIndex = 0),
                           ),
-                          // 2. Buyurtmalar
-                          _mobileNavBtn(
-                            Icons.receipt_long_outlined,
-                            Icons.receipt_long_rounded,
-                            'Buyurtmalar',
-                            1 == _mobileNavIndex,
-                            () async {
-                              setState(() => _mobileNavIndex = 1);
-                              await Future.delayed(const Duration(milliseconds: 80));
-                              if (context.mounted) {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
-                                );
-                              }
-                              if (mounted) setState(() => _mobileNavIndex = 0);
-                            },
-                            badge: appState.pendingOrdersCount,
-                          ),
-                          // 3. Hisobotlar (O'rtada)
-                          _mobileNavBtn(
-                            Icons.bar_chart_outlined,
-                            Icons.bar_chart_rounded,
-                            'Hisobotlar',
-                            2 == _mobileNavIndex,
-                            () async {
-                              setState(() => _mobileNavIndex = 2);
-                              await Future.delayed(const Duration(milliseconds: 80));
-                              if (context.mounted) {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
-                                );
-                              }
-                              if (mounted) setState(() => _mobileNavIndex = 0);
-                            },
-                          ),
+                          // 2. Buyurtmalar (FAQAT ofitsiant panelida chiqadi, Kafe admin panelida ko'rsatilmaydi)
+                          if (!isAdmin)
+                            _mobileNavBtn(
+                              Icons.receipt_long_outlined,
+                              Icons.receipt_long_rounded,
+                              'Buyurtmalar',
+                              1 == _mobileNavIndex,
+                              () async {
+                                setState(() => _mobileNavIndex = 1);
+                                await Future.delayed(const Duration(milliseconds: 80));
+                                if (context.mounted) {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
+                                  );
+                                }
+                                if (mounted) setState(() => _mobileNavIndex = 0);
+                              },
+                              badge: appState.pendingOrdersCount,
+                            ),
+                          // 3. Hisobotlar (Kafe admin paneli uchun markaziy hisobotlar)
+                          if (isAdmin)
+                            _mobileNavBtn(
+                              Icons.bar_chart_outlined,
+                              Icons.bar_chart_rounded,
+                              'Hisobotlar',
+                              2 == _mobileNavIndex,
+                              () async {
+                                setState(() => _mobileNavIndex = 2);
+                                await Future.delayed(const Duration(milliseconds: 80));
+                                if (context.mounted) {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                                  );
+                                }
+                                if (mounted) setState(() => _mobileNavIndex = 0);
+                              },
+                            ),
                           // 4. Cheklar
                           _mobileNavBtn(
                             Icons.history_rounded,
@@ -13281,7 +13241,111 @@ class _PaymentScreenState extends State<PaymentScreen> {
         const SnackBar(
           content: Text("To'lov qabul qilindi va chek chiqarildi"),
           backgroundColor: Color(0xFF10B981),
+          duration: Duration(seconds: 2),
         ),
+      );
+
+      if (!mounted) return;
+      setState(() => confirming = false);
+
+      // 4-rasmdagi chek oynasini 1 MARTA ochamiz:
+      final selTableNum = receipt.tableNumber ?? selTable?.number;
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetCtx) {
+          return DraggableScrollableSheet(
+            initialChildSize: 0.85,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (context, scrollController) {
+              return Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEDEDED),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Center(
+                          child: Material(
+                            elevation: 2,
+                            borderRadius: BorderRadius.circular(4),
+                            child: ReceiptWidget(
+                              checkId: '${receipt.id}',
+                              waiter: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Ali',
+                              hallName: hallBeforeCheckout?.name ?? 'Zal',
+                              table: selTableNum != null ? '$selTableNum' : '',
+                              customer: '1',
+                              dateTime: receipt.date.toIso8601String(),
+                              customTotal: receipt.total > 0 ? receipt.total : _grandTotal,
+                              paymentMethod: method == PaymentMethod.card ? 'Karta' : 'Naqd',
+                              items: receipt.items.isNotEmpty
+                                  ? receipt.items
+                                      .map(
+                                        (c) => ReceiptItem(
+                                          name: c.product.name,
+                                          quantity: '${c.qty} dona',
+                                          price: ReceiptWidget.money(c.product.price.round()),
+                                        ),
+                                      )
+                                      .toList()
+                                  : appState.cart
+                                      .map(
+                                        (c) => ReceiptItem(
+                                          name: c.product.name,
+                                          quantity: '${c.qty} dona',
+                                          price: ReceiptWidget.money(c.product.price.round()),
+                                        ),
+                                      )
+                                      .toList(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF3B6E91),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () {
+                            Navigator.pop(sheetCtx);
+                            try {
+                              printReceipt(receipt, isAutoCheckout: false);
+                            } catch (_) {}
+                          },
+                          icon: const Icon(Icons.print),
+                          label: const Text('Chop etish', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       );
 
       final nav = appNavigatorKey.currentState;
