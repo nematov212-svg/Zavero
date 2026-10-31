@@ -281,17 +281,17 @@ class EscPosBuilder {
     builder.twoColumnRow('', 'Kassir: ${data.cashierName}');
     builder.dashedDivider();
 
-    // ── C. PRODUCT TABLE (5 Columns: No, Nomi, Miqdori, Narx, Summa) ─
+    // ── C. PRODUCT TABLE (4 Columns: No, Nomi, Miqdori, Narx) ─
     builder.boldOn();
     if (width >= 48) {
-      // 80mm: No (3), Nomi (17), Miq (8), Narx (10), Summa (10) = 48
+      // 80mm: No (3), Nomi (20), Miqdori (10), Narx (15) = 48
       builder.printLine(
-        '${'No'.padRight(3)}${'Nomi'.padRight(17)}${'Miqdori'.padRight(8)}${'Narx'.padLeft(10)}${'Summa'.padLeft(10)}',
+        '${'No'.padRight(3)}${'Nomi'.padRight(20)}${'Miqdori'.padRight(10)}${'Narx'.padLeft(15)}',
       );
     } else {
-      // 58mm: No (3), Nomi (11), Miq (6), Summa (12) = 32
+      // 58mm: No (3), Nomi (11), Miq (6), Narx (12) = 32
       builder.printLine(
-        '${'No'.padRight(3)}${'Nomi'.padRight(11)}${'Miq'.padRight(6)}${'Summa'.padLeft(12)}',
+        '${'No'.padRight(3)}${'Nomi'.padRight(11)}${'Miq'.padRight(6)}${'Narx'.padLeft(12)}',
       );
     }
     builder.boldOff();
@@ -300,36 +300,33 @@ class EscPosBuilder {
     for (final item in data.items) {
       final name = item.name;
       final qtyStr = '${item.qty} dona';
-      final priceStr = ReceiptPrintData.formatMoney(item.unitPrice);
-      final totalStr = ReceiptPrintData.formatMoney(item.lineTotal);
+      final priceStr = '${ReceiptPrintData.formatMoney(item.unitPrice)} UZS';
 
       if (width >= 48) {
-        if (name.length <= 16) {
+        if (name.length <= 19) {
           final noStr = '${item.index}'.padRight(3);
-          final nStr = name.padRight(17);
-          final qStr = qtyStr.padRight(8);
-          final pStr = priceStr.padLeft(10);
-          final tStr = totalStr.padLeft(10);
-          builder.printLine('$noStr$nStr$qStr$pStr$tStr');
+          final nStr = name.padRight(20);
+          final qStr = qtyStr.padRight(10);
+          final pStr = priceStr.padLeft(15);
+          builder.printLine('$noStr$nStr$qStr$pStr');
         } else {
           builder.boldOn();
           builder.printLine('${item.index}. $name');
           builder.boldOff();
-          final qStr = qtyStr.padRight(8);
-          final pStr = priceStr.padLeft(10);
-          final tStr = totalStr.padLeft(10);
-          builder.printLine('   ${qStr.padRight(25)}$pStr$tStr');
+          final qStr = qtyStr.padRight(10);
+          final pStr = priceStr.padLeft(15);
+          builder.printLine('   ${qStr.padRight(30)}$pStr');
         }
       } else {
         if (name.length <= 10) {
           final noStr = '${item.index}'.padRight(3);
           final nStr = name.padRight(11);
           final qStr = '${item.qty}'.padRight(6);
-          final tStr = totalStr.padLeft(12);
-          builder.printLine('$noStr$nStr$qStr$tStr');
+          final pStr = priceStr.padLeft(12);
+          builder.printLine('$noStr$nStr$qStr$pStr');
         } else {
           builder.printLine('${item.index}. $name');
-          builder.twoColumnRow('   ${item.qty} dona', '$totalStr UZS');
+          builder.twoColumnRow('   ${item.qty} dona', priceStr);
         }
       }
     }
@@ -396,7 +393,7 @@ class ThermalPdfGenerator {
 
     // Aniq ixcham balandlik: pastda ortiqcha bo'sh joy qoldirmasdan, chiroyli va qulay chiqishini ta'minlaydi
     final double qrHeight = data.qrUrl.isNotEmpty ? (is58mm ? 70.0 : 80.0) : 0.0;
-    final double baseHeight = (is58mm ? 222.0 : 235.0) + qrHeight;
+    final double baseHeight = (is58mm ? 208.0 : 220.0) + qrHeight;
     final double dynamicItemsHeight = data.items.length * (is58mm ? 14.0 : 13.0);
     final double totalHeight = baseHeight + dynamicItemsHeight;
 
@@ -460,28 +457,31 @@ class ThermalPdfGenerator {
                   height: is58mm ? 35 : 42,
                 ),
               ),
-              pw.SizedBox(height: 1),
-              pw.Center(
-                child: pw.Text(
-                  cafeNameFirst,
-                  style: pw.TextStyle(
-                    font: fontOblique,
-                    fontSize: is58mm ? 18.0 : 21.0,
-                    fontWeight: pw.FontWeight.bold,
-                    fontStyle: pw.FontStyle.italic,
+              pw.SizedBox(height: 2),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    cafeNameFirst,
+                    style: pw.TextStyle(
+                      font: fontOblique,
+                      fontSize: is58mm ? 14.5 : 17.0,
+                      fontWeight: pw.FontWeight.bold,
+                      fontStyle: pw.FontStyle.italic,
+                    ),
                   ),
-                ),
-              ),
-              pw.Center(
-                child: pw.Text(
-                  cafeNameRest,
-                  style: pw.TextStyle(
-                    font: fontBold,
-                    fontSize: is58mm ? 12.5 : 14.5,
-                    fontWeight: pw.FontWeight.bold,
-                    letterSpacing: 1.6,
+                  pw.SizedBox(width: 5),
+                  pw.Text(
+                    cafeNameRest,
+                    style: pw.TextStyle(
+                      font: fontBold,
+                      fontSize: is58mm ? 11.0 : 13.0,
+                      fontWeight: pw.FontWeight.bold,
+                      letterSpacing: 1.4,
+                    ),
                   ),
-                ),
+                ],
               ),
               pw.SizedBox(height: 2),
               pw.Row(mainAxisAlignment: pw.MainAxisAlignment.center, children: [
@@ -544,15 +544,14 @@ class ThermalPdfGenerator {
               ),
               pw.SizedBox(height: 2),
 
-              // ── 3. PRODUCT TABLE HEADER (5 Columns: No | Nomi | Miqdori | Narx | Summa) ──
+              // ── 3. PRODUCT TABLE HEADER (4 Columns: No | Nomi | Miqdori | Narx) ──
               pw.Container(
                 padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2.0),
                 child: pw.Row(children: [
-                  pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('No', style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('No', style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
                   pw.Expanded(child: pw.Text('Nomi', style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(width: is58mm ? 30 : 38, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(width: is58mm ? 34 : 44, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(width: is58mm ? 36 : 48, child: pw.Text('Summa', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('Miqdori', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(width: is58mm ? 52 : 72, child: pw.Text('Narx', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.2, fontWeight: pw.FontWeight.bold))),
                 ]),
               ),
               pw.Container(height: 0.8, color: PdfColors.black),
@@ -564,11 +563,10 @@ class ThermalPdfGenerator {
                 return pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 1.6),
                   child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
-                    pw.SizedBox(width: is58mm ? 12 : 16, child: pw.Text('${item.index}', style: pw.TextStyle(font: font, fontSize: 7.2))),
+                    pw.SizedBox(width: is58mm ? 14 : 18, child: pw.Text('${item.index}', style: pw.TextStyle(font: font, fontSize: 7.2))),
                     pw.Expanded(child: pw.Text(item.name, style: pw.TextStyle(font: fontBold, fontSize: 7.3, fontWeight: pw.FontWeight.bold))),
-                    pw.SizedBox(width: is58mm ? 30 : 38, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: font, fontSize: 7.2))),
-                    pw.SizedBox(width: is58mm ? 34 : 44, child: pw.Text(ReceiptPrintData.formatMoney(item.unitPrice), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: font, fontSize: 7.2))),
-                    pw.SizedBox(width: is58mm ? 36 : 48, child: pw.Text(ReceiptPrintData.formatMoney(item.lineTotal), textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.3, fontWeight: pw.FontWeight.bold))),
+                    pw.SizedBox(width: is58mm ? 36 : 46, child: pw.Text('${item.qty} dona', textAlign: pw.TextAlign.center, style: pw.TextStyle(font: font, fontSize: 7.2))),
+                    pw.SizedBox(width: is58mm ? 52 : 72, child: pw.Text('${ReceiptPrintData.formatMoney(item.unitPrice)} UZS', textAlign: pw.TextAlign.right, style: pw.TextStyle(font: fontBold, fontSize: 7.3, fontWeight: pw.FontWeight.bold))),
                   ]),
                 );
               }),

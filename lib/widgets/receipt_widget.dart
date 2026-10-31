@@ -327,32 +327,36 @@ class ReceiptWidget extends StatelessWidget {
             child: CustomPaint(painter: ChefHatLogoPainter()),
           ),
         const SizedBox(height: 4),
-        // "Family" in script cursive style
-        Text(
-          cafeName.contains(' ') ? cafeName.split(' ').first : 'Family',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 34,
-            fontWeight: FontWeight.w700,
-            fontStyle: FontStyle.italic,
-            fontFamily: 'serif',
-            fontFamilyFallback: ['Brush Script MT', 'cursive', 'Georgia', 'serif'],
-            color: Colors.black,
-            letterSpacing: 0.5,
-            height: 1.0,
-          ),
-        ),
-        // "Cafe" in bold sans-serif
-        Text(
-          cafeName.contains(' ') ? cafeName.split(' ').sublist(1).join(' ') : 'CAFE',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            color: Colors.black,
-            letterSpacing: 1.8,
-            height: 1.1,
-          ),
+        // "Family Cafe" on a SINGLE line, side-by-side
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              cafeName.contains(' ') ? cafeName.split(' ').first : 'Family',
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w700,
+                fontStyle: FontStyle.italic,
+                fontFamily: 'serif',
+                fontFamilyFallback: ['Brush Script MT', 'cursive', 'Georgia', 'serif'],
+                color: Colors.black,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              cafeName.contains(' ') ? cafeName.split(' ').sublist(1).join(' ') : 'CAFE',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: Colors.black,
+                letterSpacing: 1.6,
+              ),
+            ),
+          ],
         ),
         if (slogan.trim().isNotEmpty) ...[
           const SizedBox(height: 6),
@@ -472,19 +476,15 @@ class ReceiptWidget extends StatelessWidget {
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 4),
           child: Row(children: [
-            SizedBox(width: 24, child: Text('№', style: headerStyle)),
+            SizedBox(width: 26, child: Text('No', style: headerStyle)),
             Expanded(child: Text('Nomi', style: headerStyle)),
             SizedBox(
-              width: 65,
+              width: 70,
               child: Text('Miqdori', textAlign: TextAlign.center, style: headerStyle),
             ),
             SizedBox(
-              width: 65,
+              width: 105,
               child: Text('Narx', textAlign: TextAlign.right, style: headerStyle),
-            ),
-            SizedBox(
-              width: 70,
-              child: Text('Summa', textAlign: TextAlign.right, style: headerStyle),
             ),
           ]),
         ),
@@ -505,15 +505,12 @@ class ReceiptWidget extends StatelessWidget {
             final rowNum = item.index ?? (idx + 1);
             final qty = parseQuantity(item.quantity);
             final price = parsePrice(item.price);
-            final lineTotal = (item.total != null && item.total!.trim().isNotEmpty)
-                ? parsePrice(item.total!)
-                : (price * qty);
 
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
                 SizedBox(
-                  width: 24,
+                  width: 26,
                   child: Text(
                     '$rowNum',
                     style: const TextStyle(
@@ -545,7 +542,7 @@ class ReceiptWidget extends StatelessWidget {
                   ]),
                 ),
                 SizedBox(
-                  width: 65,
+                  width: 70,
                   child: Text(
                     '$qty dona',
                     textAlign: TextAlign.center,
@@ -557,25 +554,13 @@ class ReceiptWidget extends StatelessWidget {
                   ),
                 ),
                 SizedBox(
-                  width: 65,
+                  width: 105,
                   child: Text(
-                    money(price),
+                    '${money(price)} UZS',
                     textAlign: TextAlign.right,
                     style: const TextStyle(
                       fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 70,
-                  child: Text(
-                    money(lineTotal),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontSize: 13.0,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                       color: Colors.black,
                     ),
                   ),
