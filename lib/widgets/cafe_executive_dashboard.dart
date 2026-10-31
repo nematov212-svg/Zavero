@@ -43,6 +43,100 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   int? _hoveredIndex;
   int? _hoveredDonutIndex;
 
+  // ── Memoized / Cached metrics (Og'ir hisob-kitoblarni keshlaymiz, hoverda UI qotmaydi) ──
+  int _lastReceiptsHash = -1;
+  _DashboardPeriod? _lastPeriod;
+  List<Receipt> _cachedPeriodReceipts = [];
+  List<Receipt> _cachedPrevPeriodReceipts = [];
+  double _cachedTotalRevenue = 0;
+  String _cachedRevenueGrowth = '—';
+  int _cachedTotalOrders = 0;
+  String _cachedOrdersGrowth = '—';
+  double _cachedAvgCheck = 0;
+  String _cachedAvgCheckGrowth = '—';
+  int _cachedUniqueCustomers = 0;
+  int _cachedOpenOrdersCount = 0;
+  double _cachedTodayRevenue = 0;
+  int _cachedTodayOrders = 0;
+  double _cachedTodayAvgCheck = 0;
+  double _cachedCashTotal = 0;
+  double _cachedCardTotal = 0;
+  int _cachedCashPct = 0;
+  int _cachedCardPct = 0;
+  List<_WaiterSales> _cachedSortedWaiters = [];
+  List<MapEntry<String, int>> _cachedSortedProducts = [];
+  Map<String, double> _cachedProductSalesRevenue = {};
+  List<Receipt> _cachedRecentReceipts = [];
+
+  void _recomputeMetrics(List<Receipt> allReceipts, DateTime now) {
+    _cachedPeriodReceipts = _filterReceipts(allReceipts, _selectedPeriod);
+    _cachedPrevPeriodReceipts = _getPreviousPeriodReceipts(allReceipts, _selectedPeriod);
+
+    _cachedTotalRevenue = _cachedPeriodReceipts.fold(0.0, (sum, r) => sum + r.total);
+    final double prevRevenue = _cachedPrevPeriodReceipts.fold(0.0, (sum, r) => sum + r.total);
+    _cachedRevenueGrowth = _calcGrowthString(_cachedTotalRevenue, prevRevenue);
+
+    _cachedTotalOrders = _cachedPeriodReceipts.length;
+    final int prevOrders = _cachedPrevPeriodReceipts.length;
+    _cachedOrdersGrowth = _calcOrdersGrowthString(_cachedTotalOrders, prevOrders);
+
+    _cachedAvgCheck = _cachedTotalOrders > 0 ? (_cachedTotalRevenue / _cachedTotalOrders) : 0.0;
+    final double prevAvgCheck = prevOrders > 0 ? (prevRevenue / prevOrders) : 0.0;
+    _cachedAvgCheckGrowth = _calcGrowthString(_cachedAvgCheck, prevAvgCheck);
+
+    _cachedUniqueCustomers = _cachedTotalOrders > 0 ? (_cachedTotalOrders * 0.78).round().clamp(1, 999999) : 0;
+    _cachedOpenOrdersCount = appState.tables.where((t) => t.status == TableStatus.occupied).length;
+
+    // Bugungi statistika
+    final todayReceipts = allReceipts.where((r) => _isSameDay(r.date, now)).toList();
+    _cachedTodayRevenue = todayReceipts.fold(0.0, (sum, r) => sum + r.total);
+    _cachedTodayOrders = todayReceipts.length;
+    _cachedTodayAvgCheck = _cachedTodayOrders > 0 ? (_cachedTodayRevenue / _cachedTodayOrders) : 0.0;
+
+    // Naqd vs Karta taqsimoti
+    _cachedCashTotal = _cachedPeriodReceipts
+        .where((r) => r.method == PaymentMethod.cash)
+        .fold(0.0, (s, r) => s + r.total);
+    _cachedCardTotal = _cachedPeriodReceipts
+        .where((r) => r.method == PaymentMethod.card)
+        .fold(0.0, (s, r) => s + r.total);
+    _cachedCashPct = _cachedTotalRevenue > 0 ? ((_cachedCashTotal / _cachedTotalRevenue) * 100).round() : 0;
+    _cachedCardPct = _cachedTotalRevenue > 0 ? ((_cachedCardTotal / _cachedTotalRevenue) * 100).round() : 0;
+
+    // Ofitsiantlar bo'yicha savdo
+    final Map<String, _WaiterSales> waiterMap = {};
+    for (final r in _cachedPeriodReceipts) {
+      final name = r.cashierName.trim().isNotEmpty ? r.cashierName.trim() : 'Admin';
+      final curr = waiterMap[name] ?? _WaiterSales(name: name, orderCount: 0, totalRevenue: 0);
+      waiterMap[name] = _WaiterSales(
+        name: name,
+        orderCount: curr.orderCount + 1,
+        totalRevenue: curr.totalRevenue + r.total,
+      );
+    }
+    _cachedSortedWaiters = waiterMap.values.toList()
+      ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+
+    // Taomlar bo'yicha savdo
+    final Map<String, int> productSalesCount = {};
+    _cachedProductSalesRevenue = {};
+    for (final r in _cachedPeriodReceipts) {
+      for (final item in r.items) {
+        final name = item.product.name.trim();
+        productSalesCount[name] = (productSalesCount[name] ?? 0) + item.qty;
+        _cachedProductSalesRevenue[name] = (_cachedProductSalesRevenue[name] ?? 0.0) + (item.product.price * item.qty);
+      }
+    }
+    _cachedSortedProducts = productSalesCount.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    // So'nggi cheklar
+    _cachedRecentReceipts = (List<Receipt>.from(_cachedPeriodReceipts)
+      ..sort((a, b) => b.date.compareTo(a.date)))
+      .take(6)
+      .toList();
+  }
+
   DateTime _toTashkent(DateTime dt) {
     return dt.toUtc().add(const Duration(hours: 5));
   }
@@ -160,70 +254,37 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         final allReceipts = appState.receipts;
         final now = DateTime.now();
 
-        // Davr bo'yicha saralangan haqiqiy cheklar
-        final periodReceipts = _filterReceipts(allReceipts, _selectedPeriod);
-        final prevPeriodReceipts = _getPreviousPeriodReceipts(allReceipts, _selectedPeriod);
-
-        final double totalRevenue = periodReceipts.fold(0.0, (sum, r) => sum + r.total);
-        final double prevRevenue = prevPeriodReceipts.fold(0.0, (sum, r) => sum + r.total);
-        final String revenueGrowth = _calcGrowthString(totalRevenue, prevRevenue);
-
-        final int totalOrders = periodReceipts.length;
-        final int prevOrders = prevPeriodReceipts.length;
-        final String ordersGrowth = _calcOrdersGrowthString(totalOrders, prevOrders);
-
-        final double avgCheck = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
-        final int uniqueCustomers = totalOrders > 0 ? (totalOrders * 0.78).round().clamp(1, 999999) : 0;
-        final int openOrdersCount = appState.tables.where((t) => t.status == TableStatus.occupied).length;
-
-        // Bugungi statistika
-        final todayReceipts = allReceipts.where((r) => _isSameDay(r.date, now)).toList();
-        final double todayRevenue = todayReceipts.fold(0.0, (sum, r) => sum + r.total);
-        final int todayOrders = todayReceipts.length;
-        final double todayAvgCheck = todayOrders > 0 ? (todayRevenue / todayOrders) : 0.0;
-
-        // Naqd vs Karta taqsimoti
-        final double cashTotal = periodReceipts
-            .where((r) => r.method == PaymentMethod.cash)
-            .fold(0.0, (s, r) => s + r.total);
-        final double cardTotal = periodReceipts
-            .where((r) => r.method == PaymentMethod.card)
-            .fold(0.0, (s, r) => s + r.total);
-        final int cashPct = totalRevenue > 0 ? ((cashTotal / totalRevenue) * 100).round() : 0;
-        final int cardPct = totalRevenue > 0 ? ((cardTotal / totalRevenue) * 100).round() : 0;
-
-        // Ofitsiantlar bo'yicha savdo tahlili
-        final Map<String, _WaiterSales> waiterMap = {};
-        for (final r in periodReceipts) {
-          final name = r.cashierName.trim().isNotEmpty ? r.cashierName.trim() : 'Admin';
-          final curr = waiterMap[name] ?? _WaiterSales(name: name, orderCount: 0, totalRevenue: 0);
-          waiterMap[name] = _WaiterSales(
-            name: name,
-            orderCount: curr.orderCount + 1,
-            totalRevenue: curr.totalRevenue + r.total,
-          );
+        // Faqat cheklar yoki davr o'zgargandagina qayta hisoblaymiz (Kesh / Memoization)
+        final receiptsHash = Object.hash(allReceipts.length, allReceipts.isNotEmpty ? allReceipts.last.id : 0, appState.tables.length);
+        if (receiptsHash != _lastReceiptsHash || _selectedPeriod != _lastPeriod) {
+          _lastReceiptsHash = receiptsHash;
+          _lastPeriod = _selectedPeriod;
+          _recomputeMetrics(allReceipts, now);
         }
-        final sortedWaiters = waiterMap.values.toList()
-          ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
 
-        // Eng mashhur taomlar hisob-kitobi
-        final Map<String, int> productSalesCount = {};
-        final Map<String, double> productSalesRevenue = {};
-        for (final r in periodReceipts) {
-          for (final item in r.items) {
-            final name = item.product.name.trim();
-            productSalesCount[name] = (productSalesCount[name] ?? 0) + item.qty;
-            productSalesRevenue[name] = (productSalesRevenue[name] ?? 0.0) + (item.product.price * item.qty);
-          }
-        }
-        final sortedProducts = productSalesCount.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
+        final periodReceipts = _cachedPeriodReceipts;
+        final double totalRevenue = _cachedTotalRevenue;
+        final String revenueGrowth = _cachedRevenueGrowth;
+        final int totalOrders = _cachedTotalOrders;
+        final String ordersGrowth = _cachedOrdersGrowth;
+        final double avgCheck = _cachedAvgCheck;
+        final String avgCheckGrowth = _cachedAvgCheckGrowth;
+        final int uniqueCustomers = _cachedUniqueCustomers;
+        final int openOrdersCount = _cachedOpenOrdersCount;
 
-        // So'nggi cheklar ro'yxati
-        final recentReceipts = (List<Receipt>.from(periodReceipts)
-          ..sort((a, b) => b.date.compareTo(a.date)))
-          .take(6)
-          .toList();
+        final double todayRevenue = _cachedTodayRevenue;
+        final int todayOrders = _cachedTodayOrders;
+        final double todayAvgCheck = _cachedTodayAvgCheck;
+
+        final double cashTotal = _cachedCashTotal;
+        final double cardTotal = _cachedCardTotal;
+        final int cashPct = _cachedCashPct;
+        final int cardPct = _cachedCardPct;
+
+        final sortedWaiters = _cachedSortedWaiters;
+        final sortedProducts = _cachedSortedProducts;
+        final productSalesRevenue = _cachedProductSalesRevenue;
+        final recentReceipts = _cachedRecentReceipts;
 
         final cardBg = isDark ? const Color(0xFF131F30) : Colors.white;
         final cardBorder = isDark ? const Color(0xFF1E2F45) : const Color(0xFFEDF2F7);
@@ -250,6 +311,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 revenueGrowth: revenueGrowth,
                 uniqueCustomers: uniqueCustomers,
                 avgCheck: avgCheck,
+                avgCheckGrowth: avgCheckGrowth,
               ),
 
               const SizedBox(height: 14),
@@ -409,6 +471,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     required String revenueGrowth,
     required int uniqueCustomers,
     required double avgCheck,
+    required String avgCheckGrowth,
   }) {
     final kpis = [
       _KpiData(
@@ -423,7 +486,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       ),
       _KpiData(
         title: 'Jami Daromad',
-        value: '${_formatMoney(totalRevenue)} UZS',
+        value: '${_formatMoney(totalRevenue)} so\'m',
         trend: revenueGrowth,
         icon: Icons.account_balance_wallet_outlined,
         iconBg: const Color(0xFFECFDF5),
@@ -434,7 +497,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       _KpiData(
         title: 'Xaridorlar',
         value: '$uniqueCustomers ta',
-        trend: '+10%',
+        trend: ordersGrowth,
         icon: Icons.people_outline_rounded,
         iconBg: const Color(0xFFFFF7ED),
         iconColor: const Color(0xFFEA580C),
@@ -443,8 +506,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       ),
       _KpiData(
         title: "O'rtacha Chek",
-        value: '${_formatMoney(avgCheck)} UZS',
-        trend: '+7%',
+        value: '${_formatMoney(avgCheck)} so\'m',
+        trend: avgCheckGrowth,
         icon: Icons.star_outline_rounded,
         iconBg: const Color(0xFFF5F3FF),
         iconColor: const Color(0xFF7C3AED),
@@ -674,7 +737,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
                 ),
                 Text(
-                  'Naqd: $cashPct% (${_formatMoney(cashTotal)}) • Karta: $cardPct% (${_formatMoney(cardTotal)})',
+                  'Naqd: $cashPct% (${_formatMoney(cashTotal)} so\'m) • Karta: $cardPct% (${_formatMoney(cardTotal)} so\'m)',
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w700,
@@ -775,6 +838,18 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               final sharePct = totalRevenue > 0 ? ((w.totalRevenue / totalRevenue) * 100).round() : 0;
               final avgWaitCheck = w.orderCount > 0 ? (w.totalRevenue / w.orderCount).round() : 0;
 
+              final Color rankColor = idx == 0
+                  ? const Color(0xFFF59E0B)
+                  : (idx == 1
+                      ? const Color(0xFF64748B)
+                      : (idx == 2 ? const Color(0xFFD97706) : const Color(0xFF3B82F6)));
+
+              final String rankTitle = idx == 0
+                  ? '#1 Peshqadam'
+                  : (idx == 1
+                      ? '#2 O\'rin'
+                      : (idx == 2 ? '#3 O\'rin' : '#${idx + 1}'));
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -788,102 +863,115 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                     width: idx == 0 ? 1.5 : 1.0,
                   ),
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    // Avatar & Badge
-                    Stack(
-                      clipBehavior: Clip.none,
+                    Row(
                       children: [
-                        CircleAvatar(
-                          radius: 19,
-                          backgroundColor: idx == 0 ? const Color(0xFFF59E0B) : const Color(0xFF3B82F6),
-                          child: Text(
-                            w.name.isNotEmpty ? w.name[0].toUpperCase() : 'A',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                          ),
-                        ),
-                        if (idx == 0)
-                          Positioned(
-                            right: -4,
-                            bottom: -4,
-                            child: Container(
-                              padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(color: Color(0xFFF59E0B), shape: BoxShape.circle),
-                              child: const Icon(Icons.star_rounded, size: 12, color: Colors.white),
+                        // Avatar & Badge
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            CircleAvatar(
+                              radius: 19,
+                              backgroundColor: rankColor,
+                              child: Text(
+                                w.name.isNotEmpty ? w.name[0].toUpperCase() : 'A',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
                             ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    // Name & Order Count
-                    Expanded(
-                      flex: 3,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                w.name,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            if (idx == 0)
+                              Positioned(
+                                right: -4,
+                                bottom: -4,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(color: Color(0xFFF59E0B), shape: BoxShape.circle),
+                                  child: const Icon(Icons.star_rounded, size: 12, color: Colors.white),
                                 ),
                               ),
-                              if (idx == 0) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Text(
-                                    '#1 Peshqadam',
+                          ],
+                        ),
+                        const SizedBox(width: 12),
+                        // Name & Order Count
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    w.name,
                                     style: TextStyle(
-                                      fontSize: 10,
+                                      fontSize: 14,
                                       fontWeight: FontWeight.w800,
-                                      color: Color(0xFFD97706),
+                                      color: isDark ? Colors.white : const Color(0xFF0F172A),
                                     ),
                                   ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: rankColor.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      rankTitle,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: rankColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${w.orderCount} ta buyurtma • O\'rtacha: ${_formatMoney(avgWaitCheck)} so\'m',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                                 ),
-                              ],
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${w.orderCount} ta buyurtma • O\'rtacha: ${_formatMoney(avgWaitCheck)} UZS',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Total & Share %
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          '${_formatMoney(w.totalRevenue)} UZS',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Ulush: $sharePct%',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF10B981),
-                          ),
+                        // Total & Share %
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '${_formatMoney(w.totalRevenue)} so\'m',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Ulush: $sharePct%',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF10B981),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: LinearProgressIndicator(
+                        value: (sharePct / 100.0).clamp(0.02, 1.0),
+                        minHeight: 4,
+                        backgroundColor: isDark ? Colors.white10 : const Color(0xFFE2E8F0),
+                        valueColor: AlwaysStoppedAnimation<Color>(rankColor),
+                      ),
                     ),
                   ],
                 ),
@@ -1256,7 +1344,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
                 Text(
-                  'Daromad: ${_formatMoney(revenues[safeIdx])} UZS',
+                  'Daromad: ${_formatMoney(revenues[safeIdx])} so\'m',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -1391,20 +1479,20 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
           if (totalUnits == 0)
             Container(
-              height: 140,
+              height: 150,
               alignment: Alignment.center,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.inventory_2_outlined, size: 38, color: Colors.grey.shade400),
-                  const SizedBox(height: 8),
+                  Icon(Icons.pie_chart_outline_rounded, size: 40, color: isDark ? Colors.white30 : Colors.grey.shade400),
+                  const SizedBox(height: 10),
                   Text(
-                    'Hozircha sotuv yo\'q',
+                    'Bu davrda sotuv yo\'q',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 13.5,
                       fontWeight: FontWeight.w600,
                       color: isDark ? Colors.white60 : Colors.grey.shade600,
                     ),
@@ -1413,9 +1501,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               ),
             )
           else
-            Row(
-              children: [
-                SizedBox(
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 420;
+
+                final donutWidget = SizedBox(
                   width: 130,
                   height: 130,
                   child: Stack(
@@ -1436,6 +1526,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                               color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                             ),
                           ),
+                          const SizedBox(height: 1),
                           Text(
                             '$totalUnits',
                             style: TextStyle(
@@ -1457,79 +1548,132 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: segments.asMap().entries.map((entry) {
-                      final idx = entry.key;
-                      final seg = entry.value;
-                      final isHovered = _hoveredDonutIndex == idx;
+                );
 
-                      return MouseRegion(
-                        onEnter: (_) => setState(() => _hoveredDonutIndex = idx),
-                        onExit: (_) => setState(() => _hoveredDonutIndex = null),
+                final legendWidget = Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: segments.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final seg = entry.value;
+                    final isHovered = _hoveredDonutIndex == idx;
+
+                    return MouseRegion(
+                      onEnter: (_) => setState(() => _hoveredDonutIndex = idx),
+                      onExit: (_) => setState(() => _hoveredDonutIndex = null),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _hoveredDonutIndex = _hoveredDonutIndex == idx ? null : idx),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
-                          padding: const EdgeInsets.symmetric(vertical: 3.5, horizontal: 4),
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
                           decoration: BoxDecoration(
                             color: isHovered
-                                ? (isDark ? Colors.white10 : Colors.grey.shade100)
+                                ? seg.color.withValues(alpha: isDark ? 0.2 : 0.1)
                                 : Colors.transparent,
                             borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isHovered
+                                  ? seg.color.withValues(alpha: 0.4)
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
                           ),
-                          child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(width: 8, height: 8, decoration: BoxDecoration(color: seg.color, shape: BoxShape.circle)),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  seg.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: isHovered ? FontWeight.bold : FontWeight.w600,
-                                    color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: seg.color,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Tooltip(
+                                      message: '${seg.name}: ${seg.count} ta • ${seg.pct}% • ${_formatMoney(seg.revenue)} so\'m',
+                                      child: Text(
+                                        seg.name,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: isHovered ? FontWeight.w800 : FontWeight.w600,
+                                          color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${_formatMoney(seg.revenue)} so\'m',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                                      fontFeatures: const [FontFeature.tabularFigures()],
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${seg.count} ta',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${seg.pct}%',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '${_formatMoney(seg.revenue)} UZS',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                              const SizedBox(height: 3),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 16),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      '${seg.count} dona (${seg.pct}%)',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(2),
+                                        child: LinearProgressIndicator(
+                                          value: (seg.pct / 100.0).clamp(0.02, 1.0),
+                                          minHeight: 3.5,
+                                          backgroundColor: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                                          valueColor: AlwaysStoppedAnimation<Color>(seg.color),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ],
+                      ),
+                    );
+                  }).toList(),
+                );
+
+                if (isNarrow) {
+                  return Column(
+                    children: [
+                      donutWidget,
+                      const SizedBox(height: 16),
+                      legendWidget,
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    donutWidget,
+                    const SizedBox(width: 16),
+                    Expanded(child: legendWidget),
+                  ],
+                );
+              },
             ),
         ],
       ),
@@ -1710,7 +1854,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 icon: Icons.account_balance_wallet_outlined,
                 iconColor: const Color(0xFF2563EB),
                 label: 'Bugungi daromad',
-                value: '${_formatMoney(todayRevenue)} UZS',
+                value: '${_formatMoney(todayRevenue)} so\'m',
                 isDark: isDark,
               ),
               const Divider(height: 16),
@@ -1726,7 +1870,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 icon: Icons.receipt_outlined,
                 iconColor: const Color(0xFF8B5CF6),
                 label: "O'rtacha chek",
-                value: '${_formatMoney(todayAvgCheck)} UZS',
+                value: '${_formatMoney(todayAvgCheck)} so\'m',
                 isDark: isDark,
               ),
             ],
@@ -1931,6 +2075,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               final i = entry.key;
               final p = entry.value;
               final rev = revenues[p.key] ?? 0.0;
+              final int maxDishQty = sortedProducts.isNotEmpty ? sortedProducts.first.value : 1;
+              final double dishRatio = (p.value / (maxDishQty > 0 ? maxDishQty : 1)).clamp(0.05, 1.0);
+
               Product? matchedProd;
               try {
                 matchedProd = appState.products.firstWhere(
@@ -2001,13 +2148,32 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 1.5),
-                                Text(
-                                  '${_formatMoney(unitPrice)} UZS',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      '${_formatMoney(unitPrice)} so\'m',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                        fontFeatures: const [FontFeature.tabularFigures()],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(2),
+                                        child: LinearProgressIndicator(
+                                          value: dishRatio,
+                                          minHeight: 3,
+                                          backgroundColor: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                            i == 0 ? const Color(0xFFF59E0B) : const Color(0xFF3B82F6),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -2024,18 +2190,20 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
                           color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ),
                     Expanded(
                       flex: 3,
                       child: Text(
-                        '${_formatMoney(rev)} UZS',
+                        '${_formatMoney(rev)} so\'m',
                         textAlign: TextAlign.right,
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w800,
                           color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ),
@@ -2166,12 +2334,12 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           else ...[
             Row(
               children: [
-                SizedBox(width: 58, child: Text('Chek №', style: _headerStyle(isDark))),
-                Expanded(flex: 2, child: Text('Sana', style: _headerStyle(isDark))),
-                Expanded(flex: 2, child: Text('Vaqt', style: _headerStyle(isDark))),
+                SizedBox(width: 62, child: Text('Chek №', style: _headerStyle(isDark))),
+                Expanded(flex: 3, child: Text('Sana va vaqt', style: _headerStyle(isDark))),
+                SizedBox(width: 65, child: Text("To'lov", textAlign: TextAlign.center, style: _headerStyle(isDark))),
                 Expanded(flex: 3, child: Text('Summa', textAlign: TextAlign.right, style: _headerStyle(isDark))),
-                const SizedBox(width: 10),
-                SizedBox(width: 78, child: Text('Amal', textAlign: TextAlign.center, style: _headerStyle(isDark))),
+                const SizedBox(width: 8),
+                SizedBox(width: 72, child: Text('Amal', textAlign: TextAlign.center, style: _headerStyle(isDark))),
               ],
             ),
             const Divider(height: 16),
@@ -2180,6 +2348,14 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               final dateStr = '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
               final timeStr = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
               final shortId = ReceiptWidget.formatCheckNumber('${r.id}');
+              final isCash = r.method == PaymentMethod.cash;
+              final isCard = r.method == PaymentMethod.card;
+              final badgeColor = isCash
+                  ? const Color(0xFF10B981)
+                  : (isCard ? const Color(0xFF2563EB) : const Color(0xFF8B5CF6));
+              final badgeLabel = isCash
+                  ? 'Naqd'
+                  : (isCard ? 'Karta' : 'Aralash');
 
               return InkWell(
                 onTap: () => _showReceiptModal(context, r),
@@ -2189,7 +2365,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   child: Row(
                     children: [
                       SizedBox(
-                        width: 58,
+                        width: 62,
                         child: Text(
                           '#$shortId',
                           style: const TextStyle(
@@ -2200,29 +2376,41 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                         ),
                       ),
                       Expanded(
-                        flex: 2,
+                        flex: 3,
                         child: Text(
-                          dateStr,
+                          '$dateStr · $timeStr',
                           style: TextStyle(
                             fontSize: 12,
+                            fontWeight: FontWeight.w500,
                             color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                           ),
                         ),
                       ),
-                      Expanded(
-                        flex: 2,
-                        child: Text(
-                          timeStr,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                      SizedBox(
+                        width: 65,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: badgeColor.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: badgeColor.withValues(alpha: 0.28)),
+                            ),
+                            child: Text(
+                              badgeLabel,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: badgeColor,
+                              ),
+                            ),
                           ),
                         ),
                       ),
                       Expanded(
                         flex: 3,
                         child: Text(
-                          '${_formatMoney(r.total)} UZS',
+                          '${_formatMoney(r.total)} so\'m',
                           textAlign: TextAlign.right,
                           style: TextStyle(
                             fontSize: 12.5,
@@ -2231,19 +2419,20 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       SizedBox(
-                        width: 78,
+                        width: 72,
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF2563EB).withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
+                            color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.2)),
                           ),
                           child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.print_outlined, size: 13, color: Color(0xFF2563EB)),
+                              Icon(Icons.receipt_long_outlined, size: 12.5, color: Color(0xFF2563EB)),
                               SizedBox(width: 3),
                               Text(
                                 'Chek',
@@ -2514,7 +2703,7 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
     );
 
-    final rightTextStyle = const TextStyle(
+    const rightTextStyle = TextStyle(
       fontSize: 10.5,
       fontWeight: FontWeight.w700,
       color: Color(0xFF10B981),
@@ -2826,7 +3015,7 @@ class _AllTopDishesModalState extends State<_AllTopDishesModal> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Jami ${widget.sortedProducts.length} xil taom • $totalQty ta sotilgan • ${widget.formatMoney(totalRev)} UZS',
+                            'Jami ${widget.sortedProducts.length} xil taom • $totalQty ta sotilgan • ${widget.formatMoney(totalRev)} so\'m',
                             style: TextStyle(
                               fontSize: 12.5,
                               color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
@@ -3062,7 +3251,7 @@ class _AllTopDishesModalState extends State<_AllTopDishesModal> {
                                             ),
                                             const SizedBox(height: 2),
                                             Text(
-                                              '${widget.formatMoney(unitPrice)} UZS / dona',
+                                              '${widget.formatMoney(unitPrice)} so\'m / dona',
                                               style: TextStyle(
                                                 fontSize: 11.5,
                                                 fontWeight: FontWeight.w500,
@@ -3110,7 +3299,7 @@ class _AllTopDishesModalState extends State<_AllTopDishesModal> {
                                 Expanded(
                                   flex: 3,
                                   child: Text(
-                                    '${widget.formatMoney(rev)} UZS',
+                                    '${widget.formatMoney(rev)} so\'m',
                                     textAlign: TextAlign.right,
                                     style: TextStyle(
                                       fontSize: 13,

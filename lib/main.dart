@@ -13113,6 +13113,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   final TextEditingController _noteCtrl = TextEditingController();
   bool printingKitchen = false;
   bool confirming = false;
+  bool _isCompleting = false;
+  bool _isPaid = false;
   bool _payingInitialized = false;
   double? _lastSyncedTotal;
 
@@ -13128,6 +13130,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   @override
   void dispose() {
+    _globalCheckoutInProgress = false;
     _payingCtrl.dispose();
     _noteCtrl.dispose();
     super.dispose();
@@ -13320,13 +13323,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
   void _backToTableSelection() {
     appState.leaveOrderSession();
     if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        settings: const RouteSettings(name: 'dashboard'),
-        builder: (_) => const DashboardScreen(),
-      ),
-      (route) => route.isFirst,
-    );
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: 'dashboard'),
+          builder: (_) => const DashboardScreen(),
+        ),
+      );
+    }
   }
 
   static bool _globalCheckoutInProgress = false;
@@ -13339,10 +13345,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
       debugPrint('⚠️ [Payment] To‘lov allaqachon bajarilmoqda yoki bloklangan.');
       return;
     }
-    if (confirming || appState.cart.isEmpty) return;
+    if (confirming || _isCompleting || _isPaid || appState.cart.isEmpty) return;
 
     _globalCheckoutInProgress = true;
     _lastCheckoutTimestamp = now;
+    _isCompleting = true;
     setState(() => confirming = true);
 
     try {
@@ -13404,6 +13411,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
         appState.notifyChanges();
       }
 
+      _isPaid = true;
+
       // 2. AVTOMATIK CHEK CHIQARISH: fon rejimida asinxron ishlaydi (UI to'xtab qolmaydi)
       try {
         unawaited(printReceipt(receipt, isAutoCheckout: true));
@@ -13423,27 +13432,36 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ),
       );
 
-      // 3. TO'G'RI VA ANIQ 1 MARTA NAVIGATSIYA (DashboardScreen ga bitta silliq o'tish)
-      final nav = appNavigatorKey.currentState;
-      if (nav != null) {
-        nav.pushAndRemoveUntil(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: 'dashboard'),
-            builder: (_) => const DashboardScreen(),
-          ),
-          (r) => false,
-        );
-      } else if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: 'dashboard'),
-            builder: (_) => const DashboardScreen(),
-          ),
-          (r) => false,
-        );
+      // 3. TO'G'RI VA ANIQ 1 MARTA NAVIGATSIYA
+      // Mavjud Dashboard ga silliq qaytish — bu dublikat sidebar va qotishlarni 100% yo'qotadi
+      if (mounted) {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        } else {
+          final nav = appNavigatorKey.currentState;
+          if (nav != null) {
+            nav.pushReplacement(
+              MaterialPageRoute(
+                settings: const RouteSettings(name: 'dashboard'),
+                builder: (_) => const DashboardScreen(),
+              ),
+            );
+          } else {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                settings: const RouteSettings(name: 'dashboard'),
+                builder: (_) => const DashboardScreen(),
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       debugPrint('To‘lovni amalga oshirishda xatolik: $e');
+      _globalCheckoutInProgress = false;
+      _isCompleting = false;
+      _isPaid = false;
+      if (mounted) setState(() => confirming = false);
       appMessengerKey.currentState?.showSnackBar(
         SnackBar(
           content: Text('To‘lovda xatolik yuz berdi: $e'),
@@ -13452,7 +13470,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     } finally {
       _globalCheckoutInProgress = false;
-      if (mounted) setState(() => confirming = false);
+      if (!_isPaid && mounted) {
+        setState(() => confirming = false);
+      }
     }
   }
 
@@ -13478,7 +13498,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         final table = appState.selectedTable;
         final hall = appState.selectedHall;
 
-        if (confirming) {
+        if (confirming || _isCompleting || _isPaid) {
           return const Scaffold(
             backgroundColor: Color(0xFFF8F9FA),
             body: Center(
@@ -13488,7 +13508,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   CircularProgressIndicator(color: Color(0xFFE25C1D)),
                   SizedBox(height: 16),
                   Text(
-                    'To‘lov qabul qilinmoqda...',
+                    'To‘lov qabul qilindi, boshqaruv paneliga qaytilmoqda...',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -13501,7 +13521,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           );
         }
 
-        if (appState.cart.isEmpty) {
+        if (appState.cart.isEmpty && !_isCompleting && !_isPaid) {
           return Scaffold(
             backgroundColor: const Color(0xFFF8F9FA),
             appBar: AppBar(
@@ -14765,8 +14785,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
             borderRadius: BorderRadius.circular(10),
           ),
         ),
-        onPressed: confirming ? null : _confirmPaid,
-        icon: confirming
+        onPressed: (confirming || _isCompleting || _isPaid) ? null : _confirmPaid,
+        icon: (confirming || _isCompleting || _isPaid)
             ? const SizedBox(
                 width: 18,
                 height: 18,
@@ -14780,9 +14800,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 color: Colors.white,
                 size: 20,
               ),
-        label: const Text(
-          "To'landi",
-          style: TextStyle(
+        label: Text(
+          (confirming || _isCompleting || _isPaid) ? "To'lanmoqda..." : "To'landi",
+          style: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
             color: Colors.white,
