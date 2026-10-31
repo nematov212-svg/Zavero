@@ -313,6 +313,111 @@ const deleteBanner = async (req, res) => {
   }
 };
 
+// PUT /api/cafe/banners/:id
+const updateBanner = async (req, res) => {
+  try {
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(401).json({ success: false, message: 'Avtorizatsiya talab etiladi' });
+    const { id } = req.params;
+    const { imageUrl, tag, title, description } = req.body;
+    const current = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+    const settings = current.rows[0]?.data || {};
+    let banners = Array.isArray(settings.promoBanners) ? [...settings.promoBanners] : [];
+    const index = banners.findIndex(b => b.id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: 'Banner topilmadi' });
+    }
+    banners[index] = {
+      ...banners[index],
+      imageUrl: imageUrl !== undefined ? imageUrl : banners[index].imageUrl,
+      tag: tag !== undefined ? tag : banners[index].tag,
+      title: title !== undefined ? title : banners[index].title,
+      description: description !== undefined ? description : banners[index].description,
+      updatedAt: new Date().toISOString(),
+    };
+    const merged = { ...settings, promoBanners: banners };
+
+    await db.query(
+      `INSERT INTO settings (cafe_id, data, updated_at) VALUES ($1,$2,CURRENT_TIMESTAMP)
+       ON CONFLICT (cafe_id) DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP`,
+      [cafeId, JSON.stringify(merged)]
+    );
+
+    const { notifyCafe } = require('../socket/socketHandler');
+    notifyCafe(cafeId, 'BANNERS_UPDATED', { banners });
+    notifyCafe(cafeId, 'SETTINGS_UPDATED', { settings: merged });
+
+    return res.json({ success: true, banner: banners[index], banners });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// PUT /api/cafe/banners — batch save all promo banners
+const saveBanners = async (req, res) => {
+  try {
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(401).json({ success: false, message: 'Avtorizatsiya talab etiladi' });
+    const { banners } = req.body;
+    if (!Array.isArray(banners)) {
+      return res.status(400).json({ success: false, message: 'Banners ro‘yxati (array) talab etiladi' });
+    }
+    const current = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+    const settings = current.rows[0]?.data || {};
+    const merged = { ...settings, promoBanners: banners };
+
+    await db.query(
+      `INSERT INTO settings (cafe_id, data, updated_at) VALUES ($1,$2,CURRENT_TIMESTAMP)
+       ON CONFLICT (cafe_id) DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP`,
+      [cafeId, JSON.stringify(merged)]
+    );
+
+    const { notifyCafe } = require('../socket/socketHandler');
+    notifyCafe(cafeId, 'BANNERS_UPDATED', { banners });
+    notifyCafe(cafeId, 'SETTINGS_UPDATED', { settings: merged });
+
+    return res.json({ success: true, banners });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET /api/cafe/backup — full cafe data backup JSON
+const getBackupData = async (req, res) => {
+  try {
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(401).json({ success: false, message: 'Avtorizatsiya talab etiladi' });
+
+    const [cafeR, settingsR, catR, prodR, hallR, tableR, recR, repR] = await Promise.all([
+      db.query('SELECT cafe_id, cafe_name, receipt_name, owner_name, owner_email FROM cafes WHERE cafe_id = $1', [cafeId]),
+      db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]),
+      db.query('SELECT * FROM categories WHERE cafe_id = $1 ORDER BY id ASC', [cafeId]),
+      db.query('SELECT * FROM products WHERE cafe_id = $1 ORDER BY id ASC', [cafeId]),
+      db.query('SELECT * FROM halls WHERE cafe_id = $1 ORDER BY id ASC', [cafeId]),
+      db.query('SELECT * FROM restaurant_tables WHERE cafe_id = $1 ORDER BY id ASC', [cafeId]),
+      db.query('SELECT * FROM receipts WHERE cafe_id = $1 ORDER BY date DESC LIMIT 500', [cafeId]),
+      db.query('SELECT * FROM reports WHERE cafe_id = $1 ORDER BY date_id DESC LIMIT 365', [cafeId]),
+    ]);
+
+    const backup = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      cafe: cafeR.rows[0] || {},
+      settings: settingsR.rows[0]?.data || {},
+      categories: catR.rows,
+      products: prodR.rows,
+      halls: hallR.rows,
+      tables: tableR.rows,
+      receipts: recR.rows,
+      reports: repR.rows,
+    };
+
+    return res.json({ success: true, backup });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getFullCafeData,
   restoreMenu,
@@ -323,7 +428,10 @@ module.exports = {
   getMaintenanceStatus,
   getBanners,
   addBanner,
+  updateBanner,
   deleteBanner,
+  saveBanners,
+  getBackupData,
 };
 
 

@@ -177,20 +177,12 @@ const ensureCafeSeeded = async (cafeId) => {
       await db.withTransaction(async (client) => {
         await seedNewCafe(client, cafeId, 'ZAVERO');
       });
+      console.log(`🌱 [Seed] Brand new cafe "${cafeId}" initialized with starter setup.`);
       return;
     }
-
-    const catRes = await db.query('SELECT COUNT(*) FROM categories WHERE cafe_id = $1', [cafeId]);
-    const prodRes = await db.query('SELECT COUNT(*) FROM products WHERE cafe_id = $1', [cafeId]);
-    const catCount = parseInt(catRes.rows[0].count, 10);
-    const prodCount = parseInt(prodRes.rows[0].count, 10);
-
-    if (catCount === 0 || prodCount === 0) {
-      console.log(`🌱 [Seed] Restoring missing categories/products for cafe "${cafeId}"...`);
-      await db.withTransaction(async (client) => {
-        await restoreDefaultMenu(cafeId, client);
-      });
-    }
+    // Agar kafe allaqachon mavjud bo'lsa, hech qachon foydalanuvchi taomlarini yoki
+    // sozlamalarini server restart/deploy paytida majburan qayta tiklamaymiz!
+    // Bu Railway qayta ishga tushganda ma'lumotlar o'chib ketishi yoki almashib qolishini 100% oldini oladi.
   } catch (err) {
     console.error('ensureCafeSeeded error:', err.message);
   }

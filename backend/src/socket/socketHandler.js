@@ -73,6 +73,11 @@ const initSocket = (io) => {
         socket.join(cafeRoom(userCafeId));
         socket.emit('JOINED_CAFE', { cafeId: userCafeId, success: true });
         console.log(`👤 [Socket.IO] Joined room ${cafeRoom(userCafeId)}`);
+      } else if (joinCafeId) {
+        // Public QR Menu Guest client connecting for real-time menu & promo banner updates
+        socket.join(cafeRoom(joinCafeId));
+        socket.emit('JOINED_CAFE', { cafeId: joinCafeId, success: true, guest: true });
+        console.log(`📱 [Socket.IO] Public QR Menu guest joined room ${cafeRoom(joinCafeId)}`);
       } else {
         // Unauthenticated client cannot join private cafe rooms
         return socket.emit('ERROR', { success: false, message: 'Authentication required' });

@@ -15,6 +15,7 @@ class CafeExecutiveDashboard extends StatefulWidget {
   final VoidCallback? onDownloadReport;
   final VoidCallback? onViewAllReceipts;
   final VoidCallback? onViewAllProducts;
+  final VoidCallback? onManageAds;
 
   const CafeExecutiveDashboard({
     super.key,
@@ -24,6 +25,7 @@ class CafeExecutiveDashboard extends StatefulWidget {
     this.onDownloadReport,
     this.onViewAllReceipts,
     this.onViewAllProducts,
+    this.onManageAds,
   });
 
   @override
@@ -1350,6 +1352,15 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 onTap: widget.onDownloadReport,
                 isDark: isDark,
               ),
+              if (widget.onManageAds != null)
+                _quickActionTile(
+                  icon: Icons.campaign_rounded,
+                  iconBg: const Color(0xFFFFF7ED),
+                  iconColor: const Color(0xFFEA580C),
+                  title: "Reklama qo'yish",
+                  onTap: widget.onManageAds,
+                  isDark: isDark,
+                ),
             ],
           ),
         ),

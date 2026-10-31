@@ -86,5 +86,27 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('💥 [Unhandled Rejection]', reason);
 });
 
+const gracefulShutdown = async (signal) => {
+  console.log(`🛑 [Shutdown] ${signal} qabul qilindi. Server xavfsiz to‘xtatilmoqda...`);
+  server.close(async () => {
+    console.log('🔒 HTTP server yopildi.');
+    try {
+      const pool = db.getPool?.();
+      if (pool) {
+        await pool.end();
+        console.log('🔒 PostgreSQL ulanishlar puli yopildi.');
+      }
+    } catch (_) {}
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error('⚠️ [Shutdown] Majburiy to‘xtatildi (timeout).');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 start();
 

@@ -136,6 +136,19 @@ class CloudService {
       final jsonMap = tableOrders.map((k, v) => MapEntry(k.toString(), v.map((e) => e.toJson()).toList()));
       await cache.setCachedMap('cache_table_orders_$cafeId', jsonMap);
       result['tableNotes'] = tableNotes;
+
+      if (raw['settings'] is Map) {
+        result['settings'] = Map<String, dynamic>.from(raw['settings'] as Map);
+      }
+      if (raw['reports'] != null) {
+        result['reports'] = _list(raw['reports'], DailyReport.fromJson);
+      }
+      if (raw['employees'] != null) {
+        result['employees'] = _list(raw['employees'], AppUser.fromJson);
+      }
+      if (raw['receiptName'] != null) {
+        result['receiptName'] = raw['receiptName'];
+      }
     } catch (e) {
       debugPrint('loadFullCafeData server xatoligi: $e');
     }
@@ -734,5 +747,75 @@ class CloudService {
     } catch (e) {
       debugPrint('logActivity xatoligi: $e');
     }
+  }
+
+  // ============================================================
+  // QR MENU PROMO BANNERS (REKLAMA)
+  // ============================================================
+
+  Future<List<Map<String, dynamic>>> getPromoBanners() async {
+    try {
+      final res = await _api.get('/cafe/banners');
+      if (res['success'] == true && res['banners'] is List) {
+        return List<Map<String, dynamic>>.from(
+          (res['banners'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+        );
+      }
+    } catch (e) {
+      debugPrint('getPromoBanners xatoligi: $e');
+    }
+    return [];
+  }
+
+  Future<bool> savePromoBanners(List<Map<String, dynamic>> banners) async {
+    try {
+      final res = await _api.put('/cafe/banners', body: {'banners': banners});
+      return res['success'] == true;
+    } catch (e) {
+      debugPrint('savePromoBanners xatoligi: $e');
+      return false;
+    }
+  }
+
+  Future<bool> addPromoBanner(Map<String, dynamic> banner) async {
+    try {
+      final res = await _api.post('/cafe/banners', body: banner);
+      return res['success'] == true;
+    } catch (e) {
+      debugPrint('addPromoBanner xatoligi: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updatePromoBanner(String id, Map<String, dynamic> banner) async {
+    try {
+      final res = await _api.put('/cafe/banners/$id', body: banner);
+      return res['success'] == true;
+    } catch (e) {
+      debugPrint('updatePromoBanner xatoligi: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deletePromoBanner(String id) async {
+    try {
+      final res = await _api.delete('/cafe/banners/$id');
+      return res['success'] == true;
+    } catch (e) {
+      debugPrint('deletePromoBanner xatoligi: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getBackupData() async {
+    try {
+      final res = await _api.get('/cafe/backup');
+      if (res['success'] == true && res['backup'] is Map) {
+        return Map<String, dynamic>.from(res['backup'] as Map);
+      }
+    } catch (e) {
+      debugPrint('getBackupData xatoligi: $e');
+    }
+    return null;
   }
 }

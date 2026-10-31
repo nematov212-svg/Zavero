@@ -20,6 +20,7 @@ import 'screens/director_screen.dart';
 import 'screens/pin_lock_screen.dart';
 import 'screens/tables_management_screen.dart';
 import 'screens/customer_orders_screen.dart';
+import 'screens/ads_management_screen.dart';
 import 'services/in_app_notification_service.dart';
 import 'services/staff_tracking_service.dart';
 import 'services/api_client.dart';
@@ -260,6 +261,16 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _socketReportUpdatedSub;
   StreamSubscription? _settingsSub;
   StreamSubscription? _subscriptionExtendedSub;
+  StreamSubscription? _socketBannersSub;
+
+  List<Map<String, dynamic>> promoBanners = [];
+  CloudService get cloudService => _cloudService;
+
+  Future<void> savePromoBanners(List<Map<String, dynamic>> newBanners) async {
+    promoBanners = List<Map<String, dynamic>>.from(newBanners);
+    notifyListeners();
+    await _cloudService.savePromoBanners(newBanners);
+  }
 
   final List<AppNotificationItem> notifications = [];
   int get unreadNotificationsCount => notifications.where((n) => !n.isRead).length;
@@ -825,6 +836,11 @@ class AppState extends ChangeNotifier {
           darkMode = dm == true || dm == 'true' || dm == 1;
         }
         appLogoUrl = cloudSettings['appLogoUrl']?.toString() ?? appLogoUrl;
+        if (cloudSettings['promoBanners'] is List) {
+          promoBanners = List<Map<String, dynamic>>.from(
+            (cloudSettings['promoBanners'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+          );
+        }
       }
 
       _startRealtimeListeners(cafeId);
@@ -1256,6 +1272,17 @@ class AppState extends ChangeNotifier {
         type: 'subscription',
       ));
       notifyListeners();
+    });
+
+    // Real-time promo banners (reklama) sync across QR Menu and Cafe Panel
+    _socketBannersSub?.cancel();
+    _socketBannersSub = SocketService().on(CafeSocketEvent.bannersUpdated).listen((data) {
+      if (data['banners'] is List) {
+        promoBanners = List<Map<String, dynamic>>.from(
+          (data['banners'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+        );
+        notifyListeners();
+      }
     });
 
     // Xodimlar ro'yxatini kuzatuv xizmatiga sinxronlash
@@ -7626,7 +7653,16 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TablesManagementScreen())),
                         ),
                         const SizedBox(height: 3),
-                        // 9. Sozlamalar
+                        // 9. Reklama qo'yish (QR Menyu bannerlari)
+                        _buildSidebarItem(
+                          icon: Icons.campaign_rounded,
+                          title: 'Reklama qo\'yish',
+                          isActive: false,
+                          collapsed: _sidebarCollapsed,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdsManagementScreen())),
+                        ),
+                        const SizedBox(height: 3),
+                        // 10. Sozlamalar
                         _buildSidebarItem(
                           icon: Icons.settings_outlined,
                           title: 'Sozlamalar',
@@ -7972,6 +8008,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                       onDownloadReport: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen())),
                       onViewAllReceipts: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen())),
                       onViewAllProducts: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen())),
+                      onManageAds: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdsManagementScreen())),
                     )
                   : Container(
                       color: const Color(0xFFF5F7FB),
