@@ -13,6 +13,9 @@ const {
 // Public receipt view for mobile Telegram WebApp openLink print fallback
 router.get('/:id/view', c.viewReceiptHtml);
 
+// Resend receipt to Telegram
+router.post('/:id/resend-telegram', auth, c.resendTelegramReceipt);
+
 // GET /api/receipts/pending-jobs — For Print Agent polling (supports query param or auth)
 router.get('/pending-jobs', async (req, res) => {
   try {

@@ -17,8 +17,8 @@ const getTodayReportData = async (cafeId) => {
      FROM receipts
      WHERE cafe_id = $1 
        AND (
-         (date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
-         OR (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         (date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         OR (created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
        )`,
     [cafeId]
   );
@@ -32,8 +32,8 @@ const getTodayReportData = async (cafeId) => {
      FROM receipts
      WHERE cafe_id = $1 
        AND (
-         (date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
-         OR (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         (date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         OR (created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
        )
      GROUP BY COALESCE(NULLIF(TRIM(cashier_name), ''), 'Kassa')
      ORDER BY total_revenue DESC`,
@@ -49,8 +49,8 @@ const getTodayReportData = async (cafeId) => {
      LATERAL jsonb_array_elements(r.items) as item
      WHERE r.cafe_id = $1 
        AND (
-         (r.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
-         OR (r.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         (r.date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         OR (r.created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
        )
      GROUP BY COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum')
      ORDER BY qty DESC

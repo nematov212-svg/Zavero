@@ -1484,6 +1484,42 @@ class AppState extends ChangeNotifier {
         if (!receipts.any((x) => x.id == r.id)) {
           receipts.insert(0, r);
 
+    // Optimistik hisobot yangilanishi: 0 millisekundda Jami Daromad va Jami Buyurtmalar ko'tariladi
+    final rCash = (r.method == PaymentMethod.cash)
+        ? r.total.round()
+        : (r.cashPaid.round());
+    final rCard = (r.method == PaymentMethod.card)
+        ? r.total.round()
+        : (r.cardPaid.round());
+    if (liveTodayReport != null) {
+      final newRev = liveTodayReport!.totalRevenue + r.total.round();
+      final newOrders = liveTodayReport!.orderCount + 1;
+      final newCash = liveTodayReport!.cashTotal + rCash;
+      final newCard = liveTodayReport!.cardTotal + rCard;
+      final newAvg = newOrders > 0 ? (newRev / newOrders).round() : 0;
+      liveTodayReport = TodayReportSummary(
+        totalRevenue: newRev,
+        orderCount: newOrders,
+        cashTotal: newCash,
+        cardTotal: newCard,
+        averageCheck: newAvg,
+        waiters: liveTodayReport!.waiters,
+        topProducts: liveTodayReport!.topProducts,
+        updatedAt: DateTime.now(),
+      );
+    } else {
+      liveTodayReport = TodayReportSummary(
+        totalRevenue: r.total.round(),
+        orderCount: 1,
+        cashTotal: rCash,
+        cardTotal: rCard,
+        averageCheck: r.total.round(),
+        waiters: const [],
+        topProducts: const [],
+        updatedAt: DateTime.now(),
+      );
+    }
+
           addAppNotification(AppNotificationItem(
             id: 'receipt_${r.id}',
             title: "Chek to'landi #${r.id}",
@@ -2325,6 +2361,42 @@ class AppState extends ChangeNotifier {
     );
     receipts.insert(0, r);
 
+    // Optimistik hisobot yangilanishi: 0 millisekundda Jami Daromad va Jami Buyurtmalar ko'tariladi
+    final rCash = (r.method == PaymentMethod.cash)
+        ? r.total.round()
+        : (r.cashPaid.round());
+    final rCard = (r.method == PaymentMethod.card)
+        ? r.total.round()
+        : (r.cardPaid.round());
+    if (liveTodayReport != null) {
+      final newRev = liveTodayReport!.totalRevenue + r.total.round();
+      final newOrders = liveTodayReport!.orderCount + 1;
+      final newCash = liveTodayReport!.cashTotal + rCash;
+      final newCard = liveTodayReport!.cardTotal + rCard;
+      final newAvg = newOrders > 0 ? (newRev / newOrders).round() : 0;
+      liveTodayReport = TodayReportSummary(
+        totalRevenue: newRev,
+        orderCount: newOrders,
+        cashTotal: newCash,
+        cardTotal: newCard,
+        averageCheck: newAvg,
+        waiters: liveTodayReport!.waiters,
+        topProducts: liveTodayReport!.topProducts,
+        updatedAt: DateTime.now(),
+      );
+    } else {
+      liveTodayReport = TodayReportSummary(
+        totalRevenue: r.total.round(),
+        orderCount: 1,
+        cashTotal: rCash,
+        cardTotal: rCard,
+        averageCheck: r.total.round(),
+        waiters: const [],
+        topProducts: const [],
+        updatedAt: DateTime.now(),
+      );
+    }
+
     addAppNotification(AppNotificationItem(
       id: 'receipt_${r.id}',
       title: "Chek to'landi #${r.id}",
@@ -2395,6 +2467,7 @@ class AppState extends ChangeNotifier {
         ownerId: '',
         idempotencyKey: effIdemKey,
       );
+      unawaited(fetchLiveTodayReport());
     } catch (e) {
       debugPrint('checkout tarmoq/server xatoligi (oflayn saqlangan bo‘lishi mumkin): $e');
     }
@@ -4657,8 +4730,10 @@ ThemeData buildDarkTheme() {
 void showZaveroSnackBar({
   required String message,
   Color backgroundColor = const Color(0xFF1E293B),
-  Duration duration = const Duration(milliseconds: 3000),
+  Duration duration = const Duration(milliseconds: 3200),
   SnackBarAction? action,
+  String? actionLabel,
+  VoidCallback? onAction,
   IconData? prefixIcon,
   BuildContext? context,
 }) {
@@ -4673,11 +4748,10 @@ void showZaveroSnackBar({
   messenger.showSnackBar(
     SnackBar(
       content: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           if (prefixIcon != null) ...[
-            Icon(prefixIcon, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
+            Icon(prefixIcon, color: Colors.white, size: 19),
+            const SizedBox(width: 10),
           ],
           Expanded(
             child: Text(
@@ -4689,16 +4763,77 @@ void showZaveroSnackBar({
               ),
             ),
           ),
+          if (action != null) ...[
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () {
+                messenger.hideCurrentSnackBar();
+                action.onPressed();
+              },
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  action.label,
+                  style: TextStyle(
+                    color: action.textColor ?? Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          ] else if (actionLabel != null && onAction != null) ...[
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () {
+                messenger.hideCurrentSnackBar();
+                onAction();
+              },
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  actionLabel,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(width: 10),
+          // Bitta bosishda xabarni yo'qotuvchi [X] tugmasi (barcha yashil, qizil, ma'lumot xabarlari uchun)
+          InkWell(
+            onTap: () => messenger.hideCurrentSnackBar(),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.18),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
+            ),
+          ),
         ],
       ),
       backgroundColor: backgroundColor,
       duration: duration,
       behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      showCloseIcon: true,
-      closeIconColor: Colors.white,
       dismissDirection: DismissDirection.horizontal,
-      action: action,
     ),
   );
 }
@@ -8778,6 +8913,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   ),
                   const SizedBox(width: 4),
                   // Bell with badge
+                  
                   Stack(children: [
                     IconButton(
                       icon: Icon(Icons.notifications_outlined, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 22),
@@ -14268,9 +14404,10 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
   }
 
   bool _matchesPeriod(DateTime date) {
+    final localDate = date.toLocal();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final target = DateTime(date.year, date.month, date.day);
+    final target = DateTime(localDate.year, localDate.month, localDate.day);
 
     switch (_period) {
       case HistoryPeriodFilter.today:
@@ -14283,7 +14420,7 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
         return target.isAfter(weekAgo.subtract(const Duration(seconds: 1))) &&
             target.isBefore(today.add(const Duration(days: 1)));
       case HistoryPeriodFilter.month:
-        return date.year == now.year && date.month == now.month;
+        return localDate.year == now.year && localDate.month == now.month;
       case HistoryPeriodFilter.all:
         return true;
       case HistoryPeriodFilter.custom:
@@ -14629,6 +14766,12 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                                Text(
+                                  "Naqd: ${formatSum(cashSum)} • Karta: ${formatSum(cardSum)}",
+                                  style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ],
                             ),
                           ),
@@ -14819,41 +14962,86 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                         ),
                       ],
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: r.printStatus == 'printed'
-                            ? const Color(0xFFECFDF5)
-                            : (r.printStatus == 'queued' ? const Color(0xFFFEF3C7) : const Color(0xFFFEE2E2)),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            r.printStatus == 'printed'
-                                ? Icons.check_circle_rounded
-                                : (r.printStatus == 'queued' ? Icons.access_time_rounded : Icons.error_outline_rounded),
-                            size: 12,
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      alignment: WrapAlignment.end,
+                      children: [
+                        // Telegram status badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: r.telegramStatus == 'sent'
+                                ? const Color(0xFFE0F2FE)
+                                : (r.telegramStatus == 'failed' ? const Color(0xFFFEE2E2) : const Color(0xFFF1F5F9)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                r.telegramStatus == 'sent'
+                                    ? Icons.send_rounded
+                                    : (r.telegramStatus == 'failed' ? Icons.error_outline_rounded : Icons.schedule_send_rounded),
+                                size: 11,
+                                color: r.telegramStatus == 'sent'
+                                    ? const Color(0xFF0284C7)
+                                    : (r.telegramStatus == 'failed' ? const Color(0xFFDC2626) : const Color(0xFF64748B)),
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                r.telegramStatus == 'sent'
+                                    ? 'TG: Yuborildi'
+                                    : (r.telegramStatus == 'failed' ? 'TG: Yuborilmadi' : 'TG: Kutilmoqda'),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: r.telegramStatus == 'sent'
+                                      ? const Color(0xFF0369A1)
+                                      : (r.telegramStatus == 'failed' ? const Color(0xFFB91C1C) : const Color(0xFF475569)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Printer status badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
                             color: r.printStatus == 'printed'
-                                ? const Color(0xFF10B981)
-                                : (r.printStatus == 'queued' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                                ? const Color(0xFFECFDF5)
+                                : (r.printStatus == 'queued' ? const Color(0xFFFEF3C7) : const Color(0xFFFEE2E2)),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            r.printStatus == 'printed'
-                                ? 'Chiqarildi'
-                                : (r.printStatus == 'queued' ? 'Navbatda' : 'Chiqarilmadi'),
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: r.printStatus == 'printed'
-                                  ? const Color(0xFF059669)
-                                  : (r.printStatus == 'queued' ? const Color(0xFFB45309) : const Color(0xFFB91C1C)),
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                r.printStatus == 'printed'
+                                    ? Icons.check_circle_rounded
+                                    : (r.printStatus == 'queued' ? Icons.access_time_rounded : Icons.error_outline_rounded),
+                                size: 11,
+                                color: r.printStatus == 'printed'
+                                    ? const Color(0xFF10B981)
+                                    : (r.printStatus == 'queued' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                r.printStatus == 'printed'
+                                    ? 'Chiqarildi'
+                                    : (r.printStatus == 'queued' ? 'Navbatda' : 'Chiqarilmadi'),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: r.printStatus == 'printed'
+                                      ? const Color(0xFF059669)
+                                      : (r.printStatus == 'queued' ? const Color(0xFFB45309) : const Color(0xFFB91C1C)),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -14936,13 +15124,15 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                // 5. Qator: Ko'rish va Chop etish tugmalari
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                // 5. Qator: Ko'rish, Telegram va Chop etish tugmalari
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.end,
                   children: [
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         side: const BorderSide(color: Color(0xFFCBD5E1)),
@@ -14952,7 +15142,18 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                       icon: const Icon(Icons.visibility_outlined, size: 14, color: Color(0xFF334155)),
                       label: const Text("Ko'rish", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
                     ),
-                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        side: const BorderSide(color: Color(0xFF0284C7)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _resendTelegram(r),
+                      icon: const Icon(Icons.send_rounded, size: 13, color: Color(0xFF0284C7)),
+                      label: const Text("Telegram", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF0284C7))),
+                    ),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: r.printStatus == 'printed' ? const Color(0xFFF1F5F9) : const Color(0xFF315EFB),
@@ -15070,8 +15271,45 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Chop etishda xatolik: $e'), backgroundColor: Colors.red),
+        showZaveroSnackBar(
+          message: 'Chop etishda xatolik: $e',
+          backgroundColor: const Color(0xFFDC2626),
+          prefixIcon: Icons.error_outline,
+        );
+      }
+    }
+  }
+
+  Future<void> _resendTelegram(Receipt r) async {
+    try {
+      showZaveroSnackBar(
+        message: "#${r.id} chek Telegramga yuborilmoqda...",
+        backgroundColor: const Color(0xFF0284C7),
+        prefixIcon: Icons.send_rounded,
+        duration: const Duration(seconds: 2),
+      );
+      final res = await ApiClient().post('/receipts/${r.id}/resend-telegram');
+      if (res['success'] == true) {
+        if (mounted) {
+          setState(() {
+            r.telegramStatus = 'sent';
+            r.telegramSentAt = DateTime.now();
+          });
+          showZaveroSnackBar(
+            message: "#${r.id} chek Telegramga muvaffaqiyatli yuborildi!",
+            backgroundColor: const Color(0xFF10B981),
+            prefixIcon: Icons.check_circle_outline,
+          );
+        }
+      } else {
+        throw Exception(res['error'] ?? "Noma'lum xatolik");
+      }
+    } catch (e) {
+      if (mounted) {
+        showZaveroSnackBar(
+          message: "Telegramga yuborishda xatolik: $e",
+          backgroundColor: const Color(0xFFDC2626),
+          prefixIcon: Icons.error_outline,
         );
       }
     }
@@ -15117,21 +15355,22 @@ class _ReportsScreenState extends State<ReportsScreen>
   }
 
   bool _isReceiptInFilter(Receipt r) {
-    final d = r.date;
+    final d = r.date.toLocal();
+    final sel = _selectedDate.toLocal();
     switch (_filterMode) {
       case ReportFilterMode.day:
       case ReportFilterMode.custom:
-        return d.year == _selectedDate.year &&
-            d.month == _selectedDate.month &&
-            d.day == _selectedDate.day;
+        return d.year == sel.year &&
+            d.month == sel.month &&
+            d.day == sel.day;
       case ReportFilterMode.week:
-        final now = _selectedDate;
+        final now = sel;
         final weekAgo = now.subtract(const Duration(days: 7));
         return d.isAfter(weekAgo) && d.isBefore(now.add(const Duration(days: 1)));
       case ReportFilterMode.month:
-        return d.year == _selectedDate.year && d.month == _selectedDate.month;
+        return d.year == sel.year && d.month == sel.month;
       case ReportFilterMode.year:
-        return d.year == _selectedDate.year;
+        return d.year == sel.year;
       case ReportFilterMode.all:
         return true;
     }
@@ -20120,6 +20359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool receiptBoldHeader = true;
   ReceiptHeaderAlign receiptHeaderAlign = ReceiptHeaderAlign.center;
   bool testingPrinter = false;
+  bool testingTelegram = false;
   bool savingPrinter = false;
   Hall? _selectedHallForTables;
 
@@ -20678,6 +20918,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => printingTestReceipt = false);
+    }
+  }
+
+  Future<void> _testTelegramConnection() async {
+    final target = telegramChatIdCtrl.text.trim();
+    if (target.isEmpty) {
+      showZaveroSnackBar(
+        message: "Iltimos, avval Telegram Chat ID yoki telefon raqam kiriting!",
+        backgroundColor: const Color(0xFFDC2626),
+        prefixIcon: Icons.warning_amber_rounded,
+      );
+      return;
+    }
+    setState(() => testingTelegram = true);
+    showZaveroSnackBar(
+      message: "Telegramga ulanish tekshirilmoqda...",
+      backgroundColor: const Color(0xFF0284C7),
+      prefixIcon: Icons.send_rounded,
+      duration: const Duration(seconds: 2),
+    );
+    try {
+      final res = await ApiClient().post('/cafe/test-telegram', body: {
+        'telegramChatId': target,
+      });
+      if (res['success'] == true) {
+        showZaveroSnackBar(
+          message: res['message'] ?? "Telegram ulanishi muvaffaqiyatli! Test chek yuborildi.",
+          backgroundColor: const Color(0xFF10B981),
+          prefixIcon: Icons.check_circle_outline,
+          duration: const Duration(seconds: 4),
+        );
+      } else {
+        showZaveroSnackBar(
+          message: res['error'] ?? "Telegramga yuborib bo'lmadi.",
+          backgroundColor: const Color(0xFFDC2626),
+          prefixIcon: Icons.error_outline,
+          duration: const Duration(seconds: 5),
+        );
+      }
+    } catch (e) {
+      showZaveroSnackBar(
+        message: "Xatolik: $e",
+        backgroundColor: const Color(0xFFDC2626),
+        prefixIcon: Icons.error_outline,
+      );
+    } finally {
+      if (mounted) setState(() => testingTelegram = false);
     }
   }
 
@@ -22492,7 +22779,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                   Switch(
                                     value: telegramReceiptsEnabled,
-                                    activeColor: const Color(0xFF0284C7),
+                                    activeThumbColor: const Color(0xFF0284C7),
                                     onChanged: (v) => setState(() => telegramReceiptsEnabled = v),
                                   ),
                                 ],
@@ -22502,18 +22789,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 TextField(
                                   controller: telegramChatIdCtrl,
                                   decoration: InputDecoration(
-                                    labelText: 'Telegram Chat / Guruh ID',
-                                    hintText: 'masalan: -1001234567890 yoki shaxsiy ID',
+                                    labelText: 'Telegram Chat ID yoki Telefon raqam (+998...)',
+                                    hintText: 'masalan: +998507230475 yoki -1001234567890',
                                     prefixIcon: const Icon(Icons.tag_rounded, color: Color(0xFF0284C7)),
                                     filled: true,
                                     fillColor: Colors.white,
                                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                                   ),
                                 ),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  'Bot har bir to‘langan chekni ushbu chatga avtomatik yuboradi.',
-                                  style: TextStyle(fontSize: 11, color: Color(0xFF0369A1)),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE0F2FE),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFBAE6FD)),
+                                  ),
+                                  child: const Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(Icons.info_outline, size: 16, color: Color(0xFF0369A1)),
+                                          SizedBox(width: 6),
+                                          Text(
+                                            'Telefon raqam orqali ulash (+998...):',
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0369A1)),
+                                          ),
+                                        ],
+                                      ),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        "1. Telegramda @Zavero_bot ni oching\n2. /start bosing\n3. '📱 Raqamni ulashish' tugmasini bosing\nShunda cheklar avtomatik ushbu raqamga yuboriladi.",
+                                        style: TextStyle(fontSize: 11.5, color: Color(0xFF075985), height: 1.35),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF0284C7),
+                                    side: const BorderSide(color: Color(0xFF0284C7)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  ),
+                                  onPressed: testingTelegram ? null : () => _testTelegramConnection(),
+                                  icon: testingTelegram
+                                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)))
+                                      : const Icon(Icons.send_rounded, size: 16),
+                                  label: const Text('Telegram ulanishini tekshirish & Test chek', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
                                 ),
                               ],
                             ],

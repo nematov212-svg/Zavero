@@ -203,7 +203,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       case _DashboardPeriod.bugun:
         return receipts.where((r) {
           final rT = _toTashkent(r.date);
-          return rT.isAfter(todayStart) || (rT.year == nowT.year && rT.month == nowT.month && rT.day == nowT.day);
+          return rT.year == nowT.year && rT.month == nowT.month && rT.day == nowT.day;
         }).toList();
       case _DashboardPeriod.kecha:
         final yesterdayStart = todayStart.subtract(const Duration(days: 1));

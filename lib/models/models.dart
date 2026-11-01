@@ -741,6 +741,8 @@ class Receipt {
   double cardPaid;
   String printStatus; // 'printed', 'queued', 'unprinted'
   DateTime? printedAt;
+  String telegramStatus; // 'sent', 'failed', 'unsent'
+  DateTime? telegramSentAt;
 
   Receipt({
     required this.id,
@@ -755,11 +757,13 @@ class Receipt {
     this.cardPaid = 0,
     this.printStatus = 'unprinted',
     this.printedAt,
+    this.telegramStatus = 'unsent',
+    this.telegramSentAt,
   });
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'date': date.toIso8601String(),
+        'date': date.toUtc().toIso8601String(),
         'items': items.map((e) => e.toJson()).toList(),
         'total': total,
         'method': method.name,
@@ -769,7 +773,9 @@ class Receipt {
         'cashPaid': cashPaid,
         'cardPaid': cardPaid,
         'printStatus': printStatus,
-        'printedAt': printedAt?.toIso8601String(),
+        'printedAt': printedAt?.toUtc().toIso8601String(),
+        'telegramStatus': telegramStatus,
+        'telegramSentAt': telegramSentAt?.toUtc().toIso8601String(),
       };
 
   factory Receipt.fromJson(Map<String, dynamic> j) => Receipt(
@@ -791,6 +797,10 @@ class Receipt {
         printStatus: j['printStatus'] as String? ?? 'unprinted',
         printedAt: j['printedAt'] != null
             ? DateTime.tryParse(j['printedAt'].toString())
+            : null,
+        telegramStatus: j['telegramStatus'] as String? ?? 'unsent',
+        telegramSentAt: j['telegramSentAt'] != null
+            ? DateTime.tryParse(j['telegramSentAt'].toString())
             : null,
       );
 

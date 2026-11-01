@@ -1063,6 +1063,7 @@ const initTelegramBot = () => {
 
         const buttons = [
           [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', webAppUrl)],
+          [Markup.button.callback('📱 Raqamni ulashish (Cheklar uchun)', 'request_phone_contact')],
           [Markup.button.callback('🍽 Biz haqimizda', 'bot_about'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
           [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
           [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
@@ -1076,6 +1077,128 @@ const initTelegramBot = () => {
       } catch (err) {
         console.error('❌ [Telegram Bot] /start xatosi:', err);
         return ctx.reply('Tizimda xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.');
+      }
+    });
+
+    // 1.4 Raqamni ulashish (Telefon raqam orqali chek ulash)
+    bot.action('request_phone_contact', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        return await ctx.replyWithHTML(
+          `📱 <b>TELEFON RAQAMNI ULASHISH</b>\n\n` +
+          `Zavero POS kassa tizimidan to‘langan cheklarni Telegram orqali avtomatik qabul qilish uchun quyidagi <b>"📱 Telefon raqamimni ulashish"</b> tugmasini bosing:`,
+          Markup.keyboard([
+            [Markup.button.contactRequest('📱 Telefon raqamimni ulashish')],
+          ]).resize().oneTime()
+        );
+      } catch (err) {
+        console.error('request_phone_contact error:', err);
+      }
+    });
+
+    bot.command(['link_phone', 'telefon', 'raqam'], async (ctx) => {
+      return await ctx.replyWithHTML(
+        `📱 <b>TELEFON RAQAMNI ULASHISH</b>\n\n` +
+        `Kassa cheklarini avtomatik qabul qilish uchun quyidagi tugmani bosing:`,
+        Markup.keyboard([
+          [Markup.button.contactRequest('📱 Telefon raqamimni ulashish')],
+        ]).resize().oneTime()
+      );
+    });
+
+    // 1.5 Telefon raqam (Contact) qabul qiluvchi handler
+    bot.on('contact', async (ctx) => {
+      try {
+        const contact = ctx.message.contact;
+        if (!contact) return;
+        const phone = (contact.phone_number || '').replace(/\D/g, '');
+        const chatId = ctx.chat.id.toString();
+        const telegramUser = ctx.from.first_name || ctx.from.username || 'Foydalanuvchi';
+
+        const cleanSuffix = phone.length >= 9 ? phone.slice(-9) : phone;
+
+        // telegram_contact_links ga saqlaymiz
+        await db.query(
+          `INSERT INTO telegram_contact_links (phone, chat_id, first_name, username, updated_at)
+           VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+           ON CONFLICT (phone) DO UPDATE SET chat_id = $2, first_name = $3, username = $4, updated_at = CURRENT_TIMESTAMP`,
+          ['+' + phone, chatId, ctx.from.first_name || '', ctx.from.username || '']
+        ).catch(() => {});
+
+        // telegram_users ga ham yangilaymiz
+        await db.query(
+          `UPDATE telegram_users SET phone = $1, updated_at = CURRENT_TIMESTAMP WHERE telegram_id = $2`,
+          ['+' + phone, chatId]
+        ).catch(() => {});
+
+        // Sozlamalarda shu telefon kiritilgan kafelarni qidiramiz
+        const allSettingsRes = await db.query('SELECT cafe_id, data FROM settings');
+        let matchedCafe = null;
+        let matchedSettings = null;
+
+        for (const row of allSettingsRes.rows) {
+          const data = typeof row.data === 'string' ? JSON.parse(row.data) : (row.data || {});
+          const targetPhone = (data.telegramReceiptsChatId || data.telegramReceiptChatId || data.restaurantPhone || '').replace(/\D/g, '');
+          if (targetPhone && (targetPhone.endsWith(cleanSuffix) || phone.endsWith(targetPhone.slice(-9)))) {
+            matchedCafe = row.cafe_id;
+            matchedSettings = data;
+            break;
+          }
+        }
+
+        if (matchedCafe) {
+          matchedSettings.telegramReceiptChatId = chatId;
+          matchedSettings.telegramReceiptsChatId = chatId;
+          matchedSettings.telegramResolvedChatId = chatId;
+          matchedSettings.telegramReceiptPhone = '+' + phone;
+          matchedSettings.telegramReceiptStatus = 'connected';
+          matchedSettings.telegramReceiptUser = telegramUser;
+
+          await db.query(
+            `INSERT INTO settings (cafe_id, data, updated_at)
+             VALUES ($1, $2, CURRENT_TIMESTAMP)
+             ON CONFLICT (cafe_id) DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP`,
+            [matchedCafe, JSON.stringify(matchedSettings)]
+          );
+
+          const cafeName = matchedSettings.restaurantName || matchedSettings.receiptName || 'Family Cafe';
+
+          await ctx.replyWithHTML(
+            `✅ <b>Telefon raqamingiz muvaffaqiyatli ulandi!</b>\n\n` +
+            `🏪 Kafe: <b>${cafeName}</b>\n` +
+            `🆔 Telegram Chat ID: <code>${chatId}</code>\n` +
+            `📱 Telefon: <code>+${phone}</code>\n\n` +
+            `Endi kassa tizimida "To‘landi" deb yakunlangan barcha cheklar avtomatik ushbu chatga keladi.`,
+            Markup.removeKeyboard()
+          );
+
+          notifyCafe(matchedCafe, 'SETTINGS_UPDATED', { settings: matchedSettings });
+
+          // Test chek yuboramiz
+          const { sendReceiptNotificationToTelegram } = require('../controllers/receiptController');
+          const testReceipt = {
+            id: 'TEST',
+            date: new Date(),
+            method: 'cash',
+            total: 35000,
+            cashier_name: 'Zavero Test',
+            table_number: 1,
+            hall_name: 'Zal',
+          };
+          const testItems = [{ product: { name: 'Klassik Shaurma', price: 35000 }, qty: 1 }];
+          await sendReceiptNotificationToTelegram(chatId, testReceipt, testItems, matchedSettings, matchedCafe);
+        } else {
+          await ctx.replyWithHTML(
+            `ℹ️ <b>Sizning Telegram ma'lumotlaringiz:</b>\n\n` +
+            `👤 Ism: <b>${telegramUser}</b>\n` +
+            `📱 Telefon: <code>+${phone}</code>\n` +
+            `🆔 <b>Telegram Chat ID:</b> <code>${chatId}</code>\n\n` +
+            `💡 <i>Agar POS kassa sozlamalarida telefon raqamingiz (+${phone}) kiritilgan bo‘lsa, u darhol ulanadi. Yoki to‘g‘ridan-to‘g‘ri ushbu ID raqamni (<code>${chatId}</code>) kassa sozlamalaridagi "Telegram Chat ID" maydoniga kiritishingiz mumkin.</i>`,
+            Markup.removeKeyboard()
+          );
+        }
+      } catch (contactErr) {
+        console.error('bot.on contact error:', contactErr);
       }
     });
 

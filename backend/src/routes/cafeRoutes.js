@@ -8,6 +8,7 @@ router.get('/full', c.getFullCafeData);
 router.post('/restore-menu', requireAdmin, c.restoreMenu);
 router.get('/settings', c.getSettings);
 router.put('/settings', requireAdmin, c.saveSettings);
+router.post('/test-telegram', requireAdmin, require('../controllers/receiptController').testTelegramConnection);
 router.put('/receipt-name', requireAdmin, c.updateReceiptName);
 router.get('/banners', c.getBanners);
 router.post('/banners', requireAdmin, c.addBanner);

@@ -64,6 +64,8 @@ const mapReceipt = (r) => ({
   type: r.type || 'receipt',
   printStatus: r.print_status || 'unprinted',
   printedAt: r.printed_at ? new Date(r.printed_at).toISOString() : null,
+  telegramStatus: r.telegram_status || 'unsent',
+  telegramSentAt: r.telegram_sent_at ? new Date(r.telegram_sent_at).toISOString() : null,
 });
 
 const mapCustomerOrder = (r) => ({

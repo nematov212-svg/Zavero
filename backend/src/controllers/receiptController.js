@@ -241,15 +241,16 @@ const checkout = async (req, res) => {
       console.warn('⚠️ getTodayReportData in checkout error:', e.message);
     }
 
-    notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
+    notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow), todayReport });
     notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow), todayReport });
 
     // 6-TALAB: Telegram bot orqali chek yuborish (agar sozlamada yoqilgan bo'lsa)
     try {
       db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]).then((sRes) => {
         const cSettings = sRes.rows[0]?.data || {};
-        if (cSettings.telegramReceiptsEnabled && cSettings.telegramReceiptChatId) {
-          sendReceiptNotificationToTelegram(cSettings.telegramReceiptChatId, receiptRow, items, cSettings);
+        const chatInput = cSettings.telegramReceiptsChatId || cSettings.telegramReceiptChatId;
+        if (cSettings.telegramReceiptsEnabled && chatInput) {
+          sendReceiptNotificationToTelegram(chatInput, receiptRow, items, cSettings, cafeId);
         }
       }).catch(() => {});
     } catch (_) {}
@@ -644,20 +645,94 @@ const getUnprintedReceipts = async (req, res) => {
   }
 };
 
-// Telegram bot orqali chekni ko'rsatilgan chatga jo'natish (Talab 6)
-async function sendReceiptNotificationToTelegram(chatId, receipt, items, settings = {}) {
+// Chat ID yoki telefon raqamini Telegram numeric chat_id ga aylantirib beruvchi resolver
+async function resolveChatIds(rawInput, cafeId) {
+  if (!rawInput) return [];
+  const parts = String(rawInput)
+    .split(/[,;\s]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const resolved = [];
+
+  for (const part of parts) {
+    // 1. Agar raqamli chat ID (-1001234567890 yoki 123456789) yoki @kanal bo'lsa
+    if (/^-?\d+$/.test(part) || part.startsWith('@')) {
+      resolved.push(part);
+      continue;
+    }
+
+    // 2. Agar telefon raqami bo'lsa (+998507230475 yoki 998507230475)
+    const digits = part.replace(/\D/g, '');
+    if (digits.length >= 9) {
+      const suffix = digits.slice(-9);
+
+      // A) telegram_contact_links jadvalidan tekshiramiz
+      try {
+        const linkRes = await db.query(
+          `SELECT chat_id FROM telegram_contact_links WHERE phone LIKE '%' || $1 LIMIT 1`,
+          [suffix]
+        );
+        if (linkRes.rows.length > 0 && linkRes.rows[0].chat_id) {
+          resolved.push(linkRes.rows[0].chat_id);
+          continue;
+        }
+      } catch (_) {}
+
+      // B) telegram_users jadvalidan tekshiramiz
+      try {
+        const userRes = await db.query(
+          `SELECT telegram_id FROM telegram_users WHERE phone LIKE '%' || $1 LIMIT 1`,
+          [suffix]
+        );
+        if (userRes.rows.length > 0 && userRes.rows[0].telegram_id) {
+          resolved.push(userRes.rows[0].telegram_id);
+          continue;
+        }
+      } catch (_) {}
+
+      // C) Sozlamalardagi telegramResolvedChatId tekshiramiz
+      if (cafeId) {
+        try {
+          const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
+          const d = sRes.rows[0]?.data || {};
+          if (d.telegramResolvedChatId) {
+            resolved.push(d.telegramResolvedChatId);
+            continue;
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  return [...new Set(resolved)];
+}
+
+// Telegram bot orqali chekni ko'rsatilgan chat(lar)ga jo'natish (Talab 6)
+async function sendReceiptNotificationToTelegram(rawChatInput, receipt, items, settings = {}, cafeId = null) {
   try {
     const { getBotInstance } = require('../bot/telegramBot');
     const bot = getBotInstance();
-    if (!bot || !bot.telegram) return;
+    if (!bot || !bot.telegram) return { ok: false, error: 'Telegram bot serverda faol emas' };
 
-    const cafeName = settings.restaurantName || 'Family Cafe';
-    const dateStr = new Date(receipt.date).toLocaleString('uz-UZ', { timeZone: 'Asia/Tashkent' });
+    const effectiveCafeId = cafeId || receipt.cafe_id;
+    const targetChatIds = await resolveChatIds(rawChatInput, effectiveCafeId);
+
+    if (targetChatIds.length === 0) {
+      console.warn(`⚠️ [Telegram Receipt] Chat ID topilmadi (${rawChatInput}). Chek #${receipt.id} yuborilmadi.`);
+      if (receipt.id && typeof receipt.id === 'number') {
+        await db.query(`UPDATE receipts SET telegram_status = 'failed' WHERE id = $1`, [receipt.id]).catch(() => {});
+      }
+      return { ok: false, error: 'Chat ID topilmadi yoki telefon raqami botga ulanmagan' };
+    }
+
+    const cafeName = settings.restaurantName || settings.receiptName || 'Family Cafe';
+    const dateStr = new Date(receipt.date || new Date()).toLocaleString('uz-UZ', { timeZone: 'Asia/Tashkent' });
     const methodStr = receipt.method === 'card' ? 'Karta' : 'Naqd';
     const tableStr = receipt.table_number ? `Stol #${receipt.table_number}` : (receipt.hall_name || 'Olib ketish');
 
     let text = `🧾 <b>YANGI TO‘LANGAN CHEK #${receipt.id}</b>\n`;
-    text += `☕ <b>${cafeName}</b>\n`;
+    text += `🏪 <b>${cafeName}</b>\n`;
     text += `📍 Joy: <b>${tableStr}</b>\n`;
     text += `👤 Kassir/Ofitsiant: <b>${receipt.cashier_name || 'Admin'}</b>\n`;
     text += `🕒 Vaqt: <code>${dateStr}</code>\n`;
@@ -676,11 +751,118 @@ async function sendReceiptNotificationToTelegram(chatId, receipt, items, setting
     text += `──────────────────\n`;
     text += `💰 <b>JAMI: ${Number(receipt.total).toLocaleString('uz-UZ')} so'm</b>\n`;
 
-    await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    let anySuccess = false;
+    for (const chatId of targetChatIds) {
+      try {
+        await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
+        anySuccess = true;
+      } catch (sendErr) {
+        console.error(`⚠️ [Telegram Receipt] Chat ${chatId} ga yuborishda xatolik:`, sendErr.message);
+      }
+    }
+
+    if (receipt.id && typeof receipt.id === 'number') {
+      const status = anySuccess ? 'sent' : 'failed';
+      await db.query(
+        `UPDATE receipts SET telegram_status = $1, telegram_sent_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [status, receipt.id]
+      ).catch(() => {});
+    }
+
+    return { ok: anySuccess };
   } catch (err) {
     console.error('⚠️ [Telegram Receipt] Yuborishda xatolik:', err.message);
+    return { ok: false, error: err.message };
   }
 }
+
+// POST /api/receipts/:id/resend-telegram
+const resendTelegramReceipt = async (req, res) => {
+  try {
+    const receiptId = req.params.id;
+    const cafeId = req.user.cafeId;
+
+    const rRes = await db.query('SELECT * FROM receipts WHERE id = $1 AND cafe_id = $2 LIMIT 1', [receiptId, cafeId]);
+    if (rRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Chek topilmadi' });
+    }
+    const receipt = rRes.rows[0];
+
+    const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
+    const settings = sRes.rows[0]?.data || {};
+    const chatInput = settings.telegramReceiptChatId || settings.telegramReceiptsChatId;
+
+    if (!chatInput) {
+      return res.status(400).json({ success: false, message: 'Telegram chat sozlanmagan' });
+    }
+
+    const items = typeof receipt.items === 'string' ? JSON.parse(receipt.items) : (receipt.items || []);
+    const result = await sendReceiptNotificationToTelegram(chatInput, receipt, items, settings, cafeId);
+
+    if (result.ok) {
+      notifyCafe(cafeId, 'RECEIPT_UPDATED', { receipt: mapReceipt({ ...receipt, telegram_status: 'sent' }) });
+      return res.json({ success: true, message: 'Chek Telegramga muvaffaqiyatli yuborildi!' });
+    } else {
+      return res.status(400).json({ success: false, message: result.error || 'Telegramga yuborib bo‘lmadi' });
+    }
+  } catch (err) {
+    console.error('resendTelegramReceipt error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// POST /api/cafe/test-telegram
+const testTelegramConnection = async (req, res) => {
+  try {
+    const cafeId = req.user.cafeId;
+    const rawChat = req.body.chatId;
+
+    const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
+    const settings = sRes.rows[0]?.data || {};
+    const chatInput = rawChat || settings.telegramReceiptChatId || settings.telegramReceiptsChatId;
+
+    if (!chatInput) {
+      return res.status(400).json({ success: false, message: 'Telegram chat ID yoki telefon raqami kiritilmagan' });
+    }
+
+    const resolved = await resolveChatIds(chatInput, cafeId);
+    if (resolved.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Kiritilgan raqam/ID bo‘yicha Telegram chat topilmadi. Telegramda botga /start bosing va "Raqamni ulashish" tugmasini bosing.',
+      });
+    }
+
+    const { getBotInstance } = require('../bot/telegramBot');
+    const bot = getBotInstance();
+    if (!bot || !bot.telegram) {
+      return res.status(500).json({ success: false, message: 'Telegram bot serverda faol emas' });
+    }
+
+    const cafeName = settings.restaurantName || settings.receiptName || 'Family Cafe';
+    let count = 0;
+    for (const cid of resolved) {
+      await bot.telegram.sendMessage(
+        cid,
+        `🔔 <b>TEST BILDIRISHNOMA: ZAVERO POS</b>\n\n` +
+        `🏪 Kafe: <b>${cafeName}</b>\n` +
+        `✅ <b>Telegram ulanishi muvaffaqiyatli tekshirildi!</b>\n` +
+        `Endi barcha to‘langan cheklar avtomatik ushbu chatga keladi.`,
+        { parse_mode: 'HTML' }
+      );
+      count++;
+    }
+
+    return res.json({
+      success: true,
+      resolvedChatIds: resolved,
+      message: `Telegramga test xabar muvaffaqiyatli yuborildi (${count} ta qabul qiluvchi)!`,
+    });
+  } catch (err) {
+    console.error('testTelegramConnection error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 module.exports = {
   list,
@@ -690,4 +872,7 @@ module.exports = {
   updatePrintStatus,
   getUnprintedReceipts,
   sendReceiptNotificationToTelegram,
+  resendTelegramReceipt,
+  testTelegramConnection,
+  resolveChatIds,
 };
