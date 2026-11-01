@@ -168,6 +168,9 @@ CREATE TABLE IF NOT EXISTS receipts (
 );
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS cafe_id VARCHAR(64);
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120);
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS order_id VARCHAR(64);
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS waiter_id VARCHAR(64);
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS type VARCHAR(32) DEFAULT 'receipt';
 CREATE INDEX IF NOT EXISTS idx_receipts_cafe_date ON receipts(cafe_id, date DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_idempotency ON receipts(cafe_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 

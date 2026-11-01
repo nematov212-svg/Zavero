@@ -459,4 +459,126 @@ const viewReceiptHtml = async (req, res) => {
   }
 };
 
-module.exports = { list, checkout, viewReceiptHtml };
+// POST /api/receipts — create receipt (supporting sale, bill preview, kitchen ticket)
+const createReceipt = async (req, res) => {
+  try {
+    const cafeId = req.user.cafeId;
+    const body = req.body || {};
+    const {
+      orderId,
+      tableName,
+      tableNumber,
+      hallName,
+      items,
+      total,
+      paymentMethod,
+      waiterId,
+      waiterName,
+      createdAt,
+      type,
+    } = body;
+
+    const date = createdAt ? new Date(createdAt) : new Date();
+    const dateId = dateIdFrom(date);
+
+    let parsedTableNum = tableNumber !== undefined && tableNumber !== null ? parseInt(tableNumber, 10) : null;
+    if (isNaN(parsedTableNum)) parsedTableNum = null;
+    if (!parsedTableNum && tableName) {
+      const match = String(tableName).match(/\d+/);
+      if (match) parsedTableNum = parseInt(match[0], 10);
+    }
+
+    const receiptTotal = parseFloat(total) || 0;
+    const methodStr = paymentMethod || 'cash';
+    const cashier = waiterName || req.user.name || 'Ofitsiant';
+    const receiptType = type || 'receipt';
+    const effectiveOrderId = orderId ? String(orderId) : null;
+    const effectiveWaiterId = waiterId ? String(waiterId) : (req.user.id ? String(req.user.id) : null);
+
+    // Xavfsiz ustunlar mavjudligini ta'minlash
+    await db.query(`
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS order_id VARCHAR(64);
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS waiter_id VARCHAR(64);
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS type VARCHAR(32) DEFAULT 'receipt';
+    `).catch(() => {});
+
+    const result = await db.query(
+      `INSERT INTO receipts 
+        (cafe_id, date, items, total, method, cashier_name, table_number, hall_name, order_id, waiter_id, type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING *`,
+      [
+        cafeId,
+        date,
+        JSON.stringify(items || []),
+        receiptTotal,
+        methodStr,
+        cashier,
+        parsedTableNum,
+        hallName || null,
+        effectiveOrderId,
+        effectiveWaiterId,
+        receiptType,
+      ]
+    );
+
+    const savedReceipt = result.rows[0];
+
+    // Agar savdo cheki bo'lsa, kunlik hisobotni ham yangilaymiz
+    if (receiptType === 'receipt' && receiptTotal > 0) {
+      try {
+        const reportRes = await db.query(
+          'SELECT * FROM reports WHERE cafe_id = $1 AND date_id = $2',
+          [cafeId, dateId]
+        );
+        let qty = {}, rev = {}, totalRev = 0, orderCount = 0, topProduct = '';
+        if (reportRes.rows.length > 0) {
+          const existing = reportRes.rows[0];
+          qty = existing.product_quantities || {};
+          rev = existing.product_revenue || {};
+          totalRev = parseFloat(existing.total_revenue) || 0;
+          orderCount = existing.order_count || 0;
+          topProduct = existing.top_product || '';
+        }
+        totalRev += receiptTotal;
+        orderCount += 1;
+        if (Array.isArray(items)) {
+          for (const item of items) {
+            const prod = item.product || item;
+            const name = prod.name || 'Taom';
+            const count = parseInt(item.qty || 1, 10);
+            const price = parseFloat(prod.price || 0);
+            qty[name] = (qty[name] || 0) + count;
+            rev[name] = (rev[name] || 0) + price * count;
+          }
+        }
+        let topQty = 0;
+        for (const [name, q] of Object.entries(qty)) {
+          if (q > topQty) { topQty = q; topProduct = name; }
+        }
+        await db.query(
+          `INSERT INTO reports (cafe_id, date_id, total_revenue, order_count, product_quantities, product_revenue, top_product, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,CURRENT_TIMESTAMP)
+           ON CONFLICT (cafe_id, date_id) DO UPDATE SET
+             total_revenue=$3, order_count=$4, product_quantities=$5, product_revenue=$6, top_product=$7, updated_at=CURRENT_TIMESTAMP`,
+          [cafeId, dateId, totalRev, orderCount, JSON.stringify(qty), JSON.stringify(rev), topProduct]
+        );
+      } catch (err) {
+        console.error('Report update on createReceipt warning:', err.message);
+      }
+    }
+
+    const mapped = mapReceipt(savedReceipt);
+    notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapped });
+
+    return res.status(201).json({
+      success: true,
+      receipt: mapped,
+    });
+  } catch (error) {
+    console.error('createReceipt error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+module.exports = { list, checkout, viewReceiptHtml, createReceipt };

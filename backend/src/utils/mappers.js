@@ -59,6 +59,9 @@ const mapReceipt = (r) => ({
   hallName: r.hall_name,
   cashPaid: num(r.cash_paid),
   cardPaid: num(r.card_paid),
+  orderId: r.order_id || null,
+  waiterId: r.waiter_id || null,
+  type: r.type || 'receipt',
 });
 
 const mapCustomerOrder = (r) => ({

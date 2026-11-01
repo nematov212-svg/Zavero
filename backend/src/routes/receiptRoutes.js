@@ -14,6 +14,7 @@ router.get('/:id/view', c.viewReceiptHtml);
 
 router.use(auth);
 router.get('/', c.list);
+router.post('/', c.createReceipt);
 router.post('/checkout', c.checkout);
 
 // GET /api/receipts/printer-status — Check if any printer station is currently active for this cafe

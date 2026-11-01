@@ -13433,6 +13433,46 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   bool printingBill = false;
 
+  Future<void> _sendReceiptToBackend({required String type}) async {
+    try {
+      final table = appState.selectedTable;
+      final hall = appState.selectedHall;
+      final cashierName = appState.currentUser?.name ?? appState.guestName ?? 'Ofitsiant';
+      final cashierId = appState.currentUser?.id;
+      final now = DateTime.now();
+      final checkId = 'T${table?.number ?? '-'}-${now.millisecondsSinceEpoch}';
+
+      final method = payByCash && payByCard
+          ? 'split'
+          : (payByCash ? 'cash' : 'card');
+
+      final itemsPayload = appState.cart.map((it) => {
+        'product': {
+          'id': it.product.id,
+          'name': it.product.name,
+          'price': it.product.price,
+        },
+        'qty': it.qty,
+      }).toList();
+
+      await ApiClient().post('/receipts', body: {
+        'orderId': checkId,
+        'tableName': table != null ? 'Stol ${table.number}' : (hall?.name ?? 'Zal'),
+        'tableNumber': table?.number,
+        'hallName': hall?.name,
+        'items': itemsPayload,
+        'total': _grandTotal,
+        'paymentMethod': method,
+        'waiterId': cashierId != null ? '$cashierId' : null,
+        'waiterName': cashierName,
+        'createdAt': now.toIso8601String(),
+        'type': type,
+      });
+    } catch (e) {
+      debugPrint('ℹ️ [Receipt] Fon yuborish: $e');
+    }
+  }
+
   // ---- "Xarid cheki" tugmasi endi hech qanday oraliq sahifa ochmaydi —
   // to'g'ridan-to'g'ri (hali to'lanmagan) hisobni zamonaviy chek
   // ko'rinishida printer/"Chop etish" oynasiga yuboradi. ----
@@ -13452,11 +13492,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
         table: appState.selectedTable,
         hallName: appState.selectedHall?.name,
       );
+      // 4-TALAB: Ofitsiant paneliga real vaqtda yuborish
+      unawaited(_sendReceiptToBackend(type: 'bill_preview'));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Chop etishda xatolik: $e')));
+        ).showSnackBar(SnackBar(
+          content: Text('Chop etishda xatolik yuz berdi: $e'),
+          backgroundColor: const Color(0xFFEF4444),
+        ));
       }
     } finally {
       if (mounted) setState(() => printingBill = false);
@@ -13472,11 +13517,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
         hallName: appState.selectedHall?.name,
         note: _noteCtrl.text,
       );
+      // 4-TALAB: Ofitsiant paneliga real vaqtda yuborish
+      unawaited(_sendReceiptToBackend(type: 'kitchen_ticket'));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Chop etishda xatolik: $e')));
+        ).showSnackBar(SnackBar(
+          content: Text('Oshpaz chekini chop etishda xatolik: $e'),
+          backgroundColor: const Color(0xFFEF4444),
+        ));
       }
     } finally {
       if (mounted) setState(() => printingKitchen = false);
@@ -13484,8 +13534,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   // ---- "Chekni ko'rish" — to'lovdan oldin, real (joriy) savat
-  // ma'lumotlari bilan ReceiptWidget orqali ekranda chek ko'rinishini
-  // ko'rsatadi. Bu yerdan to'g'ridan-to'g'ri "Chop etish" ham mumkin. ----
+  // ma'lumotlari bilan iframe srcdoc orqali modalda chek ko'rinishini
+  // ko'rsatadi. Bu yerdan to'g'ridan-to'g'ri "Chop etish" va "Yopish" mumkin. ----
   void _showReceiptPreview() {
     if (appState.cart.isEmpty) return;
     final table = appState.selectedTable;
@@ -13499,6 +13549,44 @@ class _PaymentScreenState extends State<PaymentScreen> {
         '${now.minute.toString().padLeft(2, '0')}:'
         '${now.second.toString().padLeft(2, '0')}';
     final checkId = 'T${table?.number ?? '-'}-${now.millisecondsSinceEpoch}';
+    final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+
+    final printData = ReceiptPrintData(
+      checkId: checkId,
+      dateTime: now,
+      cashierName: cashierName,
+      cafeName: appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
+      address: appState.restaurantAddress.trim().isNotEmpty ? appState.restaurantAddress.trim() : "Navoi ko'chasi 12, Buxoro",
+      phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
+      slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
+      footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
+      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+      tableNumber: table != null ? '${table.number}' : null,
+      hallName: hall?.name,
+      items: appState.cart.asMap().entries.map((e) => ReceiptPrintItem(
+        index: e.key + 1,
+        name: e.value.product.name,
+        qty: e.value.qty,
+        unitPrice: e.value.product.price,
+        lineTotal: e.value.product.price * e.value.qty,
+      )).toList(),
+      subtotal: _productsTotal,
+      discount: (_productsTotal - _grandTotal) > 0 ? (_productsTotal - _grandTotal) : 0,
+      grandTotal: _grandTotal,
+      paymentMethod: payByCard ? 'card' : 'cash',
+      is58mm: is58mm,
+    );
+
+    final html = ThermalHtmlGenerator.buildReceiptHtml(
+      printData,
+      logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
+    );
+
+    if (kIsWeb) {
+      // 3-TALAB: Mavjud chek HTML'ini sahifa ichidagi modalda (iframe srcdoc) ko'rsatish
+      WebReceiptPrinter.showModal(html);
+      return;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -15151,6 +15239,43 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     }
   }
 
+  void _showModalPreview() {
+    final receipt = widget.receipt;
+    final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+    final printData = ReceiptPrintData(
+      checkId: '${receipt.id}',
+      dateTime: receipt.date,
+      cashierName: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
+      cafeName: appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
+      address: appState.restaurantAddress.trim().isNotEmpty ? appState.restaurantAddress.trim() : "Navoi ko'chasi 12, Buxoro",
+      phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
+      slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
+      footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
+      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+      tableNumber: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
+      hallName: receipt.hallName,
+      items: receipt.items.asMap().entries.map((e) => ReceiptPrintItem(
+        index: e.key + 1,
+        name: e.value.product.name,
+        qty: e.value.qty,
+        unitPrice: e.value.product.price,
+        lineTotal: e.value.product.price * e.value.qty,
+      )).toList(),
+      subtotal: receipt.total,
+      discount: 0,
+      grandTotal: receipt.total,
+      paymentMethod: receipt.method == PaymentMethod.card ? 'card' : 'cash',
+      is58mm: is58mm,
+    );
+    final html = ThermalHtmlGenerator.buildReceiptHtml(
+      printData,
+      logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
+    );
+    if (kIsWeb) {
+      WebReceiptPrinter.showModal(html);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final receipt = widget.receipt;
@@ -15171,6 +15296,11 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: Colors.white),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.visibility_rounded, color: Colors.white),
+            tooltip: "Chekni ko'rish (modal)",
+            onPressed: _showModalPreview,
+          ),
           IconButton(
             icon: const Icon(Icons.print_rounded, color: Colors.white),
             tooltip: 'Mijoz chekini chop etish',
@@ -15233,6 +15363,24 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                       .toList(),
                 ),
                 const SizedBox(height: 20),
+                if (kIsWeb) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF315EFB),
+                        backgroundColor: const Color(0xFFEFF6FF),
+                        side: const BorderSide(color: Color(0xFFBFDBFE), width: 1.5),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: _showModalPreview,
+                      icon: const Icon(Icons.description_outlined, size: 20, color: Color(0xFF315EFB)),
+                      label: const Text("Chekni ko'rish (modal)", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: Color(0xFF315EFB))),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 // Qayta chop etish (Mijoz cheki)
                 SizedBox(
                   width: double.infinity,
