@@ -61,7 +61,7 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 // ⚡ ULTRA-FAST HEALTH / PING ENDPOINTS (Zero overhead, instant < 1ms response)
 app.get(['/health', '/api/health'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  return res.status(200).json({ status: 'ok', service: 'zavero-backend', time: Date.now() });
+  return res.status(200).json({ status: 'ok', service: 'zavero-backend', version: '2.5.0-unblocked', time: Date.now() });
 });
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
