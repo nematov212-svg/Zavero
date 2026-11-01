@@ -20,6 +20,11 @@ class WebReceiptPrinter {
     setBrowserHash(hash);
   }
 
+  /// Qog'oz formatini belgilash ('58mm', '80mm', 'a5', 'a4')
+  static void setPaperFormat(String format) {
+    setPaperFormatWeb(format);
+  }
+
   /// Mavjud chek HTML'ini 1:1 formatda PNG rasmga (base64) render qilish
   static Future<String?> renderToPng(String htmlContent, {int widthPx = 576}) async {
     return renderHtmlToPng(htmlContent, widthPx: widthPx);

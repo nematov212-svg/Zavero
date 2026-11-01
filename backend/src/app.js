@@ -45,25 +45,62 @@ if (process.env.RENDER) {
 
 
 app.use(
-
   helmet({
-    crossOriginResourcePolicy: false,
-    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false, // Flutter CanvasKit & Fonts
     dnsPrefetchControl: { allow: false },
-    frameguard: false,
+    frameguard: { action: 'sameorigin' },
     hidePoweredBy: true,
-    hsts: { maxAge: 31536000, includeSubDomains: true },
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
     ieNoOpen: true,
     noSniff: true,
-    referrerPolicy: { policy: 'no-referrer' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     xssFilter: true,
   })
-
 );
 
+const allowedOrigins = [
+  'https://zavero.uz',
+  'https://www.zavero.uz',
+  'https://zavero-backend-production-7dc9.up.railway.app',
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()) : []),
+];
 
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (
+      origin.startsWith('http://localhost:') ||
+      origin.startsWith('http://127.0.0.1:') ||
+      origin.startsWith('http://0.0.0.0:') ||
+      origin.startsWith('chrome-extension://')
+    ) {
+      return callback(null, true);
+    }
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    if (process.env.NODE_ENV === 'production') {
+      return callback(new Error('CORS xavfsizlik cheklovi: Ruxsat berilmagan manba.'));
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'x-cafe-id',
+    'x-device-id',
+    'x-device-name',
+    'x-device-type',
+    'x-print-token',
+    'x-agent-key',
+    'x-telegram-bot-api-secret-token',
+  ],
+};
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+app.use(cors(corsOptions));
 
 // ⚡ ULTRA-FAST HEALTH / PING ENDPOINTS (Zero overhead, instant < 1ms response)
 app.get(['/health', '/api/health'], (req, res) => {

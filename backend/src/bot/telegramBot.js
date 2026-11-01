@@ -821,18 +821,17 @@ const setupBotProfilesAndCommands = async (botInstance) => {
   if (!botInstance) return;
   try {
     const description =
-      `🚀 ZAVERO POS — Kafe, restoran, fast-fud va savdo nuqtalari uchun zamonaviy kassa va avtomatlashtirish tizimi.\n\n` +
-      `✨ Asosiy imkoniyatlar:\n` +
-      `• 📱 QR menyu va onlayn buyurtmalar\n` +
-      `• ⚡️ Tezkor kassa, chek chop etish va hisob-kitob\n` +
-      `• 📊 Real vaqt hisobotlari va kassa tahlili\n` +
-      `• 👥 Xodimlar va stollar boshqaruvi\n` +
-      `• 📦 Ombor qoldig‘i va mahsulotlar hisobi\n` +
-      `• 🎁 Yangi mijozlarga 1 kunlik bepul sinov!\n\n` +
-      `🌐 Rasmiy bot: @zavero_uz`;
+      `🍽 Zavero — kafe va restoranlar uchun zamonaviy boshqaruv tizimi.\n\n` +
+      `Zavero yordamida kafe egasi buyurtmalar, stollar, ofitsiantlar, kassa, chek va hisobotlarni bitta joydan boshqaradi.\n\n` +
+      `✅ Ofitsiant paneli — buyurtmani tez qabul qilish\n` +
+      `✅ Kafe paneli — savdo, mahsulotlar va xodimlar nazorati\n` +
+      `✅ Real vaqt hisobotlari — tushum va sotuvlar\n` +
+      `✅ Termal printerda chek chiqarish (58mm/80mm)\n` +
+      `✅ Xavfsiz bulutli ma'lumotlar\n\n` +
+      `Zavero — hisob-kitobni osonlashtiradi, xizmatni tezlashtiradi.`;
 
     const shortDescription =
-      `ZAVERO POS — Kafe, restoran va savdo nuqtalari uchun professional kassa va avtomatlashtirish tizimi.`;
+      `🍽 Zavero — kafe va restoranlar uchun zamonaviy boshqaruv tizimi. Hisob-kitobni osonlashtiradi, xizmatni tezlashtiradi.`;
 
     // Set Description (What can this bot do?)
     try {
@@ -854,6 +853,7 @@ const setupBotProfilesAndCommands = async (botInstance) => {
     try {
       await botInstance.telegram.setMyCommands([
         { command: 'start', description: '🚀 Asosiy menyu' },
+        { command: 'about', description: '🍽 Biz haqimizda' },
         { command: 'app', description: '📱 ZAVERO POS Mini App ilovasini ochish' },
         { command: 'stollar', description: '📋 Stol holatlari va band qilish' },
         { command: 'reservations', description: '📅 Joriy band qilingan stollar' },
@@ -1032,9 +1032,10 @@ const initTelegramBot = () => {
 
         const buttons = [
           [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', webAppUrl)],
+          [Markup.button.callback('🍽 Biz haqimizda', 'bot_about'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
           [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
           [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
-          [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
+          [Markup.button.callback('👤 Profilim', 'my_profile')],
         ];
         if (isAdmin) {
           buttons.push([Markup.button.callback('🛡 Admin boshqaruvi', 'admin_open_dash')]);
@@ -3075,45 +3076,74 @@ const initTelegramBot = () => {
       }
     });
 
-    // Command: /about, /info (Zavero POS haqida to'liq ma'lumot)
+    // ============================================================
+    // HARDCODED IMMUTABLE "BIZ HAQIMIZDA" (ABOUT) SECTION
+    // ============================================================
+    const ZAVERO_ABOUT_TEXT =
+      `🍽 <b>Zavero — kafe va restoranlar uchun zamonaviy boshqaruv tizimi.</b>\n\n` +
+      `Zavero yordamida kafe egasi buyurtmalar, stollar, ofitsiantlar, kassa, chek va hisobotlarni bitta joydan boshqaradi.\n\n` +
+      `✅ <b>Ofitsiant paneli</b> — buyurtmani tez qabul qilish\n` +
+      `✅ <b>Kafe paneli</b> — savdo, mahsulotlar va xodimlar nazorati\n` +
+      `✅ <b>Real vaqt hisobotlari</b> — kunlik tushum va eng ko'p sotilgan taomlar\n` +
+      `✅ <b>Termal printerda chek chiqarish</b> (58 mm va 80 mm)\n` +
+      `✅ <b>Bir nechta kafeni alohida-alohida yuritish imkoniyati</b>\n` +
+      `✅ <b>Ma'lumotlar xavfsiz saqlanadi va yo'qolmaydi</b>\n\n` +
+      `<i>Zavero — hisob-kitobni osonlashtiradi, xizmatni tezlashtiradi.</i>`;
+
     const sendAboutInfo = async (ctx) => {
-      const activeSub = await getUserSubscription(ctx.from.id);
-      const webAppUrl = getWebAppUrl();
-      const settings = await getBotSettings();
-      const adminContact = settings.admin_contact || '@mirzobekn';
-      const cleanAdmin = adminContact.replace('@', '');
+      try {
+        if (ctx.callbackQuery) {
+          await ctx.answerCbQuery().catch(() => {});
+        }
 
-      const text =
-        `🚀 <b>ZAVERO POS — AVTOMATLASHTIRISH VA KASSA TIZIMI</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `<b>ZAVERO POS</b> — Kafe, restoran, fast-fud, oshxona va chakana savdo do‘konlari uchun yaratilgan zamonaviy bulutli (cloud) kassa va boshqaruv tizimi.\n\n` +
-        `✨ <b>ASOSIY IMKONIYATLAR:</b>\n` +
-        `• 📱 <b>QR Menyu va Buyurtmalar:</b> Mijozlar stoldagi QR kod orqali menyuni ko‘rib darhol buyurtma beradi\n` +
-        `• ⚡️ <b>Tezkor Kassa:</b> Bir necha soniyada chek chiqarish, naqd, karta va aralash to‘lovlar\n` +
-        `• 📊 <b>Moliya va Hisobot:</b> Kunlik, haftalik, oylik tushum, xarajatlar va sof foyda hisobi\n` +
-        `• 👥 <b>Xodimlar Nazorati:</b> Kassir, ofitsiant va oshpaz rollari, oyliklar hisob-kitobi\n` +
-        `• 📦 <b>Ombor va Mahsulotlar:</b> Qoldiqlar tahlili, kam qolgan tovarlar haqida bildirishnoma\n` +
-        `• 🎁 <b>1 Kunlik Bepul Sinov:</b> Yangi foydalanuvchilar tizimni 24 soat mutlaqo bepul sinab ko‘rishi mumkin!\n\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `📢 Rasmiy kanal: ${settings.required_channel_2 || '@zavero_uz'}\n` +
-        `💬 Aloqa & Qo‘llab-quvvatlash: ${adminContact}`;
+        // Agar foydalanuvchi /about bilan argument kiritib o'zgartirishga urinsa
+        const msgText = (ctx.message?.text || '').trim();
+        const parts = msgText.split(/\s+/);
+        if (parts.length > 1 && (parts[0] === '/about' || parts[0] === '/info' || parts[0] === '/haqida')) {
+          return await ctx.replyWithHTML(
+            `🔒 <b>"Biz haqimizda" matni qat’iy belgilangan.</b>\n` +
+            `Ushbu bo‘lim ma’lumotlarini bot ichidan o‘zgartirib bo‘lmaydi.`
+          );
+        }
 
-      const buttons = [];
-      if (activeSub) {
-        buttons.push([Markup.button.webApp('🚀 ZAVERO POS’NI OCHISH', webAppUrl)]);
-      } else {
-        buttons.push([Markup.button.callback('🎁 1 kunlik bepul sinov olish', 'claim_1day_trial')]);
+        const kb = Markup.inlineKeyboard([
+          [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', getWebAppUrl())],
+          [Markup.button.callback('⬅️ Bosh menyu', 'back_to_start')],
+        ]);
+
+        const MAX_LEN = 4000;
+        if (ZAVERO_ABOUT_TEXT.length <= MAX_LEN) {
+          if (ctx.callbackQuery) {
+            return await ctx.editMessageText(ZAVERO_ABOUT_TEXT, { parse_mode: 'HTML', ...kb })
+              .catch(() => ctx.replyWithHTML(ZAVERO_ABOUT_TEXT, kb));
+          }
+          return await ctx.replyWithHTML(ZAVERO_ABOUT_TEXT, kb);
+        } else {
+          for (let i = 0; i < ZAVERO_ABOUT_TEXT.length; i += MAX_LEN) {
+            const chunk = ZAVERO_ABOUT_TEXT.substring(i, i + MAX_LEN);
+            const isLast = i + MAX_LEN >= ZAVERO_ABOUT_TEXT.length;
+            await ctx.replyWithHTML(chunk, isLast ? kb : undefined);
+          }
+        }
+      } catch (err) {
+        console.error('❌ [Telegram Bot] sendAboutInfo xatosi:', err);
+        return ctx.reply('Tizimda xatolik yuz berdi. Iltimos qayta urinib ko‘ring.').catch(() => {});
       }
-      buttons.push([
-        Markup.button.url('📢 Rasmiy kanal', `https://t.me/${(settings.required_channel_2 || '@zavero_uz').replace('@', '')}`),
-        Markup.button.url('💬 Administrator', `https://t.me/${cleanAdmin}`),
-      ]);
-
-      return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
     };
 
     bot.command('about', sendAboutInfo);
     bot.command('info', sendAboutInfo);
+    bot.command('haqida', sendAboutInfo);
+    bot.action('bot_about', sendAboutInfo);
+    bot.hears(/^(🍽\s*)?(biz\s*haqimizda|haqida|about|info)$/i, sendAboutInfo);
+
+    // Hech kim o'zgartira olmasligi uchun buyruqlarni rad etish
+    bot.command(['set_about', 'edit_about', 'setabout', 'editabout'], (ctx) => {
+      return ctx.replyWithHTML(
+        `🔒 <b>Ruxsat berilmadi!</b>\n` +
+        `"Biz haqimizda" bo‘limi qat’iy kod darajasida saqlangan bo‘lib, uni bot orqali o‘zgartirish taqiqlangan.`
+      );
+    });
 
     // Safe unauthorized response (does not leak any data)
     const replyUnauthorized = async (ctx) => {

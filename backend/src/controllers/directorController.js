@@ -17,34 +17,47 @@ const slugifyCafe = (name) => {
 // GET /api/director/metrics
 const getMetrics = async (req, res) => {
   try {
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    const userId = req.user?.id;
+
+    const cafeScopeCondition = isSuperAdmin
+      ? `c.cafe_id != 'zavero'`
+      : `c.cafe_id != 'zavero' AND (c.director_id = $1 OR c.cafe_id IN (SELECT cafe_id FROM user_cafes WHERE user_id = $1))`;
+    const scopeParams = isSuperAdmin ? [] : [userId];
+
     const cafeStatsRes = await db.query(`
       SELECT 
-        COUNT(*) FILTER (WHERE cafe_id != 'zavero') AS total_cafes,
-        COUNT(*) FILTER (WHERE cafe_id != 'zavero' AND status = 'active' AND (end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)) AS active_cafes,
-        COUNT(*) FILTER (WHERE cafe_id != 'zavero' AND status = 'blocked') AS blocked_cafes,
-        COUNT(*) FILTER (WHERE cafe_id != 'zavero' AND status != 'blocked' AND end_date < CURRENT_TIMESTAMP) AS expired_cafes
-      FROM cafes
-    `);
+        COUNT(*) FILTER (WHERE ${cafeScopeCondition}) AS total_cafes,
+        COUNT(*) FILTER (WHERE ${cafeScopeCondition} AND c.status = 'active' AND (c.end_date IS NULL OR c.end_date >= CURRENT_TIMESTAMP)) AS active_cafes,
+        COUNT(*) FILTER (WHERE ${cafeScopeCondition} AND c.status = 'blocked') AS blocked_cafes,
+        COUNT(*) FILTER (WHERE ${cafeScopeCondition} AND c.status != 'blocked' AND c.end_date < CURRENT_TIMESTAMP) AS expired_cafes
+      FROM cafes c
+    `, scopeParams);
 
     const userStatsRes = await db.query(`
       SELECT 
-        COUNT(*) FILTER (WHERE role != 'director') AS total_users,
-        COUNT(*) FILTER (WHERE role IN ('worker', 'cashier', 'waiter', 'courier')) AS total_workers,
-        COUNT(*) FILTER (WHERE role = 'admin') AS total_owners
-      FROM users
-    `);
+        COUNT(*) FILTER (WHERE u.role != 'director') AS total_users,
+        COUNT(*) FILTER (WHERE u.role IN ('worker', 'cashier', 'waiter', 'courier')) AS total_workers,
+        COUNT(*) FILTER (WHERE u.role = 'admin') AS total_owners
+      FROM users u
+      ${isSuperAdmin ? '' : 'WHERE u.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}
+    `, scopeParams);
 
     const deviceStatsRes = await db.query(`
-      SELECT COUNT(*) AS active_devices FROM devices WHERE is_active = true
-    `);
+      SELECT COUNT(*) AS active_devices FROM devices d
+      WHERE d.is_active = true
+      ${isSuperAdmin ? '' : 'AND d.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}
+    `, scopeParams);
 
     const orderStatsRes = await db.query(`
       SELECT 
-        (SELECT COUNT(*) FROM receipts) + (SELECT COUNT(*) FROM customer_orders) AS total_orders,
-        (SELECT COUNT(*) FROM receipts WHERE date >= CURRENT_DATE) + (SELECT COUNT(*) FROM customer_orders WHERE date >= CURRENT_DATE) AS today_orders,
-        (SELECT COALESCE(SUM(total), 0) FROM receipts WHERE date >= CURRENT_DATE) AS today_revenue,
-        (SELECT COALESCE(SUM(total), 0) FROM receipts) AS total_revenue
-    `);
+        (SELECT COUNT(*) FROM receipts r WHERE 1=1 ${isSuperAdmin ? '' : 'AND r.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}) + 
+        (SELECT COUNT(*) FROM customer_orders co WHERE 1=1 ${isSuperAdmin ? '' : 'AND co.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}) AS total_orders,
+        (SELECT COUNT(*) FROM receipts r WHERE r.date >= CURRENT_DATE ${isSuperAdmin ? '' : 'AND r.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}) + 
+        (SELECT COUNT(*) FROM customer_orders co WHERE co.date >= CURRENT_DATE ${isSuperAdmin ? '' : 'AND co.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}) AS today_orders,
+        (SELECT COALESCE(SUM(total), 0) FROM receipts r WHERE r.date >= CURRENT_DATE ${isSuperAdmin ? '' : 'AND r.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}) AS today_revenue,
+        (SELECT COALESCE(SUM(total), 0) FROM receipts r WHERE 1=1 ${isSuperAdmin ? '' : 'AND r.cafe_id IN (SELECT cafe_id FROM cafes c WHERE ' + cafeScopeCondition + ')'}) AS total_revenue
+    `, scopeParams);
 
     const cStats = cafeStatsRes.rows[0];
     const uStats = userStatsRes.rows[0];
@@ -78,6 +91,21 @@ const getMetrics = async (req, res) => {
 const listCafes = async (req, res) => {
   try {
     const { q, status } = req.query;
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    const userId = req.user?.id;
+
+    const whereClauses = ["c.cafe_id != 'zavero'"];
+    const params = [];
+
+    if (!isSuperAdmin) {
+      params.push(userId);
+      whereClauses.push(`(c.director_id = $${params.length} OR c.cafe_id IN (SELECT cafe_id FROM user_cafes WHERE user_id = $${params.length}))`);
+    }
+
+    if (q && q.trim()) {
+      params.push(`%${q.trim().toLowerCase()}%`);
+      whereClauses.push(`(LOWER(c.cafe_name) LIKE $${params.length} OR LOWER(c.cafe_id) LIKE $${params.length} OR LOWER(c.owner_name) LIKE $${params.length})`);
+    }
 
     const result = await db.query(`
       SELECT 
@@ -87,9 +115,9 @@ const listCafes = async (req, res) => {
         (SELECT COUNT(*) FROM receipts r WHERE r.cafe_id = c.cafe_id) AS receipts_count,
         (SELECT COUNT(*) FROM devices d WHERE d.cafe_id = c.cafe_id AND d.is_active = true) AS active_devices_count
       FROM cafes c
-      WHERE c.cafe_id != 'zavero'
+      WHERE ${whereClauses.join(' AND ')}
       ORDER BY c.created_at DESC
-    `);
+    `, params);
 
     const now = new Date();
 
@@ -273,12 +301,13 @@ const createCafe = async (req, res) => {
     const days = parseInt(durationDays || 30);
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(ownerPassword.trim(), salt);
+    const printAgentToken = 'agy_print_' + require('crypto').randomBytes(24).toString('hex');
 
     await db.withTransaction(async (client) => {
       // 1. Insert cafe
       await client.query(
-        `INSERT INTO cafes (cafe_id, cafe_name, receipt_name, owner_name, owner_phone, owner_email, status, start_date, end_date)
-         VALUES ($1, $2, $3, $4, $5, $6, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + ($7 || ' days')::INTERVAL)`,
+        `INSERT INTO cafes (cafe_id, cafe_name, receipt_name, owner_name, owner_phone, owner_email, status, start_date, end_date, director_id, print_agent_token)
+         VALUES ($1, $2, $3, $4, $5, $6, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + ($7 || ' days')::INTERVAL, $8, $9)`,
         [
           generatedSlug,
           cafeName.trim(),
@@ -287,6 +316,8 @@ const createCafe = async (req, res) => {
           ownerPhone || '',
           cleanEmail,
           days,
+          req.user?.id || null,
+          printAgentToken,
         ]
       );
 
@@ -313,6 +344,23 @@ const createCafe = async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, 'admin', true, false) RETURNING id`,
         [generatedSlug, cleanEmail, passwordHash, ownerName || cafeName.trim(), ownerPhone || '', cleanEmail]
       );
+
+      // 3b. Map into user_cafes for strict tenant isolation
+      await client.query(
+        `INSERT INTO user_cafes (user_id, cafe_id, role)
+         VALUES ($1, $2, 'admin')
+         ON CONFLICT (user_id, cafe_id) DO UPDATE SET role = 'admin'`,
+        [userRes.rows[0].id, generatedSlug]
+      );
+
+      if (req.user?.id) {
+        await client.query(
+          `INSERT INTO user_cafes (user_id, cafe_id, role)
+           VALUES ($1, $2, 'director')
+           ON CONFLICT (user_id, cafe_id) DO NOTHING`,
+          [req.user.id, generatedSlug]
+        );
+      }
 
       // 4. Record subscription
       await client.query(
@@ -342,6 +390,7 @@ const createCafe = async (req, res) => {
       success: true,
       message: "Yangi cafe muvaffaqiyatli yaratildi!",
       cafeId: generatedSlug,
+      printAgentToken,
     });
   } catch (error) {
     console.error('createCafe error:', error);
@@ -415,6 +464,14 @@ const createUser = async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, false) RETURNING id, username, name, email, role`,
       [cafeId, cleanEmail, passwordHash, name.trim(), surname || '', phone || '', cleanEmail, targetRole]
     );
+
+    // Map into user_cafes table
+    await db.query(
+      `INSERT INTO user_cafes (user_id, cafe_id, role)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, cafe_id) DO UPDATE SET role = EXCLUDED.role`,
+      [userRes.rows[0].id, cafeId, targetRole]
+    ).catch(() => {});
 
     // Audit log
     await db.query(

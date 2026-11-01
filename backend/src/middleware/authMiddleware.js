@@ -28,7 +28,34 @@ const invalidateCafeCache = (cafeId) => {
 
 const authMiddleware = async (req, res, next) => {
   try {
+    // 1. Support Hardware Print Agent token authentication via header
+    const printToken = req.headers['x-print-token'] || req.headers['x-agent-key'];
     const authHeader = req.headers.authorization;
+
+    if (printToken || (authHeader && authHeader.startsWith('Bearer agy_print_'))) {
+      const token = printToken || authHeader.split(' ')[1];
+      const cafeRes = await db.query(
+        'SELECT cafe_id, cafe_name, status, end_date FROM cafes WHERE print_agent_token = $1',
+        [token]
+      );
+      if (cafeRes.rows.length === 0) {
+        return res.status(401).json({
+          success: false,
+          message: 'Yaroqsiz print agent kaliti (Unauthorized Print Agent).',
+        });
+      }
+      const cafe = cafeRes.rows[0];
+      req.user = {
+        id: 0,
+        username: 'print_agent',
+        cafeId: cafe.cafe_id,
+        role: 'print_agent',
+      };
+      req.isPrintAgent = true;
+      req.cafe = cafe;
+      return next();
+    }
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
@@ -40,50 +67,90 @@ const authMiddleware = async (req, res, next) => {
     const secret = getJwtSecret();
 
     const decoded = jwt.verify(token, secret);
-    req.user = decoded; // { id, username, cafeId, role }
+    req.user = { ...decoded }; // { id, username, cafeId, role }
 
-    // SaaS Director bypasses cafe-level subscription checks
-    if (decoded.role === 'director') {
-      const targetCafe = req.headers['x-cafe-id'] || req.query.cafeId || (req.body && req.body.cafeId);
+    // 2. Multi-Tenant Role Verification & Isolation
+    if (decoded.role === 'super_admin') {
+      const targetCafe = req.headers['x-cafe-id'] || req.query?.cafeId || (req.body && req.body?.cafeId);
       if (targetCafe) {
         req.user.cafeId = targetCafe;
       }
       return next();
     }
 
-    // Check Cafe Subscription & Block status
-    if (decoded.cafeId) {
-      const cafe = await getCafeStatus(decoded.cafeId);
-      if (!cafe) {
-        return res.status(403).json({
-          success: false,
-          message: 'Ushbu cafe topilmadi yoki o\'chirilgan.',
-        });
+    if (decoded.role === 'director') {
+      const targetCafe = req.headers['x-cafe-id'] || req.query?.cafeId || (req.body && req.body?.cafeId);
+      if (targetCafe) {
+        // STRICT CHECK: Does this director own or belong to this cafe?
+        const authRes = await db.query(
+          `SELECT 1 FROM user_cafes WHERE user_id = $1 AND cafe_id = $2
+           UNION
+           SELECT 1 FROM cafes WHERE cafe_id = $2 AND (director_id = $1 OR owner_email = $3)`,
+          [decoded.id, targetCafe, decoded.username || '']
+        );
+        if (authRes.rows.length === 0) {
+          // Return 404 to avoid leaking existence of other tenants
+          return res.status(404).json({ success: false, message: 'Cafe topilmadi.' });
+        }
+        req.user.cafeId = targetCafe;
       }
-
-      const isBlocked = cafe.status === 'blocked';
-      const isExpired = cafe.end_date ? new Date(cafe.end_date) < new Date() : false;
-
-      // Allow /api/auth/me, change-credentials and password change even if blocked so UI knows state
-      const isAuthExempt = req.baseUrl === '/api/auth' && (
-        req.path === '/me' ||
-        req.path === '/password' ||
-        req.path === '/profile' ||
-        req.path === '/change-credentials'
-      );
-
-      if ((isBlocked || isExpired) && !isAuthExempt) {
-        return res.status(403).json({
-          success: false,
-          message: "Xizmat muddati tugagan yoki to'xtatilgan. Iltimos, administrator bilan bog'laning.",
-          isBlocked,
-          isExpired,
-        });
-      }
-
-      req.cafe = cafe;
+      return next();
     }
 
+    // Standard Cafe roles (admin, cashier, waiter, chef, worker):
+    // MUST NEVER TRUST client-provided cafe_id in headers, query, or body.
+    // Tenant is strictly bound to token.
+    if (!decoded.cafeId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Foydalanuvchi hech qanday kafega biriktirilmagan.',
+      });
+    }
+
+    // Verify user membership in user_cafes
+    const memberCheck = await db.query(
+      'SELECT role FROM user_cafes WHERE user_id = $1 AND cafe_id = $2',
+      [decoded.id, decoded.cafeId]
+    );
+    if (memberCheck.rows.length === 0) {
+      // User is no longer part of this cafe
+      return res.status(403).json({
+        success: false,
+        message: 'Ushbu kafega kirish huquqingiz bekor qilingan.',
+      });
+    }
+
+    // 3. Check Cafe Subscription & Block status
+    const cafe = await getCafeStatus(decoded.cafeId);
+    if (!cafe) {
+      return res.status(404).json({
+        success: false,
+        message: "Ushbu cafe topilmadi yoki o'chirilgan.",
+      });
+    }
+
+    const isBlocked = cafe.status === 'blocked';
+    const isExpired = cafe.end_date ? new Date(cafe.end_date) < new Date() : false;
+
+    // Allow /api/auth/me, change-credentials and password change even if blocked so UI knows state
+    const isAuthExempt = req.baseUrl === '/api/auth' && (
+      req.path === '/me' ||
+      req.path === '/password' ||
+      req.path === '/profile' ||
+      req.path === '/change-credentials' ||
+      req.path === '/logout'
+    );
+
+    if ((isBlocked || isExpired) && !isAuthExempt) {
+      return res.status(403).json({
+        success: false,
+        message: "Xizmat muddati tugagan yoki to'xtatilgan. Iltimos, administrator bilan bog'laning.",
+        isBlocked,
+        isExpired,
+      });
+    }
+
+    req.cafe = cafe;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

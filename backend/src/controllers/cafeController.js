@@ -418,6 +418,43 @@ const getBackupData = async (req, res) => {
   }
 };
 
+// GET /api/cafe/print-agent-token
+const getPrintAgentToken = async (req, res) => {
+  try {
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(401).json({ success: false, message: 'Avtorizatsiya talab etiladi' });
+    const r = await db.query('SELECT print_agent_token FROM cafes WHERE cafe_id = $1', [cafeId]);
+    if (r.rows.length === 0) return res.status(404).json({ success: false, message: 'Cafe topilmadi' });
+    let token = r.rows[0].print_agent_token;
+    if (!token) {
+      const crypto = require('crypto');
+      token = 'agy_print_' + crypto.randomBytes(24).toString('hex');
+      await db.query('UPDATE cafes SET print_agent_token = $1 WHERE cafe_id = $2', [token, cafeId]);
+    }
+    return res.json({ success: true, printAgentToken: token, cafeId });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Server xatosi' });
+  }
+};
+
+// POST /api/cafe/print-agent-token/rotate
+const rotatePrintAgentToken = async (req, res) => {
+  try {
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(401).json({ success: false, message: 'Avtorizatsiya talab etiladi' });
+    const crypto = require('crypto');
+    const newToken = 'agy_print_' + crypto.randomBytes(24).toString('hex');
+    await db.query('UPDATE cafes SET print_agent_token = $1 WHERE cafe_id = $2', [newToken, cafeId]);
+    return res.json({
+      success: true,
+      message: 'Print Agent kaliti muvaffaqiyatli almashtirildi',
+      printAgentToken: newToken,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Server xatosi' });
+  }
+};
+
 module.exports = {
   getFullCafeData,
   restoreMenu,
@@ -432,7 +469,10 @@ module.exports = {
   deleteBanner,
   saveBanners,
   getBackupData,
+  getPrintAgentToken,
+  rotatePrintAgentToken,
 };
+
 
 
 

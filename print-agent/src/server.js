@@ -13,10 +13,24 @@ const queue = new PrintQueue();
 // ── Private Network Access & CORS Headers ───────────────────────────
 // Chrome and modern browsers require Access-Control-Allow-Private-Network
 // when a public HTTPS origin (e.g. Railway) talks to a local agent (0.0.0.0 / localhost).
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (
+    origin.startsWith('http://localhost:') ||
+    origin.startsWith('http://127.0.0.1:') ||
+    origin.startsWith('http://0.0.0.0:')
+  ) return true;
+  if (origin.includes('zavero.uz') || origin.includes('railway.app')) return true;
+  return false;
+};
+
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Print-Key');
   res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
   if (req.method === 'OPTIONS') {
@@ -24,6 +38,17 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Authentication middleware for print operations
+const checkAuth = (req, res, next) => {
+  const secretKey = process.env.PRINT_AGENT_KEY;
+  if (!secretKey) return next();
+  const provided = req.headers['x-print-key'] || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  if (provided !== secretKey) {
+    return res.status(401).json({ success: false, error: 'Avtorizatsiyadan o‘tilmagan (Invalid Print Key)' });
+  }
+  next();
+};
 
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
@@ -40,7 +65,7 @@ app.get('/health', (req, res) => {
 });
 
 // ── 2. GET /printers/discover ──────────────────────────────────────
-app.get('/printers/discover', async (req, res) => {
+app.get('/printers/discover', checkAuth, async (req, res) => {
   try {
     const [usbPrinters, btPrinters] = await Promise.all([
       discoverUsbPrinters(),
@@ -63,7 +88,7 @@ app.get('/printers/discover', async (req, res) => {
 });
 
 // ── 3. POST /printer/test-connection ───────────────────────────────
-app.post('/printer/test-connection', async (req, res) => {
+app.post('/printer/test-connection', checkAuth, async (req, res) => {
   try {
     const { type, ip, port, deviceId } = req.body || {};
     const connType = (type || 'wifi').toLowerCase();
@@ -99,7 +124,7 @@ app.post('/printer/test-connection', async (req, res) => {
 });
 
 // ── 4. POST /print ─────────────────────────────────────────────────
-app.post('/print', async (req, res) => {
+app.post('/print', checkAuth, async (req, res) => {
   try {
     const payload = req.body || {};
     const result = await queue.addJob(payload);
@@ -188,3 +213,4 @@ server.on('error', (err) => {
     log(`❌ Server xatosi: ${err.message}`, 'ERROR');
   }
 });
+

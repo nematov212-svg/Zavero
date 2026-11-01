@@ -182,6 +182,8 @@ ALTER TABLE receipts ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120);
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS order_id VARCHAR(64);
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS waiter_id VARCHAR(64);
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS type VARCHAR(32) DEFAULT 'receipt';
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS print_status VARCHAR(32) DEFAULT 'unprinted';
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS printed_at TIMESTAMP WITH TIME ZONE;
 CREATE INDEX IF NOT EXISTS idx_receipts_cafe_date ON receipts(cafe_id, date DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_idempotency ON receipts(cafe_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
@@ -510,4 +512,45 @@ CREATE TABLE IF NOT EXISTS print_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_print_jobs_cafe_status ON print_jobs(cafe_id, status);
 CREATE INDEX IF NOT EXISTS idx_print_jobs_created ON print_jobs(created_at);
+
+-- 28. USER CAFES (Strict multi-tenant membership mapping)
+CREATE TABLE IF NOT EXISTS user_cafes (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    cafe_id VARCHAR(64) NOT NULL REFERENCES cafes(cafe_id) ON DELETE CASCADE,
+    role VARCHAR(30) NOT NULL DEFAULT 'cashier',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, cafe_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_cafes_user ON user_cafes(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_cafes_cafe ON user_cafes(cafe_id);
+
+ALTER TABLE cafes ADD COLUMN IF NOT EXISTS director_id INTEGER REFERENCES users(id);
+ALTER TABLE cafes ADD COLUMN IF NOT EXISTS print_agent_token VARCHAR(120);
+CREATE INDEX IF NOT EXISTS idx_cafes_director ON cafes(director_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cafes_print_agent_token ON cafes(print_agent_token) WHERE print_agent_token IS NOT NULL;
+
+-- 29. REFRESH TOKENS (Secure token rotation & session revocation)
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by_ip VARCHAR(50)
+);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+
+-- 30. FAILED LOGINS (Brute force & account locking protection)
+CREATE TABLE IF NOT EXISTS failed_logins (
+    id SERIAL PRIMARY KEY,
+    identifier VARCHAR(150) NOT NULL,
+    ip_address VARCHAR(50) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    last_attempt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    locked_until TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX IF NOT EXISTS idx_failed_logins_ident ON failed_logins(identifier, ip_address);
+
 

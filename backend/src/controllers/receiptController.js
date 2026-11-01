@@ -96,13 +96,20 @@ const checkout = async (req, res) => {
       const date = receipt.date ? new Date(receipt.date) : new Date();
       const dateId = dateIdFrom(date);
 
+      const printStatus = receipt.printStatus || req.body.printStatus || 'unprinted';
+      const isPrinted = printStatus === 'printed';
+
       const receiptResult = await client.query(
-        `INSERT INTO receipts (cafe_id, date, items, total, method, cashier_name, table_number, hall_name, cash_paid, card_paid, idempotency_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        `INSERT INTO receipts (
+           cafe_id, date, items, total, method, cashier_name, table_number,
+           hall_name, cash_paid, card_paid, idempotency_key, print_status, printed_at
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
         [
           cafeId, date, JSON.stringify(items), receipt.total || 0, receipt.method || 'cash',
           receipt.cashierName || '', receipt.tableNumber ?? null, receipt.hallName ?? null,
           receipt.cashPaid || 0, receipt.cardPaid || 0, effectiveIdempotencyKey || null,
+          printStatus, isPrinted ? date : null,
         ]
       );
       const receiptRow = receiptResult.rows[0];
@@ -228,7 +235,16 @@ const checkout = async (req, res) => {
 
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
     notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow) });
-    // Telegram botga chek/stol bo'yicha spam xabar yuborish to'xtatildi (Talab 6)
+
+    // 6-TALAB: Telegram bot orqali chek yuborish (agar sozlamada yoqilgan bo'lsa)
+    try {
+      db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]).then((sRes) => {
+        const cSettings = sRes.rows[0]?.data || {};
+        if (cSettings.telegramReceiptsEnabled && cSettings.telegramReceiptChatId) {
+          sendReceiptNotificationToTelegram(cSettings.telegramReceiptChatId, receiptRow, items, cSettings);
+        }
+      }).catch(() => {});
+    } catch (_) {}
     const relId = effectiveTableId || tableId;
     if (relId || effectiveTableNumber) {
       notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: relId, tableNumber: effectiveTableNumber });
@@ -581,4 +597,89 @@ const createReceipt = async (req, res) => {
   }
 };
 
-module.exports = { list, checkout, viewReceiptHtml, createReceipt };
+// PATCH /api/receipts/:id/print-status — Chek holatini yangilash ('printed' | 'queued' | 'unprinted')
+const updatePrintStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!['printed', 'queued', 'unprinted'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Status noto‘g‘ri' });
+    }
+    const result = await db.query(
+      `UPDATE receipts 
+       SET print_status = $1, 
+           printed_at = (CASE WHEN $1 = 'printed' THEN CURRENT_TIMESTAMP ELSE printed_at END)
+       WHERE id = $2 AND cafe_id = $3 RETURNING *`,
+      [status, id, req.user.cafeId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Chek topilmadi' });
+    }
+    return res.json({ success: true, receipt: mapReceipt(result.rows[0]) });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// GET /api/receipts/unprinted — Chiqarilmagan yoki navbatda turgan cheklar ro'yxati
+const getUnprintedReceipts = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT * FROM receipts 
+       WHERE cafe_id = $1 AND (print_status = 'unprinted' OR print_status = 'queued' OR print_status IS NULL)
+       ORDER BY date ASC LIMIT 100`,
+      [req.user.cafeId]
+    );
+    return res.json({ success: true, receipts: result.rows.map(mapReceipt) });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// Telegram bot orqali chekni ko'rsatilgan chatga jo'natish (Talab 6)
+async function sendReceiptNotificationToTelegram(chatId, receipt, items, settings = {}) {
+  try {
+    const { getBotInstance } = require('../bot/telegramBot');
+    const bot = getBotInstance();
+    if (!bot || !bot.telegram) return;
+
+    const cafeName = settings.restaurantName || 'Family Cafe';
+    const dateStr = new Date(receipt.date).toLocaleString('uz-UZ', { timeZone: 'Asia/Tashkent' });
+    const methodStr = receipt.method === 'card' ? 'Karta' : 'Naqd';
+    const tableStr = receipt.table_number ? `Stol #${receipt.table_number}` : (receipt.hall_name || 'Olib ketish');
+
+    let text = `🧾 <b>YANGI TO‘LANGAN CHEK #${receipt.id}</b>\n`;
+    text += `☕ <b>${cafeName}</b>\n`;
+    text += `📍 Joy: <b>${tableStr}</b>\n`;
+    text += `👤 Kassir/Ofitsiant: <b>${receipt.cashier_name || 'Admin'}</b>\n`;
+    text += `🕒 Vaqt: <code>${dateStr}</code>\n`;
+    text += `💳 To‘lov usuli: <b>${methodStr}</b>\n`;
+    text += `──────────────────\n`;
+
+    const parsedItems = Array.isArray(items) ? items : (typeof items === 'string' ? JSON.parse(items) : []);
+    for (const it of parsedItems) {
+      const pName = it.product?.name || it.name || 'Mahsulot';
+      const qty = it.qty || 1;
+      const price = it.product?.price || it.price || 0;
+      const lineTotal = price * qty;
+      text += `• ${pName} × ${qty} = <b>${Number(lineTotal).toLocaleString('uz-UZ')} so'm</b>\n`;
+    }
+
+    text += `──────────────────\n`;
+    text += `💰 <b>JAMI: ${Number(receipt.total).toLocaleString('uz-UZ')} so'm</b>\n`;
+
+    await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
+  } catch (err) {
+    console.error('⚠️ [Telegram Receipt] Yuborishda xatolik:', err.message);
+  }
+}
+
+module.exports = {
+  list,
+  checkout,
+  viewReceiptHtml,
+  createReceipt,
+  updatePrintStatus,
+  getUnprintedReceipts,
+  sendReceiptNotificationToTelegram,
+};

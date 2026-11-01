@@ -20,7 +20,7 @@ const getAdminIds = async () => {
     if (res.rows.length > 0 && res.rows[0].value) {
       res.rows[0].value.split(',').forEach((id) => id.trim() && ids.add(id.trim()));
     }
-  } catch (_) {}
+  } catch (_) { }
   return Array.from(ids);
 };
 
@@ -93,6 +93,8 @@ const initSubscriptionBot = () => {
   }
 
   // Otherwise, attach handlers to the main unified telegramBot instance
+
+
   const mainBot = getBotInstance();
   if (mainBot) {
     registerSubscriptionHandlers(mainBot);

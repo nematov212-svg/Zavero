@@ -159,3 +159,4 @@ module.exports = {
   testUsbConnection,
   sendUsbRaw,
 };
+

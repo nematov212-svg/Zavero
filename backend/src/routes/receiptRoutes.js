@@ -75,6 +75,8 @@ router.post('/print-jobs/:id/fail', async (req, res) => {
 
 router.use(auth);
 router.get('/', c.list);
+router.get('/unprinted', c.getUnprintedReceipts);
+router.patch('/:id/print-status', c.updatePrintStatus);
 router.post('/', c.createReceipt);
 router.post('/checkout', c.checkout);
 

@@ -28,6 +28,7 @@ import 'services/auth_service.dart';
 import 'services/cloud_service.dart';
 import 'services/pin_security_service.dart';
 import 'services/socket_service.dart';
+import 'preset_food_library.dart';
 import 'services/supabase_realtime_service.dart';
 import 'services/local_cache_service.dart';
 import 'services/sound_service.dart';
@@ -46,6 +47,47 @@ import 'widgets/cafe_executive_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 1. Production Global Crash & Error Boundary Handlers
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('🛡️ [Global FlutterError] ${details.exceptionAsString()}');
+  };
+
+  WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+    debugPrint('🛡️ [Global Platform Error] $error');
+    return true; // Handled, prevent app crash
+  };
+
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Material(
+      color: const Color(0xFF0F172A),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.info_outline, color: Colors.amber, size: 48),
+              const SizedBox(height: 16),
+              const Text(
+                'Kechirasiz, kutilmagan xatolik yuz berdi.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Ma\'lumotlaringiz xavfsiz saqlangan. Iltimos, sahifani yangilang.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  };
+
   try {
     await LocalizationService().init();
     await LocalCacheService().init();
@@ -344,6 +386,68 @@ class AppState extends ChangeNotifier {
   int printerCharsPerLine = 48;
   PrinterFontSize printerFontSize = PrinterFontSize.normal;
   bool autoPrintOnPaid = true;
+  String paperFormat = '80mm'; // '58mm', '80mm', 'a5', 'a4'
+  bool telegramReceiptsEnabled = false;
+  String telegramReceiptsChatId = '';
+
+  void setPaperFormat(String format) {
+    paperFormat = format;
+    if (format == '58mm') {
+      paperWidthMm = 58;
+      printerCharsPerLine = 32;
+    } else if (format == '80mm') {
+      paperWidthMm = 80;
+      printerCharsPerLine = 48;
+    } else if (format == 'a5') {
+      paperWidthMm = 148;
+      printerCharsPerLine = 64;
+    } else if (format == 'a4') {
+      paperWidthMm = 210;
+      printerCharsPerLine = 80;
+    }
+    WebReceiptPrinter.setPaperFormat(format);
+    notifyListeners();
+  }
+
+  Future<bool> checkPrinterConnectionQuick() async {
+    try {
+      if (kIsWeb) {
+        final isAgentUp = await PrintAgentService().isAgentRunning();
+        if (!isAgentUp) {
+          isPrinterVerified = false;
+          printerVerifiedInfo = null;
+          notifyListeners();
+          return false;
+        }
+        final result = await PrintAgentService().testConnection(
+          type: printerConnectionType,
+          ip: printerIp,
+          port: printerPort,
+          deviceId: printerConnectionType == 'usb' ? printerUsbName : printerBtName,
+        );
+        isPrinterVerified = result.ok;
+        printerVerifiedInfo = result.ok ? '${result.latencyMs}ms' : null;
+        notifyListeners();
+        return result.ok;
+      } else if (printerConnectionType == 'wifi' && printerIp.isNotEmpty) {
+        try {
+          await NetworkPrinterService.testConnection(ip: printerIp, port: printerPort);
+          isPrinterVerified = true;
+          printerVerifiedInfo = '< 50ms';
+        } catch (_) {
+          isPrinterVerified = false;
+          printerVerifiedInfo = null;
+        }
+        notifyListeners();
+        return isPrinterVerified;
+      }
+    } catch (_) {
+      isPrinterVerified = false;
+      printerVerifiedInfo = null;
+      notifyListeners();
+    }
+    return isPrinterVerified;
+  }
 
   // Oshxona printeri (alohida oshpaz cheki uchun)
   bool kitchenPrinterEnabled = false;
@@ -977,6 +1081,17 @@ class AppState extends ChangeNotifier {
         if (cloudSettings.containsKey('paperWidthMm')) {
           final pw = cloudSettings['paperWidthMm'];
           paperWidthMm = pw is num ? pw.toInt() : (int.tryParse('$pw') ?? paperWidthMm);
+        }
+        if (cloudSettings.containsKey('paperFormat')) {
+          paperFormat = cloudSettings['paperFormat']?.toString() ?? paperFormat;
+        }
+        if (cloudSettings.containsKey('telegramReceiptsEnabled')) {
+          telegramReceiptsEnabled = cloudSettings['telegramReceiptsEnabled'] == true ||
+              cloudSettings['telegramReceiptsEnabled'] == 'true' ||
+              cloudSettings['telegramReceiptsEnabled'] == 1;
+        }
+        if (cloudSettings.containsKey('telegramReceiptsChatId')) {
+          telegramReceiptsChatId = cloudSettings['telegramReceiptsChatId']?.toString() ?? '';
         }
         if (cloudSettings.containsKey('receiptBoldHeader')) {
           final rbh = cloudSettings['receiptBoldHeader'];
@@ -2167,6 +2282,8 @@ class AppState extends ChangeNotifier {
     double cashPaid = 0,
     double cardPaid = 0,
     String? idempotencyKey,
+    String printStatus = 'unprinted',
+    DateTime? printedAt,
   }) async {
     final r = Receipt(
       id: nextId(),
@@ -2181,6 +2298,8 @@ class AppState extends ChangeNotifier {
       hallName: selectedHall?.name,
       cashPaid: cashPaid,
       cardPaid: cardPaid,
+      printStatus: printStatus,
+      printedAt: printedAt,
     );
     receipts.insert(0, r);
 
@@ -2562,6 +2681,9 @@ class AppState extends ChangeNotifier {
       'printerCharsPerLine': printerCharsPerLine,
       'printerFontSize': printerFontSize.index,
       'paperWidthMm': paperWidthMm,
+      'paperFormat': paperFormat,
+      'telegramReceiptsEnabled': telegramReceiptsEnabled,
+      'telegramReceiptsChatId': telegramReceiptsChatId,
       'receiptBoldHeader': receiptBoldHeader,
       'receiptHeaderAlign': receiptHeaderAlign.index,
       'kitchenPrinterEnabled': kitchenPrinterEnabled,
@@ -2861,6 +2983,9 @@ class AppState extends ChangeNotifier {
     await prefs.setBool('receiptBoldHeader', receiptBoldHeader);
     await prefs.setInt('receiptHeaderAlign', receiptHeaderAlign.index);
     await prefs.setInt('paperWidthMm', paperWidthMm);
+    await prefs.setString('paperFormat', paperFormat);
+    await prefs.setBool('telegramReceiptsEnabled', telegramReceiptsEnabled);
+    await prefs.setString('telegramReceiptsChatId', telegramReceiptsChatId);
     await prefs.setDouble('printerMarginMm', printerMarginMm);
     await prefs.setBool('showWaiterName', showWaiterName);
     await prefs.setBool('showTableName', showTableName);
@@ -3000,6 +3125,9 @@ class AppState extends ChangeNotifier {
       )];
     }
     paperWidthMm = prefs.getInt('paperWidthMm') ?? paperWidthMm;
+    paperFormat = prefs.getString('paperFormat') ?? (paperWidthMm == 58 ? '58mm' : '80mm');
+    telegramReceiptsEnabled = prefs.getBool('telegramReceiptsEnabled') ?? false;
+    telegramReceiptsChatId = prefs.getString('telegramReceiptsChatId') ?? '';
     printerMarginMm = prefs.getDouble('printerMarginMm') ?? printerMarginMm;
     showWaiterName = _safeBoolFromPrefs(prefs, 'showWaiterName', showWaiterName);
     showTableName = _safeBoolFromPrefs(prefs, 'showTableName', showTableName);
@@ -3725,6 +3853,13 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
   }
 
   if (printedViaDirect) {
+    receipt.printStatus = 'printed';
+    receipt.printedAt = DateTime.now();
+    unawaited(ApiClient().patch('/receipts/${receipt.id}/print-status', body: {
+      'printStatus': 'printed',
+      'printedAt': receipt.printedAt?.toIso8601String(),
+    }).catchError((_) => <String, dynamic>{}));
+    appState.notifyChanges();
     appMessengerKey.currentState?.showSnackBar(
       const SnackBar(
         content: Text("Chek printerdan muvaffaqiyatli chop etildi"),
@@ -8598,11 +8733,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                       onManageAds: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdsManagementScreen())),
                     )
                   : Container(
+                    
                       color: const Color(0xFFF5F7FB),
+
                       child: Column(
+
                         crossAxisAlignment: CrossAxisAlignment.start,
+
                         children: [
+
                     // Section header
+
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
                       child: Row(children: [
@@ -10471,1810 +10612,10 @@ class _ProductCard extends StatelessWidget {
 // PRESET FOOD IMAGES LIBRARY & PRODUCT EDIT DIALOG
 // ============================================================
 
-class _PresetFoodItem {
-  final String title;
-  final String url;
-  final String? subtitle;
-
-  const _PresetFoodItem({
-    required this.title,
-    required this.url,
-    this.subtitle,
-  });
-}
-
-class _PresetFoodCategory {
-  final String title;
-  final IconData icon;
-  final List<_PresetFoodItem> items;
-
-  const _PresetFoodCategory({
-    required this.title,
-    required this.icon,
-    required this.items,
-  });
-
-  List<String> get images => items.map((e) => e.url).toList();
-}
-
-const List<_PresetFoodCategory> _presetFoodLibraries = [
-  // 1. Shaurma (Alohida - 18 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Shaurma',
-    icon: Icons.lunch_dining_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Klassik Shaurma',
-        subtitle: 'Go\'shtli va qarsildoq',
-        url: 'https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Katta Shaurma (Max)',
-        subtitle: 'Katta porsiya',
-        url: 'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tovuqli Shaurma',
-        subtitle: 'Mayin tovuq go\'shti',
-        url: 'https://images.unsplash.com/photo-1561651823-34feb02250e4?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pishloqli Shaurma',
-        subtitle: 'Eritilgan mozzarella',
-        url: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tandir Shaurma',
-        subtitle: 'Tandirda qizargan',
-        url: 'https://images.unsplash.com/photo-1561758033-d89a9ad46330?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Achchiq Shaurma (Hot)',
-        subtitle: 'Jalapeno & sous',
-        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mini Shaurma',
-        subtitle: 'Kichik porsiya',
-        url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Arabcha Shaurma',
-        subtitle: 'Maxsus arab ziravorlari',
-        url: 'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Doner Shaurma',
-        subtitle: 'Baton nonida go\'shtli',
-        url: 'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shaurma Pita',
-        subtitle: 'Yumshoq pita nonida',
-        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shaurma Porsiya',
-        subtitle: 'Likopchada fri bilan',
-        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Assorti Shaurma',
-        subtitle: 'Mol va tovuq go\'shti',
-        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Zavero Special Shaurma',
-        subtitle: 'Mualliflik retsepti',
-        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shaurma Box',
-        subtitle: 'Maxsus qutida set',
-        url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qo\'ziqorinli Shaurma',
-        subtitle: 'Shampinyon qo\'ziqorinli',
-        url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Double Shaurma',
-        subtitle: 'Ikki hissa go\'sht',
-        url: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fitter Shaurma',
-        subtitle: 'Dietik sabzavotli',
-        url: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qazili Shaurma',
-        subtitle: 'Qazi bo\'laklari bilan',
-        url: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 2. Lavash (Alohida - 18 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Lavash',
-    icon: Icons.bakery_dining_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Klassik Lavash',
-        subtitle: 'Mol go\'shti va pomidor',
-        url: 'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Katta Go\'shtli Lavash',
-        subtitle: 'Katta porsiya',
-        url: 'https://images.unsplash.com/photo-1561651823-34feb02250e4?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tovuqli Lavash',
-        subtitle: 'Tovuq filesi va sous',
-        url: 'https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pishloqli Lavash',
-        subtitle: 'Mozzarella va chedder',
-        url: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tandir Lavash',
-        subtitle: 'Haqiqiy tandirda pishgan',
-        url: 'https://images.unsplash.com/photo-1561758033-d89a9ad46330?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Achchiq Lavash',
-        subtitle: 'Achchiq sous bilan',
-        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mini Lavash',
-        subtitle: 'Bolalar va yengil tamaddi',
-        url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qazili Lavash',
-        subtitle: 'Milliy qazi bilan',
-        url: 'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fitter Lavash',
-        subtitle: 'Kam yog\'li kuritsa bilan',
-        url: 'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Lavash Box',
-        subtitle: 'Fri va sous bilan set',
-        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Go\'sht & Pishloq Lavash',
-        subtitle: 'Ko\'p go\'sht va erigan pishloq',
-        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qo\'ziqorinli Lavash',
-        subtitle: 'Qovurilgan qo\'ziqorinli',
-        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Double Go\'sht Lavash',
-        subtitle: '2 barobar ko\'p go\'sht',
-        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Lavash Porsiya',
-        subtitle: 'Likopcha va garnirlar',
-        url: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Zavero Special Lavash',
-        subtitle: 'Zavero maxsus ta\'mi',
-        url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mol Go\'shtli Tandir',
-        subtitle: 'Shirador mol go\'shti',
-        url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Kichik Tovuq Lavash',
-        subtitle: 'Standart tovuqli',
-        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Lavash Roll',
-        subtitle: 'Kesilgan mini bo\'laklar',
-        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 3. Burger & Fast Food (18 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Burger & Fast Food',
-    icon: Icons.fastfood_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Cheeseburger',
-        subtitle: 'Klassik pishloqli kotlet',
-        url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Hamburger',
-        subtitle: 'Shirador kotlet va bodring',
-        url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Double Cheeseburger',
-        subtitle: '2 ta kotlet va erigan pishloq',
-        url: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Big Burger',
-        subtitle: 'Katta o\'lchamli maxsus burger',
-        url: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Chiken Burger',
-        subtitle: 'Qarsildoq tovuq kotleti',
-        url: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Barbecue Burger',
-        subtitle: 'Tutuqli BBQ sous bilan',
-        url: 'https://images.unsplash.com/photo-1607013251379-e6eecfffe234?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qora Burger (Black)',
-        subtitle: 'Qora nonda maxsus burger',
-        url: 'https://images.unsplash.com/photo-1619881589775-96101c51950e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mini Burger',
-        subtitle: 'Bolalar uchun porsiya',
-        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Zavero Max Burger',
-        subtitle: 'Barcha qo\'shimchalar bilan',
-        url: 'https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fri Kartoshkasi',
-        subtitle: 'Qarsildoq oltin fri',
-        url: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Nagets (6 dona)',
-        subtitle: 'Tovuqli oltin nagets',
-        url: 'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tovuq Stripsilari',
-        subtitle: 'Qarsildoq tovuq filesi',
-        url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qarsildoq Qanotchalar',
-        subtitle: 'Achchiq-shirin qanotlar',
-        url: 'https://images.unsplash.com/photo-1527477321005-4d01d75bc660?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pishloqli Halqalar',
-        subtitle: 'Mozzarella halqalari',
-        url: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qishloqcha Fri',
-        subtitle: 'Po-derevenski kartoshka',
-        url: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Jalapeno Burger',
-        subtitle: 'Achchiq qalampirli',
-        url: 'https://images.unsplash.com/photo-1551782450-a2132b4ba21d?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Smokey Bacon Burger',
-        subtitle: 'Tutuqli bekoni bilan',
-        url: 'https://images.unsplash.com/photo-1582196016295-f8c8bd4b3e99?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Kombo Burger Set',
-        subtitle: 'Burger, fri va ichimlik',
-        url: 'https://images.unsplash.com/photo-1521305916504-4a1121188589?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 4. Hot-dog & Sendvich (16 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Hot-dog & Sendvich',
-    icon: Icons.breakfast_dining_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Klassik Hot-dog',
-        subtitle: 'Sosiska, xantal va sous',
-        url: 'https://images.unsplash.com/photo-1619740455993-9e612b1af08a?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Katta Hot-dog (Max)',
-        subtitle: 'Katta dudlangan sosiska',
-        url: 'https://images.unsplash.com/photo-1627059173003-8898198947f6?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Ovchi Hot-dog (Hunter)',
-        subtitle: 'Ovchi sosiskasi bilan',
-        url: 'https://images.unsplash.com/photo-1612528443702-f6741f74a04b?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pishloqli Hot-dog',
-        subtitle: 'Erigan mozzarella va chedder',
-        url: 'https://images.unsplash.com/photo-1541214113241-21578d2d9b62?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Achchiq Jalapeno Hot-dog',
-        subtitle: 'Olovli achchiq qalampir',
-        url: 'https://images.unsplash.com/photo-1585238342024-78d387f4a707?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Frantsuzcha Hot-dog',
-        subtitle: 'Baqat nonda sosiskali',
-        url: 'https://images.unsplash.com/photo-1592415486689-125cbbfcbee2?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Klabb Sendvich',
-        subtitle: 'Uch burchakli toster non',
-        url: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Toster Sendvich',
-        subtitle: 'Pishloq va vetchina',
-        url: 'https://images.unsplash.com/photo-1554433607-66b5efe9d304?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tovuqli Sendvich',
-        subtitle: 'Gril tovuq filesi',
-        url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mol Go\'shtli Baget Sendvich',
-        subtitle: 'Qarsildoq baget non',
-        url: 'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tunetsli Sendvich',
-        subtitle: 'Dengiz balig\'i va tuxum',
-        url: 'https://images.unsplash.com/photo-1521390188846-e2a39b7ef4a8?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pishloqli Panini',
-        subtitle: 'Grilda pishirilgan panini',
-        url: 'https://images.unsplash.com/photo-1539252554453-80ab65ce3586?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Ham & Cheese Sendvich',
-        subtitle: 'Klassik uyg\'unlik',
-        url: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Gril Sendvich',
-        subtitle: 'Tosterda qizargan non',
-        url: 'https://images.unsplash.com/photo-1567234669003-dce7a7a88821?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mini Sendvichlar Assorti',
-        subtitle: 'Bir nechta ta\'mlar to\'plami',
-        url: 'https://images.unsplash.com/photo-1481070414801-51fd732d7184?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Max Sousli Hot-dog',
-        subtitle: 'Ko\'p sousli va piyozli',
-        url: 'https://images.unsplash.com/photo-1585238341267-1cfbc2046a55?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 5. Pitsa & Piroglar (18 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Pitsa & Piroglar',
-    icon: Icons.local_pizza_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Margarita Pitsa',
-        subtitle: 'Pomidor va mozzarella',
-        url: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepperoni Pitsa',
-        subtitle: 'Dudlangan kolbasa bilan',
-        url: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: '4 Pishloqli Pitsa',
-        subtitle: 'To\'rt xil nozik pishloq',
-        url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qo\'ziqorinli Pitsa',
-        subtitle: 'Shampinyon va oq sous',
-        url: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Go\'shtli Pitsa (Meat)',
-        subtitle: 'Mol go\'shti va qazi',
-        url: 'https://images.unsplash.com/photo-1594007654729-407eedc4be65?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Zavero Assorti Pitsa',
-        subtitle: 'Barcha masalliqlar jamlanmasi',
-        url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tovuqli Pitsa (Chicken)',
-        subtitle: 'Tovuq go\'shti va zaytun',
-        url: 'https://images.unsplash.com/photo-1534308983496-4fabb1a015ee?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Barbekyu Pitsa (BBQ)',
-        subtitle: 'BBQ sous va tovuq',
-        url: 'https://images.unsplash.com/photo-1604382355076-af4b0eb60143?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Dengiz Mahsulotli Pitsa',
-        subtitle: 'Krevyetka va kalmar',
-        url: 'https://images.unsplash.com/photo-1571407970349-bc81e7e96d47?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Achchiq Diavola',
-        subtitle: 'Achchiq qalampir va go\'sht',
-        url: 'https://images.unsplash.com/photo-1588315029754-2dd089d39a1a?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Gavaya Pitsasi',
-        subtitle: 'Ananas va tovuq',
-        url: 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Kalzone (Yopiq pitsa)',
-        subtitle: 'Shirador yopiq pitsa',
-        url: 'https://images.unsplash.com/photo-1541745537411-b8046dc6d66c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Go\'shtli Pirog',
-        subtitle: 'Qatlama xamirdan pirog',
-        url: 'https://images.unsplash.com/photo-1608039829572-78524f79c4c7?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pishloqli Xachapuri',
-        subtitle: 'Gruzincha erigan pishloq',
-        url: 'https://images.unsplash.com/photo-1608897013039-887f21d8c804?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Go\'shtli Lahmajun',
-        subtitle: 'Yupqa turkcha lahmajun',
-        url: 'https://images.unsplash.com/photo-1626074353765-517a681e40be?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pide Go\'shtli',
-        subtitle: 'Qayiqcha shaklidagi pide',
-        url: 'https://images.unsplash.com/photo-1579751626657-72bc17010498?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mini Pitsachalar',
-        subtitle: 'Bolalar uchun ixcham',
-        url: 'https://images.unsplash.com/photo-1595854341625-f33ee10dbf94?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Zavero Mega Pitsa 40cm',
-        subtitle: 'Katta oilaviy pitsa',
-        url: 'https://images.unsplash.com/photo-1590947132387-155cc02f3212?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 6. Milliy taomlar (22 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Milliy taomlar',
-    icon: Icons.outdoor_grill_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Choyxona Oshi',
-        subtitle: 'Dumba va noxatli an\'anaviy osh',
-        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'To\'y Oshi (Devzira)',
-        subtitle: 'Qazi, bedana tuxum va mayiz',
-        url: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tandir Somsa',
-        subtitle: 'Qarsildoq xamir va mayin go\'sht',
-        url: 'https://images.unsplash.com/photo-1608039829572-78524f79c4c7?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qatlama Go\'shtli Somsa',
-        subtitle: 'Qavat-qavat mayin xamir',
-        url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shashlik Qiyma',
-        subtitle: 'Mayin qiyma go\'sht kabob',
-        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shashlik Kuskovoy',
-        subtitle: 'Mol va qo\'y go\'shti lo\'la',
-        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Jigar Shashlik',
-        subtitle: 'Dumba bilan o\'ralgan jigar',
-        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tovuq Shashlik',
-        subtitle: 'Shirador qanot va file',
-        url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qozon Kabob',
-        subtitle: 'Qovurilgan kartoshka va go\'sht',
-        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qovurma Lag\'mon',
-        subtitle: 'Qo\'lda cho\'zilgan lag\'mon',
-        url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Cho\'zma Lag\'mon (Sho\'rva)',
-        subtitle: 'Boy sabzavotli qayla bilan',
-        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Go\'shtli Manti',
-        subtitle: 'Qovoqli va go\'shtli manti',
-        url: 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mastava',
-        subtitle: 'Guruchli va qatiqli milliy taom',
-        url: 'https://images.unsplash.com/photo-1547592180-85f173990554?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Sho\'rva (Qo\'y go\'shtli)',
-        subtitle: 'Sergo\'sht qaynatma sho\'rva',
-        url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Chuchvara Sho\'rvada',
-        subtitle: 'Mayda qo\'lda tugilgan chuchvara',
-        url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Norin',
-        subtitle: 'Yupqa xamir va ot go\'shti',
-        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Dimlama',
-        subtitle: 'Qozonda bug\'langan sabzavotlar',
-        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Jiz-biz',
-        subtitle: 'Qovurilgan shirador go\'sht',
-        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Go\'shtli Non (Patir)',
-        subtitle: 'Tandirda pishgan go\'shtli patir',
-        url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Issiq Tandir Non',
-        subtitle: 'Kunjutli shirmoy non',
-        url: 'https://images.unsplash.com/photo-1586444248902-2f64eddc13df?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qazi Likopchada',
-        subtitle: 'Qalampir va piyoz bilan',
-        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Milliy Assorti Go\'sht',
-        subtitle: 'Qazi, til va rulet',
-        url: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 7. Coca-Cola (Alohida o'lchamlar va turlari)
-  _PresetFoodCategory(
-    title: 'Coca-Cola',
-    icon: Icons.local_drink_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Coca-Cola 0.5L',
-        subtitle: '0.5 litr plastik idish',
-        url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola 1.0L',
-        subtitle: '1.0 litr plastik idish',
-        url: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola 1.5L',
-        subtitle: '1.5 litr katta idish',
-        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola 2.0L',
-        subtitle: '2.0 litr oilaviy idish',
-        url: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola Banka 0.33L',
-        subtitle: 'Temir banka 330ml',
-        url: 'https://images.unsplash.com/photo-1567103472667-6898f3a79cf2?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola Zero 0.5L',
-        subtitle: 'Shakarsiz 0.5 litr',
-        url: 'https://images.unsplash.com/photo-1596803244618-8dbee441d70b?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola Zero 1.5L',
-        subtitle: 'Shakarsiz 1.5 litr',
-        url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola Shisha 0.25L',
-        subtitle: 'Klassik shisha idish',
-        url: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola Muz Bilan',
-        subtitle: 'Stakanda muzdek kola',
-        url: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Coca-Cola Cherry',
-        subtitle: 'Olchali maxsus ta\'m',
-        url: 'https://images.unsplash.com/photo-1567103472667-6898f3a79cf2?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 8. Fanta (Alohida o'lchamlar va turlari)
-  _PresetFoodCategory(
-    title: 'Fanta',
-    icon: Icons.local_drink_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Fanta Apelsin 0.5L',
-        subtitle: '0.5 litr apelsin ta\'mi',
-        url: 'https://images.unsplash.com/photo-1624638760978-7517178385ea?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fanta Apelsin 1.0L',
-        subtitle: '1.0 litr plastik idish',
-        url: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fanta Apelsin 1.5L',
-        subtitle: '1.5 litr katta idish',
-        url: 'https://images.unsplash.com/photo-1579268351234-073f85929562?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fanta Apelsin 2.0L',
-        subtitle: '2.0 litr oilaviy idish',
-        url: 'https://images.unsplash.com/photo-1624638760978-7517178385ea?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fanta Banka 0.33L',
-        subtitle: 'Temir banka 330ml',
-        url: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fanta Shisha 0.25L',
-        subtitle: 'Shisha idish 250ml',
-        url: 'https://images.unsplash.com/photo-1579268351234-073f85929562?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fanta Tropic',
-        subtitle: 'Tropik mevalar ta\'mi',
-        url: 'https://images.unsplash.com/photo-1624638760978-7517178385ea?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fanta Muz Bilan',
-        subtitle: 'Muzli stakanda tetiklantiruvchi',
-        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 9. Pepsi (Alohida o'lchamlar va turlari)
-  _PresetFoodCategory(
-    title: 'Pepsi',
-    icon: Icons.local_drink_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Pepsi 0.5L',
-        subtitle: '0.5 litr plastik idish',
-        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepsi 1.0L',
-        subtitle: '1.0 litr plastik idish',
-        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepsi 1.5L',
-        subtitle: '1.5 litr katta idish',
-        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepsi 2.0L',
-        subtitle: '2.0 litr oilaviy idish',
-        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepsi Banka 0.33L',
-        subtitle: 'Temir banka 330ml',
-        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepsi Max Zero 0.5L',
-        subtitle: 'Shakarsiz 0.5 litr',
-        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepsi Max Zero 1.5L',
-        subtitle: 'Shakarsiz 1.5 litr',
-        url: 'https://images.unsplash.com/photo-1553456558-aff63285bdd1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pepsi Shisha 0.25L',
-        subtitle: 'Shisha idish 250ml',
-        url: 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 10. Muzqaymoq & Marojni (Alohida - 18 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Muzqaymoq & Marojni',
-    icon: Icons.icecream_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Plombir Klassik',
-        subtitle: 'Qaymoqli oq plombir',
-        url: 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shokoladli Marojni',
-        subtitle: 'Quyuq shokoladli muzqaymoq',
-        url: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qulupnayli Marojni',
-        subtitle: 'Haqiqiy mevali qulupnay',
-        url: 'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Rojok Vanilli',
-        subtitle: 'Qarsildoq vafli rojogida',
-        url: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Rojok Shokoladli',
-        subtitle: 'Shokolad glazuri bilan',
-        url: 'https://images.unsplash.com/photo-1562376552-0d160a2f238d?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Eskimo Shokoladda',
-        subtitle: 'Qalin shokolad qoplamasi',
-        url: 'https://images.unsplash.com/photo-1580915411954-282cb1b0d780?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Eskimo Yong\'oqli',
-        subtitle: 'Yong\'oq bo\'laklari bilan',
-        url: 'https://images.unsplash.com/photo-1505394033641-40c6ad1178d7?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Sundae Karamelli',
-        subtitle: 'Iliq karamel va yong\'oq',
-        url: 'https://images.unsplash.com/photo-1570197788417-0e82375c9371?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Sundae Qulupnayli',
-        subtitle: 'Qulupnay murabbosi bilan',
-        url: 'https://images.unsplash.com/photo-1560008581-09826d1de69e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Donali Sharik Marojni',
-        subtitle: '3 xil ta\'m shariklari',
-        url: 'https://images.unsplash.com/photo-1516559828984-fb3b99548b21?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Oreo Muzqaymoq',
-        subtitle: 'Oreo pechenyelari bilan',
-        url: 'https://images.unsplash.com/photo-1587314168485-3236d6710814?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mevali Muzqaymoq',
-        subtitle: 'Yangi mevalar assortisi',
-        url: 'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Muzqaymoq Qadahda',
-        subtitle: 'Restoran taqdimotidagi desert',
-        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pista Muzqaymoq (Pistachio)',
-        subtitle: 'Xushbo\'y pista ta\'mi',
-        url: 'https://images.unsplash.com/photo-1579954115545-a95591f28bfc?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Muzqaymoqli Milkshake',
-        subtitle: 'Quyuq shirin sutli kokteyl',
-        url: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Bananli Split',
-        subtitle: 'Banan va 3 sharik marojni',
-        url: 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mango Sorbet',
-        subtitle: '100% tetiklantiruvchi mevali muz',
-        url: 'https://images.unsplash.com/photo-1501443762994-82bd5dace89a?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Zavero Special Sundae',
-        subtitle: 'Shokolad, meva va qaymoq',
-        url: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 11. Qahva & Choy (16 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Qahva & Choy',
-    icon: Icons.coffee_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Espresso',
-        subtitle: 'Klassik to\'q qahva',
-        url: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Amerikano',
-        subtitle: 'Issiq va yumshoq qahva',
-        url: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Kapuchino',
-        subtitle: 'Qalin va mayin sutli ko\'pik',
-        url: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Latte',
-        subtitle: 'Sutli mayin qahva',
-        url: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mokkachino',
-        subtitle: 'Shokolad va qahva uyg\'unligi',
-        url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Raf Qahva',
-        subtitle: 'Qaymoq va vanilli qahva',
-        url: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Muzli Kofe (Ice Latte)',
-        subtitle: 'Muzdek va tetiklashtiruvchi',
-        url: 'https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Issiq Shokolad (Kakao)',
-        subtitle: 'Quyuq shokoladli ichimlik',
-        url: 'https://images.unsplash.com/photo-1542990253-0d0f5be5f0ed?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Ko\'k Choy (Choynak)',
-        subtitle: 'Ko\'k 95 choyi',
-        url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qora Choy (Choynak)',
-        subtitle: 'Xushbo\'y qora choy',
-        url: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Limonli Choy',
-        subtitle: 'Yangi limon bo\'laklari',
-        url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tog\' Choyi (Giyohli)',
-        subtitle: 'Kiyiko\'t va yalpizli choy',
-        url: 'https://images.unsplash.com/photo-1597481499750-3e6b22637e12?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mevali Choy',
-        subtitle: 'Olma, qulupnay va apelsin',
-        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Zanjabil Choy (Asalli)',
-        subtitle: 'Imbilli va asal bilan',
-        url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qulupnayli Choy',
-        subtitle: 'Yangi qulupnayli choy',
-        url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Matcha Latte',
-        subtitle: 'Yapon yashil choyi latesi',
-        url: 'https://images.unsplash.com/photo-1536256263959-770b48d82b0a?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 12. Sharbat & Suv (16 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Sharbat & Suv',
-    icon: Icons.local_bar_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Apelsin Sharbati (Fresh)',
-        subtitle: 'Yangi siqilgan tabiiy sharbat',
-        url: 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Olma Sharbati',
-        subtitle: '100% tiniq olma sharbati',
-        url: 'https://images.unsplash.com/photo-1568651316335-e106ea46261c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Anor Sharbati',
-        subtitle: 'Vitaminga boy qizil anor',
-        url: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Olcha Sharbati (Vishnya)',
-        subtitle: 'Shirin-nordon olcha',
-        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Gazsiz Suv 0.5L',
-        subtitle: 'Tog\' buloq suvi',
-        url: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Gazsiz Suv 1.5L',
-        subtitle: 'Katta idishda toza suv',
-        url: 'https://images.unsplash.com/photo-1559839914-ba2a578a05c3?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Gazli Suv 0.5L',
-        subtitle: 'Mineral gazli suv',
-        url: 'https://images.unsplash.com/photo-1550572017-edd951aa8f72?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Borjomi',
-        subtitle: 'Shifobaxsh mineral suv',
-        url: 'https://images.unsplash.com/photo-1527661591475-527312dd65f5?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Red Bull Energetik',
-        subtitle: 'Energiya beruvchi ichimlik',
-        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Flash Energetik',
-        subtitle: 'Meva ta\'mli energetik',
-        url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Klassik Mojito',
-        subtitle: 'Yalpiz, laym va muz',
-        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qulupnayli Mojito',
-        subtitle: 'Qulupnay va yalpiz ta\'mi',
-        url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Uy Limonadi',
-        subtitle: 'Tsitrusli salqin ichimlik',
-        url: 'https://images.unsplash.com/photo-1621263764928-df1444c5e859?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tarxun',
-        subtitle: 'Yashil xushbo\'y limonad',
-        url: 'https://images.unsplash.com/photo-1536935338788-846bb9981813?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Dyushes (Nok limonadi)',
-        subtitle: 'Shirin nokli salqin ichimlik',
-        url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Berry Mix Smoothie',
-        subtitle: 'Rezavor mevali smuzi',
-        url: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 13. Shirinliklar & Tortlar (16 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Shirinliklar & Tortlar',
-    icon: Icons.cake_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Medovik (Asalli tort)',
-        subtitle: 'Nozik asal va smetana kremi',
-        url: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Napoleon Torti',
-        subtitle: 'Qatlama xamir va vanilli krem',
-        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qizil Baxmal (Red Velvet)',
-        subtitle: 'Mayin krem-chiz qatlami',
-        url: 'https://images.unsplash.com/photo-1586788680434-30d324b2d46f?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Chizkeyk Nyu-York',
-        subtitle: 'Klassik qaymoqli chizkeyk',
-        url: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shokoladli Fondant',
-        subtitle: 'Ichidan oqib chiquvchi issiq shokolad',
-        url: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tiramisu',
-        subtitle: 'Italiyacha kofe va maskarpone',
-        url: 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Shokoladli Brauni',
-        subtitle: 'Yong\'oqli quyuq shokolad',
-        url: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pahlava (Baklava)',
-        subtitle: 'Asal va yong\'oqli sharqona shirinlik',
-        url: 'https://images.unsplash.com/photo-1587314168485-3236d6710814?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Kruassan Shokoladli',
-        subtitle: 'Fransuzcha mayin qatlama',
-        url: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Ponchiklar Assorti',
-        subtitle: 'Rangli shokolad va nachinka',
-        url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Ekler (2 dona)',
-        subtitle: 'Qaymoqli nachinka bilan',
-        url: 'https://images.unsplash.com/photo-1612203985729-70726954388c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mevali Tort',
-        subtitle: 'Yangi rezavor mevalar bilan',
-        url: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'San-Sebastyan Chizkeyk',
-        subtitle: 'Kuygan kremli chizkeyk',
-        url: 'https://images.unsplash.com/photo-1535141192574-5d4897c13136?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Kapkeyk (Maffin)',
-        subtitle: 'Chiroyli kremli keks',
-        url: 'https://images.unsplash.com/photo-1587668178277-295251f900ce?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Makaron Shirinligi (3 dona)',
-        subtitle: 'Fransuz bodom pechenyesi',
-        url: 'https://images.unsplash.com/photo-1569864358642-9d1684040f43?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Vafli Shirinligi',
-        subtitle: 'Shokolad va meva bilan vafli',
-        url: 'https://images.unsplash.com/photo-1562376552-0d160a2f238d?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-
-  // 14. Salat & Gazaklar (16 ta turli xil)
-  _PresetFoodCategory(
-    title: 'Salat & Gazaklar',
-    icon: Icons.set_meal_rounded,
-    items: [
-      _PresetFoodItem(
-        title: 'Achchiq-chuchuk',
-        subtitle: 'Oshbop mayda to\'g\'ralgan pomidor',
-        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Sezar Salati',
-        subtitle: 'Gril tovuq va parmezan',
-        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Yunoncha Salat (Greek)',
-        subtitle: 'Feta pishloq va zaytun',
-        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Olivye Salati',
-        subtitle: 'Klassik bayramona salat',
-        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Mujskoy Kapriz',
-        subtitle: 'Qazi, til va pishloqli salat',
-        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Bahor Salati',
-        subtitle: 'Rediska, bodring va ko\'katlar',
-        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Suzma Ko\'katlar Bilan',
-        subtitle: 'Xushbo\'y sarimsoqli suzma',
-        url: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Yangi Bodring-Pomidor',
-        subtitle: 'Ko\'katlar bilan to\'g\'ralgan',
-        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Sabzavotli Assorti',
-        subtitle: 'Taziy pomidor, bodring, bulg\'ori',
-        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Pishloqli Assorti',
-        subtitle: 'Turli elita pishloqlar',
-        url: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tovuqli Salat',
-        subtitle: 'Tovuq filesi va bodring',
-        url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qisqichbaqasimon Salat (Krab)',
-        subtitle: 'Krab tayoqchalari va makkajo\'xori',
-        url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Fransuzcha Go\'shtli Salat',
-        subtitle: 'Qovurilgan go\'sht va sabzi',
-        url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qovurilgan Baqlajon Salati',
-        subtitle: 'Qarsildoq baqlajon va sous',
-        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Qazi va Go\'sht Assorti',
-        subtitle: 'Milliy yaxna go\'shtlar',
-        url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80',
-      ),
-      _PresetFoodItem(
-        title: 'Tuzlamalar Assorti',
-        subtitle: 'Tuzlangan pomidor, bodring, patisson',
-        url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80',
-      ),
-    ],
-  ),
-];
-
-class _PresetImagesPickerDialog extends StatefulWidget {
-  const _PresetImagesPickerDialog();
-
-  @override
-  State<_PresetImagesPickerDialog> createState() =>
-      _PresetImagesPickerDialogState();
-}
-
-class _PresetImagesPickerDialogState extends State<_PresetImagesPickerDialog> {
-  int _selectedCategoryIndex = 0;
-  String? _selectedImageUrl;
-  String? _selectedItemName;
-  final TextEditingController _searchCtrl = TextEditingController();
-  String _searchQuery = '';
-  Timer? _searchDebounce;
-
-  @override
-  void dispose() {
-    _searchDebounce?.cancel();
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  void _selectAndFinish(_PresetFoodItem item) {
-    Navigator.pop(context, {
-      'url': item.url,
-      'name': item.title,
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final activeCategory = _presetFoodLibraries[_selectedCategoryIndex];
-
-    // Filter items: if search is active, search across ALL categories
-    final isSearching = _searchQuery.trim().isNotEmpty;
-    final List<_PresetFoodItem> displayedItems;
-    if (isSearching) {
-      final q = _searchQuery.trim().toLowerCase();
-      displayedItems = _presetFoodLibraries
-          .expand((c) => c.items)
-          .where((item) =>
-              item.title.toLowerCase().contains(q) ||
-              (item.subtitle?.toLowerCase().contains(q) ?? false))
-          .toList();
-    } else {
-      displayedItems = activeCategory.items;
-    }
-
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 780, maxHeight: 760),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFFA000), Color(0xFFFFB300)],
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFFFA000).withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(Icons.collections_rounded,
-                        color: Colors.white, size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Text(
-                              'Tayyor taom va ichimlik rasmlari',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: kDarkYellow.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                'Alohida (Adena)',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: kDarkYellow,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Kerakli mahsulotni tanlang yoki qidiring (ikki marta bosib darhol tanlash mumkin)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark ? Colors.white60 : Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // Search Box
-              Container(
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF0F172A)
-                      : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: _searchQuery.isNotEmpty
-                        ? const Color(0xFFFFA000)
-                        : (isDark ? Colors.white12 : Colors.grey.shade300),
-                  ),
-                ),
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (val) {
-                    _searchDebounce?.cancel();
-                    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
-                      if (mounted) setState(() => _searchQuery = val);
-                    });
-                  },
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                  decoration: InputDecoration(
-                    hintText:
-                        'Taom yoki ichimlik qidirish (masalan: 1.5L, shaurma, lavash, marojni, osh)...',
-                    hintStyle: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? Colors.white38 : Colors.grey.shade500,
-                    ),
-                    prefixIcon: Icon(
-                      Icons.search_rounded,
-                      color: _searchQuery.isNotEmpty
-                          ? const Color(0xFFFFA000)
-                          : Colors.grey,
-                    ),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded, size: 18),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                          )
-                        : null,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Categories Horizontal Bar (only when not searching globally)
-              if (!isSearching)
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: Row(
-                    children: List.generate(_presetFoodLibraries.length, (i) {
-                      final cat = _presetFoodLibraries[i];
-                      final isSel = i == _selectedCategoryIndex;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: InkWell(
-                          onTap: () =>
-                              setState(() => _selectedCategoryIndex = i),
-                          borderRadius: BorderRadius.circular(20),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: isSel
-                                  ? (isDark
-                                      ? const Color(0xFFFFA000)
-                                      : const Color(0xFF0F172A))
-                                  : (isDark
-                                      ? const Color(0xFF0F172A)
-                                      : const Color(0xFFF1F5F9)),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: isSel
-                                    ? Colors.transparent
-                                    : (isDark
-                                        ? Colors.white12
-                                        : Colors.grey.shade300),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  cat.icon,
-                                  size: 16,
-                                  color: isSel
-                                      ? Colors.white
-                                      : (isDark
-                                          ? Colors.white70
-                                          : Colors.black87),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  cat.title,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: isSel
-                                        ? Colors.white
-                                        : (isDark
-                                            ? Colors.white70
-                                            : Colors.black87),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: isSel
-                                        ? Colors.white.withValues(alpha: 0.25)
-                                        : (isDark
-                                            ? Colors.white12
-                                            : Colors.grey.shade300),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    '${cat.items.length}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: isSel
-                                          ? Colors.white
-                                          : (isDark
-                                              ? Colors.white70
-                                              : Colors.black87),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Icon(Icons.filter_list_rounded,
-                          size: 16, color: kDarkYellow),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Qidiruv natijalari: ${displayedItems.length} ta mahsulot topildi',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white70 : Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 12),
-
-              // Items Grid
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF0F172A)
-                        : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isDark ? Colors.white10 : Colors.grey.shade200,
-                    ),
-                  ),
-                  child: displayedItems.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.search_off_rounded,
-                                  size: 48,
-                                  color: isDark
-                                      ? Colors.white30
-                                      : Colors.grey.shade400),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Hech narsa topilmadi',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: isDark
-                                      ? Colors.white70
-                                      : Colors.grey.shade600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Boshqa so\'z yoki o\'lcham (0.5L, 1.5L) bilan qidirib ko\'ring',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDark
-                                      ? Colors.white38
-                                      : Colors.grey.shade400,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : GridView.builder(
-                          itemCount: displayedItems.length,
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                            childAspectRatio: 1.15,
-                          ),
-                          itemBuilder: (context, idx) {
-                            final item = displayedItems[idx];
-                            final isSelected = _selectedImageUrl == item.url;
-
-                            return InkWell(
-                              onTap: () {
-                                setState(() {
-                                  _selectedImageUrl = item.url;
-                                  _selectedItemName = item.title;
-                                });
-                              },
-                              onDoubleTap: () => _selectAndFinish(item),
-                              borderRadius: BorderRadius.circular(14),
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  // Image
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: Image.network(
-                                      item.url,
-                                      fit: BoxFit.cover,
-                                      loadingBuilder:
-                                          (context, child, progress) {
-                                        if (progress == null) return child;
-                                        return Container(
-                                          color: isDark
-                                              ? const Color(0xFF1E293B)
-                                              : Colors.grey.shade200,
-                                          child: const Center(
-                                            child: SizedBox(
-                                              width: 22,
-                                              height: 22,
-                                              child: CircularProgressIndicator(
-                                                  strokeWidth: 2),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      errorBuilder: (_, __, ___) => Container(
-                                        color: Colors.grey.shade200,
-                                        child: const Icon(Icons.broken_image,
-                                            color: Colors.grey),
-                                      ),
-                                    ),
-                                  ),
-
-                                  // Dark Bottom Gradient with Title & Subtitle
-                                  Positioned(
-                                    bottom: 0,
-                                    left: 0,
-                                    right: 0,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        borderRadius: const BorderRadius.vertical(
-                                            bottom: Radius.circular(14)),
-                                        gradient: LinearGradient(
-                                          begin: Alignment.bottomCenter,
-                                          end: Alignment.topCenter,
-                                          colors: [
-                                            Colors.black.withValues(alpha: 0.9),
-                                            Colors.black.withValues(alpha: 0.5),
-                                            Colors.transparent,
-                                          ],
-                                        ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            item.title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 12,
-                                              shadows: [
-                                                Shadow(
-                                                  blurRadius: 4,
-                                                  color: Colors.black,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          if (item.subtitle != null) ...[
-                                            const SizedBox(height: 1),
-                                            Text(
-                                              item.subtitle!,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                color: Colors.white
-                                                    .withValues(alpha: 0.8),
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w400,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                  // Selection ring / badge
-                                  AnimatedContainer(
-                                    duration:
-                                        const Duration(milliseconds: 180),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                        color: isSelected
-                                            ? const Color(0xFFFFA000)
-                                            : Colors.transparent,
-                                        width: 3,
-                                      ),
-                                      color: isSelected
-                                          ? const Color(0xFFFFA000)
-                                              .withValues(alpha: 0.15)
-                                          : Colors.transparent,
-                                    ),
-                                  ),
-
-                                  // Checkmark badge in corner
-                                  if (isSelected)
-                                    Positioned(
-                                      top: 8,
-                                      right: 8,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(4),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFA000),
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.3),
-                                              blurRadius: 4,
-                                            ),
-                                          ],
-                                        ),
-                                        child: const Icon(
-                                          Icons.check_rounded,
-                                          color: Colors.white,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // Bottom Actions
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text('Bekor qilish'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton.icon(
-                      icon: const Icon(Icons.check_rounded, size: 20),
-                      label: Text(
-                        _selectedItemName != null
-                            ? '«$_selectedItemName» tanlash'
-                            : 'Rasmni tanlash',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF0F172A),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: _selectedImageUrl == null
-                          ? null
-                          : () {
-                              Navigator.pop(context, {
-                                'url': _selectedImageUrl,
-                                'name': _selectedItemName,
-                              });
-                            },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+// ============================================================
+// PRESET FOOD IMAGES LIBRARY & DIALOG
+// See lib/preset_food_library.dart for full dataset & UI
+// ============================================================
 
 class _ProductEditDialog extends StatefulWidget {
   final Product? product;
@@ -12340,7 +10681,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   Future<void> _pickFromPresetLibrary() async {
     final selected = await showDialog<dynamic>(
       context: context,
-      builder: (_) => const _PresetImagesPickerDialog(),
+      builder: (_) => const PresetImagesPickerDialog(),
     );
     if (selected != null && mounted) {
       if (selected is Map) {
@@ -13712,6 +12053,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _noteCtrl.text.contains('[Olib ketish]')) {
       isTakeaway = true;
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        appState.checkPrinterConnectionQuick().then((_) {
+          if (mounted) setState(() {});
+        });
+      }
+    });
   }
 
   @override
@@ -14066,11 +12414,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
       // 1. To'lovni qayd qilish va chek obyektini olish (tranzaksiya Postgresda commit bo'lishini kutamiz)
       final selTable = appState.selectedTable;
       final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}';
+      final isPrinterReady = appState.isPrinterVerified;
+      final initialPrintStatus = isPrinterReady ? (appState.autoPrintOnPaid ? 'queued' : 'unprinted') : 'unprinted';
+
       final receipt = await appState.checkout(
         method: method,
         cashPaid: cash,
         cardPaid: card,
         idempotencyKey: ik,
+        printStatus: initialPrintStatus,
       );
 
       // Stolni xotirada 100% bo'shatilishini kafolatlaymiz (Band qolib ketmasligi uchun)
@@ -14089,28 +12441,61 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       _isPaid = true;
 
-      // 2. AVTOMATIK CHEK CHIQARISH: Agar yoqilgan bo'lsa va oldin "Xarid cheki" chiqarilmagan bo'lsa
+      // 2. AVTOMATIK CHEK CHIQARISH VA BILDIRISHNOMA:
       final orderAlreadyPrinted = appState.isReceiptPrintedForOrder(selTable?.id, selTable?.number);
-      if (appState.autoPrintOnPaid && !orderAlreadyPrinted) {
-        try {
-          unawaited(printReceipt(receipt, isAutoCheckout: true));
-        } catch (e) {
-          debugPrint('Avtomatik chek chiqarishda xatolik: $e');
-        }
+      if (isPrinterReady && appState.autoPrintOnPaid && !orderAlreadyPrinted) {
+        unawaited(() async {
+          try {
+            await printReceipt(receipt, isAutoCheckout: true);
+            receipt.printStatus = 'printed';
+            receipt.printedAt = DateTime.now();
+            await ApiClient().patch('/receipts/${receipt.id}/print-status', body: {
+              'printStatus': 'printed',
+              'printedAt': receipt.printedAt?.toIso8601String(),
+            });
+            appState.notifyChanges();
+          } catch (e) {
+            debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+          }
+        }());
+        appMessengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Text("To'lov muvaffaqiyatli qabul qilindi"),
+            backgroundColor: Color(0xFF10B981),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } else if (!isPrinterReady) {
+        // 1-TALAB: Printer ulanmagan bo'lsa qizil nonblocking bildirishnoma (6 soniya)
+        appMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: const Text(
+              "Printer ulanmagan. Chek Cheklar tarixiga saqlandi, keyinroq chiqarishingiz mumkin.",
+              style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFFDC2626),
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: "Cheklar tarixi",
+              textColor: Colors.white,
+              onPressed: () {
+                appNavigatorKey.currentState?.push(
+                  MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
+                );
+              },
+            ),
+          ),
+        );
+      } else {
+        appMessengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Text("To'lov muvaffaqiyatli qabul qilindi"),
+            backgroundColor: Color(0xFF10B981),
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
       appState.clearReceiptPrintedForOrder(selTable?.id, selTable?.number);
-
-      if (hallBeforeCheckout != null) {
-        appState.selectedHall = hallBeforeCheckout;
-      }
-
-      appMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text("To'lov muvaffaqiyatli qabul qilindi"),
-          backgroundColor: Color(0xFF10B981),
-          duration: Duration(seconds: 2),
-        ),
-      );
 
       // 3. TO'G'RI VA ANIQ 1 MARTA NAVIGATSIYA
       // Mavjud Dashboard ga silliq qaytish — bu dublikat sidebar va qotishlarni 100% yo'qotadi
@@ -14528,6 +12913,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _buildMobilePaymentMethodsCard(),
         const SizedBox(height: 20),
         _buildToLandiButton(),
+        _buildPrinterStatusBadge(),
         const SizedBox(height: 40),
       ],
     );
@@ -15050,6 +13436,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 6),
+          _buildPrinterStatusBadge(),
         ],
       ),
     );
@@ -15257,6 +13645,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             _buildTakeawayRow(),
             const SizedBox(height: 20),
             _buildToLandiButton(),
+            _buildPrinterStatusBadge(),
           ],
         ],
       ),
@@ -15445,6 +13834,35 @@ class _PaymentScreenState extends State<PaymentScreen> {
             color: Colors.white,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPrinterStatusBadge() {
+    final isConnected = appState.isPrinterVerified;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: isConnected ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isConnected ? 'Printer ulangan' : 'Printer ulanmagan',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isConnected ? const Color(0xFF059669) : const Color(0xFFDC2626),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -15888,6 +14306,48 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
             ),
             centerTitle: true,
             actions: [
+              if (appState.receipts.any((r) => r.printStatus != 'printed'))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE25C1D),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.print, size: 14, color: Colors.white),
+                    label: Text(
+                      'Hammasini chiqarish (${appState.receipts.where((r) => r.printStatus != "printed").length})',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () async {
+                      final unprinted = appState.receipts.where((r) => r.printStatus != 'printed').toList();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('${unprinted.length} ta chek printerga yuborilmoqda...'),
+                          backgroundColor: const Color(0xFF315EFB),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                      for (final r in unprinted) {
+                        try {
+                          await printReceipt(r);
+                          r.printStatus = 'printed';
+                          r.printedAt = DateTime.now();
+                          unawaited(ApiClient().patch('/receipts/${r.id}/print-status', body: {
+                            'printStatus': 'printed',
+                            'printedAt': r.printedAt?.toIso8601String(),
+                          }).catchError((_) => <String, dynamic>{}));
+                        } catch (e) {
+                          debugPrint('Hammasini chiqarish xatosi: $e');
+                        }
+                      }
+                      if (mounted) setState(() {});
+                    },
+                  ),
+                ),
               IconButton(
                 icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 22),
                 tooltip: 'Yangilash',
@@ -16268,20 +14728,34 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFECFDF5),
+                        color: r.printStatus == 'printed'
+                            ? const Color(0xFFECFDF5)
+                            : (r.printStatus == 'queued' ? const Color(0xFFFEF3C7) : const Color(0xFFFEE2E2)),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF10B981)),
-                          SizedBox(width: 4),
+                          Icon(
+                            r.printStatus == 'printed'
+                                ? Icons.check_circle_rounded
+                                : (r.printStatus == 'queued' ? Icons.access_time_rounded : Icons.error_outline_rounded),
+                            size: 12,
+                            color: r.printStatus == 'printed'
+                                ? const Color(0xFF10B981)
+                                : (r.printStatus == 'queued' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                          ),
+                          const SizedBox(width: 4),
                           Text(
-                            "To'langan",
+                            r.printStatus == 'printed'
+                                ? 'Chiqarildi'
+                                : (r.printStatus == 'queued' ? 'Navbatda' : 'Chiqarilmadi'),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: Color(0xFF059669),
+                              color: r.printStatus == 'printed'
+                                  ? const Color(0xFF059669)
+                                  : (r.printStatus == 'queued' ? const Color(0xFFB45309) : const Color(0xFFB91C1C)),
                             ),
                           ),
                         ],
@@ -16344,7 +14818,7 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // 4. Qator: Xodim va Vaqt + Ko'rish
+                // 4. Qator: Xodim va Vaqt
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -16365,20 +14839,50 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                         ),
                       ],
                     ),
-                    const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          "Chekni ko'rish",
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: Color(0xFF315EFB),
-                            fontWeight: FontWeight.w700,
-                          ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // 5. Qator: Ko'rish va Chop etish tugmalari
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _previewReceipt(r),
+                      icon: const Icon(Icons.visibility_outlined, size: 14, color: Color(0xFF334155)),
+                      label: const Text("Ko'rish", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: r.printStatus == 'printed' ? const Color(0xFFF1F5F9) : const Color(0xFF315EFB),
+                        foregroundColor: r.printStatus == 'printed' ? const Color(0xFF1E293B) : Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _printReceiptItem(r),
+                      icon: Icon(
+                        Icons.print_outlined,
+                        size: 14,
+                        color: r.printStatus == 'printed' ? const Color(0xFF1E293B) : Colors.white,
+                      ),
+                      label: Text(
+                        r.printStatus == 'printed' ? 'Qayta chop etish' : 'Chop etish',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                          color: r.printStatus == 'printed' ? const Color(0xFF1E293B) : Colors.white,
                         ),
-                        SizedBox(width: 3),
-                        Icon(Icons.arrow_forward_ios_rounded, size: 10, color: Color(0xFF315EFB)),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -16388,6 +14892,95 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
         ),
       ),
     );
+  }
+
+  void _previewReceipt(Receipt r) {
+    final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+    final printData = ReceiptPrintData(
+      checkId: '${r.id}',
+      dateTime: r.date,
+      cashierName: r.cashierName.isNotEmpty ? r.cashierName : 'Admin',
+      cafeName: appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
+      address: appState.restaurantAddress.trim().isNotEmpty ? appState.restaurantAddress.trim() : "Navoi ko'chasi 12, Buxoro",
+      phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
+      slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
+      footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
+      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+      tableNumber: r.tableNumber != null ? '${r.tableNumber}' : null,
+      hallName: r.hallName,
+      items: r.items.asMap().entries.map((e) => ReceiptPrintItem(
+        index: e.key + 1,
+        name: e.value.product.name,
+        qty: e.value.qty,
+        unitPrice: e.value.product.price,
+        lineTotal: e.value.product.price * e.value.qty,
+      )).toList(),
+      subtotal: r.total,
+      discount: 0,
+      grandTotal: r.total,
+      paymentMethod: r.method == PaymentMethod.card ? 'card' : 'cash',
+      is58mm: is58mm,
+    );
+
+    final html = ThermalHtmlGenerator.buildReceiptHtml(
+      printData,
+      logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
+    );
+
+    if (kIsWeb) {
+      WebReceiptPrinter.showModal(html);
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ReceiptScreen(receipt: r)),
+      );
+    }
+  }
+
+  Future<void> _printReceiptItem(Receipt r) async {
+    if (r.printStatus == 'printed') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Qayta chop etish'),
+          content: Text('#${r.id} raqamli chek allaqachon chiqarilgan. Qayta chiqarishni tasdiqlaysizmi?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Bekor qilish')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF315EFB), foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Chiqarish'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
+    try {
+      await printReceipt(r);
+      r.printStatus = 'printed';
+      r.printedAt = DateTime.now();
+      unawaited(ApiClient().patch('/receipts/${r.id}/print-status', body: {
+        'printStatus': 'printed',
+        'printedAt': r.printedAt?.toIso8601String(),
+      }).catchError((_) => <String, dynamic>{}));
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Chek muvaffaqiyatli chop etildi!'),
+            backgroundColor: Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Chop etishda xatolik: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 }
 
@@ -21408,6 +20001,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? kitchenStatusMessage;
   bool kitchenStatusOk = false;
   bool printingTestReceipt = false;
+  late TextEditingController telegramChatIdCtrl;
+  bool telegramReceiptsEnabled = false;
+  String paperFormat = '80mm';
+  bool isAgentRunning = false;
 
   @override
   void initState() {
@@ -21460,6 +20057,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (appState.isKitchenPrinterVerified) {
       kitchenStatusMessage = 'Ulangan ${appState.kitchenPrinterVerifiedInfo != null ? "(${appState.kitchenPrinterVerifiedInfo})" : ""}';
     }
+
+    paperFormat = appState.paperFormat;
+    telegramReceiptsEnabled = appState.telegramReceiptsEnabled;
+    telegramChatIdCtrl = TextEditingController(text: appState.telegramReceiptsChatId);
+    PrintAgentService().isAgentRunning().then((val) {
+      if (mounted) setState(() => isAgentRunning = val);
+    });
   }
 
   @override
@@ -21472,6 +20076,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     printerPortCtrl.dispose();
     kitchenPrinterIpCtrl.dispose();
     kitchenPrinterPortCtrl.dispose();
+    telegramChatIdCtrl.dispose();
     super.dispose();
   }
 
@@ -21944,6 +20549,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     appState.printerBtName = selectedBtPrinter;
     appState.printerCharsPerLine = printerCharsPerLine;
     appState.paperWidthMm = printerCharsPerLine == 32 ? 58 : 80;
+    appState.setPaperFormat(paperFormat);
+    appState.telegramReceiptsEnabled = telegramReceiptsEnabled;
+    appState.telegramReceiptsChatId = telegramChatIdCtrl.text.trim();
     appState.printerFontSize = printerFontSize;
     appState.autoPrintOnPaid = autoPrintOnPaid;
     appState.receiptBoldHeader = receiptBoldHeader;
@@ -22680,6 +21288,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildConnectionSelectCard({
+    required String title,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF0F1E30) : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFFFB300) : const Color(0xFFE2E8F0),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFFFFB300) : const Color(0xFF64748B),
+              size: 22,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected ? Colors.white : const Color(0xFF334155),
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaperFormatCard({
+    required String title,
+    required String desc,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFFFBEB) : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFD97706) : const Color(0xFFE2E8F0),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFFDE68A) : Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                icon,
+                color: isSelected ? const Color(0xFF92400E) : const Color(0xFF64748B),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? const Color(0xFF92400E) : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    desc,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isSelected ? const Color(0xFFB45309) : const Color(0xFF64748B),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildLanguageSection() {
     final current = LocalizationService().currentLanguage;
     return Card(
@@ -23142,92 +21860,222 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
                 const Text(
                   'Printer Sozlamalari (Wi-Fi, USB, Bluetooth)',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
+                // ── 1. KASSA PRINTERI KARTASI ──────────────────────────────
                 Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    side: BorderSide(color: const Color(0xFF0F1E30).withValues(alpha: 0.1)),
+                  ),
                   child: Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(18),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // A) KATTA STATUS CARD (Dark Navy & Amber)
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F1E30),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF0F1E30).withValues(alpha: 0.3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFB300).withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(Icons.print_rounded, color: Color(0xFFFFB300), size: 24),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Kassa Printeri',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          printerConnectionType == 'wifi'
+                                              ? (printerIpCtrl.text.isNotEmpty
+                                                  ? 'Wi-Fi: ${printerIpCtrl.text}:${printerPortCtrl.text}'
+                                                  : 'Wi-Fi IP kiritilmagan')
+                                              : (printerConnectionType == 'usb'
+                                                  ? 'USB: ${selectedUsbPrinter ?? "Tanlanmagan"}'
+                                                  : 'BT: ${selectedBtPrinter ?? "Tanlanmagan"}'),
+                                          style: TextStyle(
+                                            color: Colors.grey.shade400,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: cashierStatusOk
+                                          ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                                          : const Color(0xFFEF4444).withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: cashierStatusOk ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                        width: 1.2,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          cashierStatusOk ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                                          size: 13,
+                                          color: cashierStatusOk ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          cashierStatusOk ? 'Ulangan' : 'Ulanmagan',
+                                          style: TextStyle(
+                                            color: cashierStatusOk ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              const Divider(color: Colors.white12, height: 1),
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Ulanish turi', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        printerConnectionType.toUpperCase(),
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Qog‘oz formati', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        paperFormat.toUpperCase(),
+                                        style: const TextStyle(color: Color(0xFFFFB300), fontWeight: FontWeight.bold, fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Print-Agent', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        isAgentRunning ? 'Faol (9101)' : 'Oflayn',
+                                        style: TextStyle(
+                                          color: isAgentRunning ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+
+                        // B) ULINISH TURINI TANLASH (3 TA KARTA)
+                        const Text(
+                          'Ulanish usuli',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 8),
                         Row(
                           children: [
-                            Icon(
-                              Icons.print,
-                              color: cashierStatusOk ? const Color(0xFF10B981) : Colors.grey,
+                            Expanded(
+                              child: _buildConnectionSelectCard(
+                                title: 'Wi-Fi / LAN',
+                                icon: Icons.wifi_rounded,
+                                isSelected: printerConnectionType == 'wifi',
+                                onTap: () => setState(() {
+                                  printerConnectionType = 'wifi';
+                                  cashierStatusOk = false;
+                                }),
+                              ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text(
-                                cashierStatusOk
-                                    ? (cashierStatusMessage ?? 'Ulangan')
-                                    : (cashierStatusMessage ?? 'Printer hali ulanmagan'),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: cashierStatusOk ? const Color(0xFF047857) : Colors.black87,
-                                ),
+                              child: _buildConnectionSelectCard(
+                                title: 'USB Kabel',
+                                icon: Icons.usb_rounded,
+                                isSelected: printerConnectionType == 'usb',
+                                onTap: () => setState(() {
+                                  printerConnectionType = 'usb';
+                                  cashierStatusOk = false;
+                                }),
                               ),
                             ),
-                            if (cashierStatusOk)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFD1FAE5),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'Aktiv',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF065F46),
-                                  ),
-                                ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _buildConnectionSelectCard(
+                                title: 'Bluetooth',
+                                icon: Icons.bluetooth_rounded,
+                                isSelected: printerConnectionType == 'bluetooth',
+                                onTap: () => setState(() {
+                                  printerConnectionType = 'bluetooth';
+                                  cashierStatusOk = false;
+                                }),
                               ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 16),
-                        const Text(
-                          'Ulanish turi',
-                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                        const SizedBox(height: 8),
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(
-                              value: 'wifi',
-                              label: Text('Wi-Fi / LAN'),
-                              icon: Icon(Icons.wifi, size: 18),
-                            ),
-                            ButtonSegment(
-                              value: 'usb',
-                              label: Text('USB'),
-                              icon: Icon(Icons.usb, size: 18),
-                            ),
-                            ButtonSegment(
-                              value: 'bluetooth',
-                              label: Text('Bluetooth'),
-                              icon: Icon(Icons.bluetooth, size: 18),
-                            ),
-                          ],
-                          selected: {printerConnectionType},
-                          onSelectionChanged: (s) => setState(() {
-                            printerConnectionType = s.first;
-                            cashierStatusOk = false;
-                            cashierStatusMessage = null;
-                          }),
-                        ),
-                        const SizedBox(height: 14),
+
+                        // C) DINAMIK SOZLAMALAR BLOKI
                         if (printerConnectionType == 'wifi') ...[
                           TextField(
                             controller: printerIpCtrl,
                             keyboardType: TextInputType.number,
                             onChanged: (_) => setState(() {}),
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Printer IP-manzili',
                               hintText: 'masalan: 192.168.1.100',
-                              prefixIcon: Icon(Icons.wifi),
+                              prefixIcon: const Icon(Icons.wifi_rounded, color: Color(0xFF0F1E30)),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             ),
                           ),
                           if (printerIpCtrl.text.trim().startsWith('192.18.')) ...[
@@ -23236,17 +22084,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
                                 color: Colors.amber.shade50,
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(10),
                                 border: Border.all(color: Colors.amber.shade400),
                               ),
-                              child: Row(
+                              child: const Row(
                                 children: [
-                                  const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
-                                  const SizedBox(width: 8),
+                                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+                                  SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'Diqqat: "${printerIpCtrl.text.trim()}" kiritildi. Odatda kafe lokal Wi-Fi manzillari 192.168.x.x bo‘ladi (192.18 emas). 192.168.x.x bo‘lishi kerakmi?',
-                                      style: const TextStyle(fontSize: 12, color: Color(0xFF92400E), fontWeight: FontWeight.w600),
+                                      'Diqqat: "192.18.x.x" kiritildi. Odatda lokal Wi-Fi manzillari 192.168.x.x bo‘ladi.',
+                                      style: TextStyle(fontSize: 12, color: Color(0xFF92400E), fontWeight: FontWeight.w600),
                                     ),
                                   ),
                                 ],
@@ -23257,10 +22105,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           TextField(
                             controller: printerPortCtrl,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Port',
                               hintText: '9100 (standart)',
-                              prefixIcon: Icon(Icons.numbers),
+                              prefixIcon: const Icon(Icons.numbers_rounded, color: Color(0xFF0F1E30)),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             ),
                           ),
                         ] else if (printerConnectionType == 'usb') ...[
@@ -23269,10 +22120,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Expanded(
                                 child: discoveredUsbPrinters.isNotEmpty
                                     ? DropdownButtonFormField<String>(
-                                        initialValue: selectedUsbPrinter ?? (discoveredUsbPrinters.isNotEmpty ? discoveredUsbPrinters.first.id : null),
-                                        decoration: const InputDecoration(
+                                        initialValue: selectedUsbPrinter ?? discoveredUsbPrinters.first.id,
+                                        decoration: InputDecoration(
                                           labelText: 'USB Printer tanlang',
-                                          prefixIcon: Icon(Icons.usb),
+                                          prefixIcon: const Icon(Icons.usb_rounded, color: Color(0xFF0F1E30)),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF8FAFC),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         items: discoveredUsbPrinters.map((p) {
                                           return DropdownMenuItem<String>(
@@ -23284,20 +22138,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       )
                                     : TextFormField(
                                         initialValue: selectedUsbPrinter ?? '',
-                                        decoration: const InputDecoration(
+                                        decoration: InputDecoration(
                                           labelText: 'USB Printer nomi / ID',
-                                          hintText: 'masalan: XP-80C yoki POS80',
-                                          prefixIcon: Icon(Icons.usb),
+                                          hintText: 'masalan: Xprinter yoki POS80',
+                                          prefixIcon: const Icon(Icons.usb_rounded, color: Color(0xFF0F1E30)),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF8FAFC),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         onChanged: (val) => selectedUsbPrinter = val.trim(),
                                       ),
                               ),
                               const SizedBox(width: 8),
                               IconButton.filledTonal(
-                                tooltip: 'USB qurilmalarni qidirish',
+                                tooltip: 'USB printerlarni qidirish',
                                 icon: scanningPrinters
                                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Icon(Icons.refresh),
+                                    : const Icon(Icons.refresh_rounded),
                                 onPressed: scanningPrinters ? null : _scanPrinters,
                               ),
                             ],
@@ -23308,10 +22165,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Expanded(
                                 child: discoveredBtPrinters.isNotEmpty
                                     ? DropdownButtonFormField<String>(
-                                        initialValue: selectedBtPrinter ?? (discoveredBtPrinters.isNotEmpty ? discoveredBtPrinters.first.id : null),
-                                        decoration: const InputDecoration(
+                                        initialValue: selectedBtPrinter ?? discoveredBtPrinters.first.id,
+                                        decoration: InputDecoration(
                                           labelText: 'Bluetooth Printer tanlang',
-                                          prefixIcon: Icon(Icons.bluetooth),
+                                          prefixIcon: const Icon(Icons.bluetooth_rounded, color: Color(0xFF0F1E30)),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF8FAFC),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         items: discoveredBtPrinters.map((p) {
                                           return DropdownMenuItem<String>(
@@ -23323,10 +22183,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       )
                                     : TextFormField(
                                         initialValue: selectedBtPrinter ?? '',
-                                        decoration: const InputDecoration(
-                                          labelText: 'Bluetooth Printer (Port/ID)',
-                                          hintText: 'masalan: COM3 yoki BT-Printer',
-                                          prefixIcon: Icon(Icons.bluetooth),
+                                        decoration: InputDecoration(
+                                          labelText: 'Bluetooth qurilma nomi',
+                                          hintText: 'masalan: BT-Printer',
+                                          prefixIcon: const Icon(Icons.bluetooth_rounded, color: Color(0xFF0F1E30)),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF8FAFC),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         onChanged: (val) => selectedBtPrinter = val.trim(),
                                       ),
@@ -23336,293 +22199,359 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 tooltip: 'Bluetooth qurilmalarni qidirish',
                                 icon: scanningPrinters
                                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Icon(Icons.refresh),
+                                    : const Icon(Icons.refresh_rounded),
                                 onPressed: scanningPrinters ? null : _scanPrinters,
                               ),
                             ],
                           ),
                         ],
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<int>(
-                          initialValue: printerCharsPerLine,
-                          decoration: const InputDecoration(
-                            labelText: 'Chek o\'lchami (qog\'oz kengligi)',
-                            prefixIcon: Icon(Icons.receipt_long),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 32,
-                              child: Text('58 mm (32 belgi) — kichik'),
+                        const SizedBox(height: 18),
+
+                        // D) QOG'OZ O'LCHAMI (4 TA KARTA)
+                        const Text(
+                          'Qog‘oz formati',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 8),
+                        Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildPaperFormatCard(
+                                    title: '58 mm',
+                                    desc: 'Ixcham kassa lentalari',
+                                    icon: Icons.receipt_long_rounded,
+                                    isSelected: paperFormat == '58mm',
+                                    onTap: () => setState(() {
+                                      paperFormat = '58mm';
+                                      printerCharsPerLine = 32;
+                                    }),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _buildPaperFormatCard(
+                                    title: '80 mm',
+                                    desc: 'Standart kafe cheki',
+                                    icon: Icons.receipt_rounded,
+                                    isSelected: paperFormat == '80mm',
+                                    onTap: () => setState(() {
+                                      paperFormat = '80mm';
+                                      printerCharsPerLine = 48;
+                                    }),
+                                  ),
+                                ),
+                              ],
                             ),
-                            DropdownMenuItem(
-                              value: 48,
-                              child: Text('80 mm (48 belgi) — katta'),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildPaperFormatCard(
+                                    title: 'A5',
+                                    desc: 'Buxgalteriya hujjati',
+                                    icon: Icons.description_outlined,
+                                    isSelected: paperFormat == 'a5',
+                                    onTap: () => setState(() {
+                                      paperFormat = 'a5';
+                                      printerCharsPerLine = 64;
+                                    }),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _buildPaperFormatCard(
+                                    title: 'A4',
+                                    desc: 'To‘liq hisob-faktura',
+                                    icon: Icons.feed_outlined,
+                                    isSelected: paperFormat == 'a4',
+                                    onTap: () => setState(() {
+                                      paperFormat = 'a4';
+                                      printerCharsPerLine = 80;
+                                    }),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              setState(() => printerCharsPerLine = v);
-                            }
-                          },
+                        ),
+                        const SizedBox(height: 18),
+
+                        // E) MATN O'LCHAMI VA SARLAVHA TEKISLASH
+                        const Text(
+                          'Yozuvlar o‘lchami',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 6),
+                        SegmentedButton<PrinterFontSize>(
+                          segments: const [
+                            ButtonSegment(value: PrinterFontSize.small, label: Text('Kichik'), icon: Icon(Icons.zoom_out, size: 16)),
+                            ButtonSegment(value: PrinterFontSize.normal, label: Text('Oddiy'), icon: Icon(Icons.text_fields, size: 16)),
+                            ButtonSegment(value: PrinterFontSize.large, label: Text('Katta'), icon: Icon(Icons.zoom_in, size: 16)),
+                          ],
+                          selected: {printerFontSize},
+                          onSelectionChanged: (s) => setState(() => printerFontSize = s.first),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Sarlavha tekislash',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 6),
+                        SegmentedButton<ReceiptHeaderAlign>(
+                          segments: const [
+                            ButtonSegment(value: ReceiptHeaderAlign.left, label: Text('Chapda'), icon: Icon(Icons.format_align_left, size: 16)),
+                            ButtonSegment(value: ReceiptHeaderAlign.center, label: Text('Markazda'), icon: Icon(Icons.format_align_center, size: 16)),
+                            ButtonSegment(value: ReceiptHeaderAlign.right, label: Text('O‘ngda'), icon: Icon(Icons.format_align_right, size: 16)),
+                          ],
+                          selected: {receiptHeaderAlign},
+                          onSelectionChanged: (s) => setState(() => receiptHeaderAlign = s.first),
                         ),
                         const SizedBox(height: 8),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('To\'landi bosilganda chekni avtomatik chiqarish'),
-                          subtitle: const Text(
-                            'Yoqilgan bo\'lsa, to\'lov yakunlangach chek avtomatik chiqariladi (agar oldin "Xarid cheki" olinmagan bo\'lsa)',
-                            style: TextStyle(fontSize: 11),
-                          ),
+                          title: const Text('Qalin sarlavha (Bold)'),
+                          subtitle: const Text('Restoran nomi va summasi qalin shriftda chiqadi', style: TextStyle(fontSize: 11)),
+                          value: receiptBoldHeader,
+                          onChanged: (v) => setState(() => receiptBoldHeader = v),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('To‘landi bosilganda chekni avtomatik chiqarish'),
+                          subtitle: const Text('To‘lov muvaffaqiyatli o‘tgach xarid chekini darhol chop etish', style: TextStyle(fontSize: 11)),
                           value: autoPrintOnPaid,
                           onChanged: (v) => setState(() => autoPrintOnPaid = v),
                         ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Chekdagi yozuvlar o\'lchami',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 4),
-                        SegmentedButton<PrinterFontSize>(
-                          segments: const [
-                            ButtonSegment(
-                              value: PrinterFontSize.small,
-                              label: Text('Kichik'),
-                              icon: Icon(Icons.zoom_out, size: 18),
-                            ),
-                            ButtonSegment(
-                              value: PrinterFontSize.normal,
-                              label: Text('Oddiy'),
-                              icon: Icon(Icons.text_fields, size: 18),
-                            ),
-                            ButtonSegment(
-                              value: PrinterFontSize.large,
-                              label: Text('Katta'),
-                              icon: Icon(Icons.zoom_in, size: 18),
-                            ),
-                          ],
-                          selected: {printerFontSize},
-                          onSelectionChanged: (s) =>
-                              setState(() => printerFontSize = s.first),
-                        ),
                         const SizedBox(height: 14),
-                        const Text(
-                          'Sarlavha joylashuvi',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 4),
-                        SegmentedButton<ReceiptHeaderAlign>(
-                          segments: const [
-                            ButtonSegment(
-                              value: ReceiptHeaderAlign.left,
-                              label: Text('Chap'),
-                              icon: Icon(Icons.format_align_left, size: 18),
-                            ),
-                            ButtonSegment(
-                              value: ReceiptHeaderAlign.center,
-                              label: Text('Markaz'),
-                              icon: Icon(Icons.format_align_center, size: 18),
-                            ),
-                            ButtonSegment(
-                              value: ReceiptHeaderAlign.right,
-                              label: Text('O\'ng'),
-                              icon: Icon(Icons.format_align_right, size: 18),
-                            ),
-                          ],
-                          selected: {receiptHeaderAlign},
-                          onSelectionChanged: (s) =>
-                              setState(() => receiptHeaderAlign = s.first),
-                        ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Qalin yozuv (sarlavha)'),
-                          subtitle: const Text(
-                            'Restoran nomi va "Hammasi" qalin harflarda chiqadi',
-                            style: TextStyle(fontSize: 11),
+
+                        // F) TELEGRAMGA CHEK YUBORISH BLOKI
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0F9FF),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFBAE6FD)),
                           ),
-                          value: receiptBoldHeader,
-                          onChanged: (v) =>
-                              setState(() => receiptBoldHeader = v),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.send_rounded, color: Color(0xFF0284C7), size: 20),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'Telegram orqali chek yuborish',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Color(0xFF0369A1)),
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: telegramReceiptsEnabled,
+                                    activeColor: const Color(0xFF0284C7),
+                                    onChanged: (v) => setState(() => telegramReceiptsEnabled = v),
+                                  ),
+                                ],
+                              ),
+                              if (telegramReceiptsEnabled) ...[
+                                const SizedBox(height: 10),
+                                TextField(
+                                  controller: telegramChatIdCtrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'Telegram Chat / Guruh ID',
+                                    hintText: 'masalan: -1001234567890 yoki shaxsiy ID',
+                                    prefixIcon: const Icon(Icons.tag_rounded, color: Color(0xFF0284C7)),
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Bot har bir to‘langan chekni ushbu chatga avtomatik yuboradi.',
+                                  style: TextStyle(fontSize: 11, color: Color(0xFF0369A1)),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 18),
+
+                        // G) ASOSIY HARAKAT TUGMALARI
                         Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                          spacing: 10,
+                          runSpacing: 10,
                           children: [
                             OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
                               onPressed: testingPrinter ? null : () => _testPrinterConnection(),
                               icon: testingPrinter
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : const Icon(Icons.network_check_rounded),
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.network_check_rounded, color: Color(0xFF0F1E30)),
                               label: const Text('Ulanishni tekshirish'),
                             ),
                             OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
                               onPressed: printingTestReceipt ? null : () => _printTestReceipt(),
                               icon: printingTestReceipt
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : const Icon(Icons.print),
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.print_rounded, color: Color(0xFF0F1E30)),
                               label: const Text('Test chek chiqarish'),
                             ),
                             ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0F1E30),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
                               onPressed: savingPrinter ? null : () => _savePrinterSettings(),
                               icon: savingPrinter
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Icon(Icons.save),
-                              label: const Text('Saqlash'),
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                  : const Icon(Icons.save_rounded, color: Color(0xFFFFB300)),
+                              label: const Text('Saqlash', style: TextStyle(fontWeight: FontWeight.bold)),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Eslatma: Wi-Fi printerda router orqali berilgan IP (masalan 192.168.1.x) va port (9100) kiritiladi. Mahalliy printerlar uchun kompyuterda print-agent dasturi ishlab turishi tavsiya etiladi.',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
                         ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // ── 2. ALOHIDA OSHXONA PRINTERI (AKORDEON KARTA) ─────────────
                 Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text(
-                            'Alohida Oshxona Printeri (Oshpaz cheki)',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: const Text(
-                            'Oshpaz cheklarini alohida oshxona printeriga avtomatik yuborish',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          value: kitchenPrinterEnabled,
-                          onChanged: (val) => setState(() => kitchenPrinterEnabled = val),
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  child: Theme(
+                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      initiallyExpanded: kitchenPrinterEnabled,
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF4D4D).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        if (kitchenPrinterEnabled) ...[
-                          const Divider(),
-                          const SizedBox(height: 8),
-                          Row(
+                        child: const Icon(Icons.soup_kitchen_rounded, color: Color(0xFFFF4D4D), size: 22),
+                      ),
+                      title: const Text(
+                        'Oshxona Printeri (Oshpaz cheki)',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                      subtitle: Text(
+                        kitchenPrinterEnabled ? 'Aktivlashtirilgan' : 'O‘chirilgan',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: kitchenPrinterEnabled ? const Color(0xFF10B981) : Colors.grey,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Icon(
-                                Icons.soup_kitchen_rounded,
-                                color: kitchenStatusOk ? const Color(0xFF10B981) : Colors.grey,
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Oshxona printerini yoqish'),
+                                subtitle: const Text('Oshpaz cheklarini alohida printerga yuborish', style: TextStyle(fontSize: 11)),
+                                value: kitchenPrinterEnabled,
+                                onChanged: (val) => setState(() => kitchenPrinterEnabled = val),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  kitchenStatusOk
-                                      ? (kitchenStatusMessage ?? 'Ulangan')
-                                      : (kitchenStatusMessage ?? 'Oshxona printeri ulanmagan'),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: kitchenStatusOk ? const Color(0xFF047857) : Colors.black87,
-                                  ),
+                              if (kitchenPrinterEnabled) ...[
+                                const SizedBox(height: 8),
+                                SegmentedButton<String>(
+                                  segments: const [
+                                    ButtonSegment(value: 'wifi', label: Text('Wi-Fi'), icon: Icon(Icons.wifi, size: 16)),
+                                    ButtonSegment(value: 'usb', label: Text('USB'), icon: Icon(Icons.usb, size: 16)),
+                                    ButtonSegment(value: 'bluetooth', label: Text('BT'), icon: Icon(Icons.bluetooth, size: 16)),
+                                  ],
+                                  selected: {kitchenPrinterConnectionType},
+                                  onSelectionChanged: (s) => setState(() {
+                                    kitchenPrinterConnectionType = s.first;
+                                    kitchenStatusOk = false;
+                                  }),
                                 ),
-                              ),
+                                const SizedBox(height: 12),
+                                if (kitchenPrinterConnectionType == 'wifi') ...[
+                                  TextField(
+                                    controller: kitchenPrinterIpCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      labelText: 'Oshxona Printer IP',
+                                      hintText: 'masalan: 192.168.1.101',
+                                      prefixIcon: const Icon(Icons.wifi),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: kitchenPrinterPortCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      labelText: 'Port',
+                                      hintText: '9100',
+                                      prefixIcon: const Icon(Icons.numbers),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
+                                ] else if (kitchenPrinterConnectionType == 'usb') ...[
+                                  TextFormField(
+                                    initialValue: selectedKitchenUsbPrinter ?? '',
+                                    decoration: InputDecoration(
+                                      labelText: 'Oshxona USB Printeri',
+                                      hintText: 'masalan: Kitchen-Printer',
+                                      prefixIcon: const Icon(Icons.usb),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    onChanged: (val) => selectedKitchenUsbPrinter = val.trim(),
+                                  ),
+                                ] else ...[
+                                  TextFormField(
+                                    initialValue: selectedKitchenBtPrinter ?? '',
+                                    decoration: InputDecoration(
+                                      labelText: 'Oshxona Bluetooth Printeri',
+                                      hintText: 'masalan: BT-Kitchen',
+                                      prefixIcon: const Icon(Icons.bluetooth),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    onChanged: (val) => selectedKitchenBtPrinter = val.trim(),
+                                  ),
+                                ],
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: testingKitchenPrinter ? null : () => _testPrinterConnection(isKitchen: true),
+                                      icon: testingKitchenPrinter
+                                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                          : const Icon(Icons.network_check_rounded, size: 16),
+                                      label: const Text('Tekshirish'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: printingTestReceipt ? null : () => _printTestReceipt(isKitchen: true),
+                                      icon: const Icon(Icons.receipt_long, size: 16),
+                                      label: const Text('Test chek'),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          SegmentedButton<String>(
-                            segments: const [
-                              ButtonSegment(
-                                value: 'wifi',
-                                label: Text('Wi-Fi / LAN'),
-                                icon: Icon(Icons.wifi, size: 18),
-                              ),
-                              ButtonSegment(
-                                value: 'usb',
-                                label: Text('USB'),
-                                icon: Icon(Icons.usb, size: 18),
-                              ),
-                              ButtonSegment(
-                                value: 'bluetooth',
-                                label: Text('Bluetooth'),
-                                icon: Icon(Icons.bluetooth, size: 18),
-                              ),
-                            ],
-                            selected: {kitchenPrinterConnectionType},
-                            onSelectionChanged: (s) => setState(() {
-                              kitchenPrinterConnectionType = s.first;
-                              kitchenStatusOk = false;
-                              kitchenStatusMessage = null;
-                            }),
-                          ),
-                          const SizedBox(height: 12),
-                          if (kitchenPrinterConnectionType == 'wifi') ...[
-                            TextField(
-                              controller: kitchenPrinterIpCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Oshxona Printer IP',
-                                hintText: 'masalan: 192.168.1.101',
-                                prefixIcon: Icon(Icons.wifi),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: kitchenPrinterPortCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Port',
-                                hintText: '9100',
-                                prefixIcon: Icon(Icons.numbers),
-                              ),
-                            ),
-                          ] else if (kitchenPrinterConnectionType == 'usb') ...[
-                            TextFormField(
-                              initialValue: selectedKitchenUsbPrinter ?? '',
-                              decoration: const InputDecoration(
-                                labelText: 'Oshxona USB Printeri',
-                                hintText: 'masalan: Kitchen-Printer',
-                                prefixIcon: Icon(Icons.usb),
-                              ),
-                              onChanged: (val) => selectedKitchenUsbPrinter = val.trim(),
-                            ),
-                          ] else ...[
-                            TextFormField(
-                              initialValue: selectedKitchenBtPrinter ?? '',
-                              decoration: const InputDecoration(
-                                labelText: 'Oshxona Bluetooth Printeri',
-                                hintText: 'masalan: COM4 yoki BT-Kitchen',
-                                prefixIcon: Icon(Icons.bluetooth),
-                              ),
-                              onChanged: (val) => selectedKitchenBtPrinter = val.trim(),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: testingKitchenPrinter ? null : () => _testPrinterConnection(isKitchen: true),
-                                icon: testingKitchenPrinter
-                                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Icon(Icons.network_check_rounded),
-                                label: const Text('Oshxona ulanishini tekshirish'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: printingTestReceipt ? null : () => _printTestReceipt(isKitchen: true),
-                                icon: const Icon(Icons.receipt),
-                                label: const Text('Test oshpaz cheki'),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ],
                     ),
                   ),

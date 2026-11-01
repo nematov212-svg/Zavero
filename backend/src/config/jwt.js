@@ -13,8 +13,14 @@ const getJwtSecret = () => {
   return secret;
 };
 
-const getJwtExpiresIn = () => {
-  return process.env.JWT_EXPIRES_IN || '30d';
+// Access token: short-lived (15 minutes by default)
+const getJwtAccessExpiresIn = () => {
+  return process.env.JWT_ACCESS_EXPIRES_IN || '15m';
 };
 
-module.exports = { getJwtSecret, getJwtExpiresIn };
+// Legacy alias
+const getJwtExpiresIn = () => {
+  return getJwtAccessExpiresIn();
+};
+
+module.exports = { getJwtSecret, getJwtAccessExpiresIn, getJwtExpiresIn };

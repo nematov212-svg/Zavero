@@ -1,12 +1,29 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('../config/db');
-const { getJwtSecret, getJwtExpiresIn } = require('../config/jwt');
+const { getJwtSecret, getJwtAccessExpiresIn } = require('../config/jwt');
 const { logActivity } = require('../utils/auditLogger');
+
+const hashToken = (token) => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+const createRefreshToken = async (userId, ip = '') => {
+  const rawToken = crypto.randomBytes(40).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  await db.query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, created_by_ip)
+     VALUES ($1, $2, $3, $4)`,
+    [userId, tokenHash, expiresAt, ip]
+  );
+  return rawToken;
+};
 
 const generateToken = (user) => {
   const secret = getJwtSecret();
-  const expiresIn = getJwtExpiresIn();
+  const expiresIn = getJwtAccessExpiresIn(); // 15 minutes
   return jwt.sign(
     { id: user.id, username: user.username, cafeId: user.cafe_id, role: user.role },
     secret,
@@ -55,6 +72,52 @@ const login = async (req, res) => {
     const rawInput = (username || '').trim().toLowerCase();
     const cleanInput = rawInput.replace(/^@/, '');
     const cleanEmail = cleanInput.includes('@') ? cleanInput : `${cleanInput}@cafe.uz`;
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+
+    // 1. Brute Force Protection: Check if account or IP is temporarily locked
+    const lockCheck = await db.query(
+      `SELECT attempts, locked_until FROM failed_logins 
+       WHERE identifier = $1 AND ip_address = $2`,
+      [cleanInput, clientIp]
+    );
+    if (lockCheck.rows.length > 0) {
+      const { locked_until } = lockCheck.rows[0];
+      if (locked_until && new Date(locked_until) > new Date()) {
+        const remainingMinutes = Math.max(1, Math.ceil((new Date(locked_until) - new Date()) / 60000));
+        return res.status(429).json({
+          success: false,
+          message: `Ketma-ket noto'g'ri urinishlar tufayli kirish vaqtincha bloklandi. Iltimos, ${remainingMinutes} daqiqadan so'ng qayta urinib ko'ring.`,
+        });
+      }
+    }
+
+    const recordFailedAttempt = async () => {
+      try {
+        const cur = await db.query(
+          `SELECT id, attempts FROM failed_logins WHERE identifier = $1 AND ip_address = $2`,
+          [cleanInput, clientIp]
+        );
+        if (cur.rows.length === 0) {
+          await db.query(
+            `INSERT INTO failed_logins (identifier, ip_address, attempts, last_attempt)
+             VALUES ($1, $2, 1, CURRENT_TIMESTAMP)`,
+            [cleanInput, clientIp]
+          );
+        } else {
+          const nextAttempts = cur.rows[0].attempts + 1;
+          const isLock = nextAttempts >= 5;
+          await db.query(
+            `UPDATE failed_logins 
+             SET attempts = $1, last_attempt = CURRENT_TIMESTAMP, 
+                 locked_until = ${isLock ? "CURRENT_TIMESTAMP + INTERVAL '5 minutes'" : "NULL"}
+             WHERE id = $2`,
+            [nextAttempts, cur.rows[0].id]
+          );
+        }
+      } catch (err) {
+        console.warn('Failed login record error:', err.message);
+      }
+    };
 
     // Query user and join cafe status
     const result = await db.query(
@@ -76,11 +139,12 @@ const login = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      await recordFailedAttempt();
       logActivity({
         cafeId: 'system',
         action: 'FAILED_LOGIN',
         details: `Login attempt failed for input: ${rawInput.substring(0, 50)}`,
-        performedBy: req.ip,
+        performedBy: clientIp,
       });
       return res.status(401).json({
         success: false,
@@ -104,6 +168,7 @@ const login = async (req, res) => {
     }
 
     if (!user) {
+      await recordFailedAttempt();
       if (hasInactive) {
         return res.status(403).json({
           success: false,
@@ -114,13 +179,19 @@ const login = async (req, res) => {
         cafeId: 'system',
         action: 'FAILED_LOGIN_PASSWORD',
         details: `Incorrect password attempt for user ${rawInput}`,
-        performedBy: req.ip,
+        performedBy: clientIp,
       });
       return res.status(401).json({
         success: false,
         message: 'Login yoki parol xato. Iltimos, qaytadan tekshiring.',
       });
     }
+
+    // Reset failed login tracker on success
+    await db.query(
+      `DELETE FROM failed_logins WHERE identifier = $1 AND ip_address = $2`,
+      [cleanInput, clientIp]
+    ).catch(() => {});
 
     // Audit log successful login
     logActivity({
@@ -152,7 +223,40 @@ const login = async (req, res) => {
       }
     }
 
+    // Fetch all cafes this user is authorized to access (for multi-cafe directors & owners)
+    let userCafes = [];
+    try {
+      if (user.role === 'director' || user.role === 'super_admin') {
+        const cRes = await db.query(
+          `SELECT cafe_id, cafe_name, receipt_name, status, end_date FROM cafes WHERE status != 'deleted' ORDER BY created_at ASC`
+        );
+        userCafes = cRes.rows.map(c => ({
+          cafeId: c.cafe_id,
+          role: user.role,
+          cafeName: c.cafe_name,
+          receiptName: c.receipt_name || c.cafe_name,
+          status: c.status,
+        }));
+      } else {
+        const ucRes = await db.query(
+          `SELECT uc.cafe_id, uc.role, c.cafe_name, c.receipt_name, c.status, c.end_date
+           FROM user_cafes uc
+           JOIN cafes c ON uc.cafe_id = c.cafe_id
+           WHERE uc.user_id = $1`,
+          [user.id]
+        );
+        userCafes = ucRes.rows.map(c => ({
+          cafeId: c.cafe_id,
+          role: c.role,
+          cafeName: c.cafe_name,
+          receiptName: c.receipt_name || c.cafe_name,
+          status: c.status,
+        }));
+      }
+    } catch (_) {}
+
     const token = generateToken(user);
+    const refreshToken = await createRefreshToken(user.id, clientIp);
 
     const isBlocked = user.role !== 'director' && user.cafe_status === 'blocked';
     const isExpired = user.role !== 'director' && user.cafe_end_date ? new Date(user.cafe_end_date) < new Date() : false;
@@ -161,7 +265,9 @@ const login = async (req, res) => {
       success: true,
       message: 'Tizimga muvaffaqiyatli kirildi.',
       token,
+      refreshToken,
       user: toClientUser(user),
+      cafes: userCafes,
       isBlocked,
       isExpired,
       cafe: {
@@ -492,4 +598,79 @@ const telegramVerify = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, updateProfile, changePassword, changeCredentials, telegramVerify, toClientUser };
+// POST /api/auth/refresh — Rotate refresh token and get fresh 15-minute access token
+const refresh = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ success: false, message: 'Refresh token yuborilmadi.' });
+    }
+    const tokenHash = hashToken(refreshToken);
+    const tokenRes = await db.query(
+      `SELECT rt.*, u.*, c.status AS cafe_status, c.end_date AS cafe_end_date, c.cafe_name, c.receipt_name
+       FROM refresh_tokens rt
+       JOIN users u ON rt.user_id = u.id
+       LEFT JOIN cafes c ON u.cafe_id = c.cafe_id
+       WHERE rt.token_hash = $1 AND rt.revoked_at IS NULL AND rt.expires_at > CURRENT_TIMESTAMP`,
+      [tokenHash]
+    );
+    if (tokenRes.rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'Yaroqsiz yoki muddati o‘tgan refresh token.' });
+    }
+
+    const row = tokenRes.rows[0];
+    // Invalidate old token (Rotation)
+    await db.query('UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1', [row.id]);
+
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    const newRefreshToken = await createRefreshToken(row.user_id, clientIp);
+    const newAccessToken = generateToken(row);
+
+    return res.json({
+      success: true,
+      token: newAccessToken,
+      refreshToken: newRefreshToken,
+      user: toClientUser(row),
+    });
+  } catch (error) {
+    console.error('refresh error:', error);
+    return res.status(500).json({ success: false, message: 'Serverda xatolik yuz berdi.' });
+  }
+};
+
+// POST /api/auth/logout — Revoke session and refresh token
+const logout = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (refreshToken) {
+      const tokenHash = hashToken(refreshToken);
+      await db.query('UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_hash = $1', [tokenHash]);
+    }
+    if (req.user && req.user.id) {
+      logActivity({
+        cafeId: req.user.cafeId || 'system',
+        action: 'LOGOUT',
+        details: `User ${req.user.username} logged out`,
+        performedBy: req.user.username,
+      });
+    }
+    return res.json({ success: true, message: 'Tizimdan muvaffaqiyatli chiqildi.' });
+  } catch (error) {
+    console.error('logout error:', error);
+    return res.status(500).json({ success: false, message: 'Serverda xatolik yuz berdi.' });
+  }
+};
+
+module.exports = {
+  register,
+  login,
+  refresh,
+  logout,
+  getMe,
+  updateProfile,
+  changePassword,
+  changeCredentials,
+  telegramVerify,
+  toClientUser,
+};
+

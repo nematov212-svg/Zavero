@@ -15,6 +15,8 @@ router.put('/banners', requireAdmin, c.saveBanners);
 router.put('/banners/:id', requireAdmin, c.updateBanner);
 router.delete('/banners/:id', requireAdmin, c.deleteBanner);
 router.get('/backup', requireAdmin, c.getBackupData);
+router.get('/print-agent-token', requireAdmin, c.getPrintAgentToken);
+router.post('/print-agent-token/rotate', requireAdmin, c.rotatePrintAgentToken);
 router.post('/report-issue', c.reportIssue);
 router.get('/maintenance-status', c.getMaintenanceStatus);
 module.exports = router;

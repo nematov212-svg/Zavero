@@ -71,11 +71,19 @@ const save = async (req, res) => {
         const defaultPass = (password && password.trim().length > 0) ? password.trim() : '1234';
         const salt = await bcrypt.genSalt(10);
         const hash = await bcrypt.hash(defaultPass, salt);
-        await db.query(
+        const uRow = await db.query(
           `INSERT INTO users (cafe_id, username, password_hash, name, surname, phone, email, role, salary, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true) RETURNING id`,
           [cafeId, cleanUsername, hash, name || '', surname || '', phone || '', cleanEmail, empRole, salary || 0]
         );
+        if (uRow.rows.length > 0) {
+          await db.query(
+            `INSERT INTO user_cafes (user_id, cafe_id, role)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, cafe_id) DO UPDATE SET role = EXCLUDED.role`,
+            [uRow.rows[0].id, cafeId, empRole]
+          ).catch(() => {});
+        }
       }
     }
 
@@ -91,11 +99,15 @@ const remove = async (req, res) => {
   try {
     const cafeId = req.user.cafeId;
     const { id } = req.params;
-    const existing = await db.query('SELECT username, email FROM employees WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
+    const existing = await db.query('SELECT id, username, email FROM employees WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Xodim topilmadi' });
     }
     const { username, email } = existing.rows[0];
+    const uRes = await db.query('SELECT id FROM users WHERE cafe_id = $1 AND (username = $2 OR email = $3)', [cafeId, username, email]);
+    if (uRes.rows.length > 0) {
+      await db.query('DELETE FROM user_cafes WHERE user_id = $1 AND cafe_id = $2', [uRes.rows[0].id, cafeId]).catch(() => {});
+    }
     await db.query('DELETE FROM users WHERE cafe_id = $1 AND (username = $2 OR email = $3)', [cafeId, username, email]);
     await db.query('DELETE FROM employees WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
     notifyCafe(cafeId, 'EMPLOYEES_UPDATED', { deletedId: parseInt(id, 10) });

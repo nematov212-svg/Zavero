@@ -12,3 +12,4 @@ fi
 
 echo "🚀 Print Agent ishga tushirilmoqda (http://localhost:9101)..."
 node src/server.js
+

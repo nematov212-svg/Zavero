@@ -288,6 +288,15 @@ class ApiClient {
     }
   }
 
+  Future<Map<String, dynamic>> patch(String path, {dynamic body}) async {
+    try {
+      final res = await _dio.patch(path, data: body);
+      return _asMap(res.data);
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+  }
+
   Future<Map<String, dynamic>> delete(String path) async {
     try {
       final res = await _dio.delete(path);

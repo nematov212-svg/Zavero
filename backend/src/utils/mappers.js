@@ -62,6 +62,8 @@ const mapReceipt = (r) => ({
   orderId: r.order_id || null,
   waiterId: r.waiter_id || null,
   type: r.type || 'receipt',
+  printStatus: r.print_status || 'unprinted',
+  printedAt: r.printed_at ? new Date(r.printed_at).toISOString() : null,
 });
 
 const mapCustomerOrder = (r) => ({

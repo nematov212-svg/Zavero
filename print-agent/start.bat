@@ -14,3 +14,4 @@ if not exist node_modules (
 echo [INFO] Print Agent ishga tushirilmoqda (http://localhost:9101)...
 node src/server.js
 pause
+

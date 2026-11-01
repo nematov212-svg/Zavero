@@ -92,3 +92,4 @@ Kafe boshqaruv panelida **Tizim Sozlamalari -> Printer** bo'limiga kiring:
 | **"USB printer topilmadi"** | Drayver yoki kabel uzilgan | USB kabelni boshqa portga ulab ko'ring, drayver o'rnatilganligini tekshiring. |
 | **"Chek o'rtasida bo'sh joy ko'p"** | Rastr kesish ishlamagan | Zavero Print Agent rasmdagi bo'sh joyni avtomatik qirqadi (bottom trim). Agent yangilanganligiga ishonch hosil qiling. |
 | **Loglar qayerda?** | Barcha yozuvlar faylga saqlanadi | `print-agent/logs/agent.log` faylida barcha xatolar va chop etish tarixlari ko'rinadi. |
+

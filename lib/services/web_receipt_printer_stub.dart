@@ -7,7 +7,10 @@ void showReceiptModalInPage(String htmlContent) {}
 
 void setBrowserHash(String hash) {}
 
+void setPaperFormatWeb(String format) {}
+
 Future<String?> renderHtmlToPng(String htmlContent, {int widthPx = 576}) async {
   return null;
 }
+
 

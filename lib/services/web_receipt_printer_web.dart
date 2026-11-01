@@ -61,6 +61,13 @@ void setBrowserHash(String hash) {
   } catch (_) {}
 }
 
+/// Web muhitida qog'oz formatini belgilash ('58mm', '80mm', 'a5', 'a4')
+void setPaperFormatWeb(String format) {
+  try {
+    _jsEval("window.zaveroPaperFormat = '$format';".toJS);
+  } catch (_) {}
+}
+
 /// Web muhitida mavjud chek HTML'ini 1:1 original formatda PNG rasmga (base64) aylantirish
 Future<String?> renderHtmlToPng(String htmlContent, {int widthPx = 576}) async {
   try {
@@ -143,11 +150,29 @@ void _ensureJsPrinterFunction() {
                       var heightMm = Math.ceil(scrollH / 3.779527559) + 4;
                       if (heightMm < 45) heightMm = 45;
 
+                      var isA4 = htmlContent.indexOf('paper-a4') !== -1 || (window.zaveroPaperFormat === 'a4');
+                      var isA5 = htmlContent.indexOf('paper-a5') !== -1 || (window.zaveroPaperFormat === 'a5');
+                      var is58 = htmlContent.indexOf('58mm') !== -1 || (window.zaveroPaperFormat === '58mm');
+                      var widthMm = is58 ? 58 : 80;
+                      var contentWidthMm = is58 ? 50 : 72;
+
                       var styleEl = doc.createElement('style');
-                      styleEl.innerHTML =
-                        '@page { size: 80mm ' + heightMm + 'mm !important; margin: 0 !important; }' +
-                        'html, body { width: 80mm !important; height: ' + heightMm + 'mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }' +
-                        '.receipt-container, .kitchen-container { width: 72mm !important; margin: 0 auto !important; padding-left: 0 !important; padding-right: 0 !important; page-break-after: avoid !important; break-after: avoid !important; page-break-inside: avoid !important; break-inside: avoid !important; }';
+                      if (isA4) {
+                        styleEl.innerHTML =
+                          '@page { size: A4 portrait !important; margin: 12mm !important; }' +
+                          'html, body { width: 100% !important; margin: 0 auto !important; padding: 0 !important; display: flex !important; justify-content: center !important; }' +
+                          '.receipt-container, .kitchen-container { width: 120mm !important; max-width: 120mm !important; margin: 0 auto !important; box-shadow: none !important; border: 1px dashed #cbd5e1 !important; page-break-inside: avoid !important; break-inside: avoid !important; }';
+                      } else if (isA5) {
+                        styleEl.innerHTML =
+                          '@page { size: A5 portrait !important; margin: 8mm !important; }' +
+                          'html, body { width: 100% !important; margin: 0 auto !important; padding: 0 !important; display: flex !important; justify-content: center !important; }' +
+                          '.receipt-container, .kitchen-container { width: 100mm !important; max-width: 100mm !important; margin: 0 auto !important; box-shadow: none !important; border: 1px dashed #cbd5e1 !important; page-break-inside: avoid !important; break-inside: avoid !important; }';
+                      } else {
+                        styleEl.innerHTML =
+                          '@page { size: ' + widthMm + 'mm ' + heightMm + 'mm !important; margin: 0 !important; }' +
+                          'html, body { width: ' + widthMm + 'mm !important; height: ' + heightMm + 'mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }' +
+                          '.receipt-container, .kitchen-container { width: ' + contentWidthMm + 'mm !important; margin: 0 auto !important; padding-left: 0 !important; padding-right: 0 !important; page-break-after: avoid !important; break-after: avoid !important; page-break-inside: avoid !important; break-inside: avoid !important; }';
+                      }
                       doc.head.appendChild(styleEl);
 
                       setTimeout(function() {
@@ -234,11 +259,17 @@ void _ensureJsPrinterFunction() {
           backdrop.style.padding = '16px';
           backdrop.style.boxSizing = 'border-box';
 
+          var isA4 = htmlContent.indexOf('paper-a4') !== -1 || (window.zaveroPaperFormat === 'a4');
+          var isA5 = htmlContent.indexOf('paper-a5') !== -1 || (window.zaveroPaperFormat === 'a5');
+          var is58 = htmlContent.indexOf('58mm') !== -1 || (window.zaveroPaperFormat === '58mm');
+          var cardMaxWidth = isA4 ? '680px' : (isA5 ? '540px' : (is58 ? '360px' : '420px'));
+          var iframeWidth = isA4 ? '600px' : (isA5 ? '460px' : (is58 ? '280px' : '340px'));
+
           var card = document.createElement('div');
           card.style.backgroundColor = '#f8fafc';
           card.style.borderRadius = '16px';
           card.style.width = '100%';
-          card.style.maxWidth = '420px';
+          card.style.maxWidth = cardMaxWidth;
           card.style.maxHeight = '92vh';
           card.style.display = 'flex';
           card.style.flexDirection = 'column';
@@ -265,7 +296,7 @@ void _ensureJsPrinterFunction() {
           body.style.backgroundColor = '#f1f5f9';
 
           var iframe = document.createElement('iframe');
-          iframe.style.width = '340px';
+          iframe.style.width = iframeWidth;
           iframe.style.minHeight = '520px';
           iframe.style.border = '0';
           iframe.style.borderRadius = '8px';

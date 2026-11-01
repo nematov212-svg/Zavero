@@ -76,6 +76,14 @@ app.*.map.json
 *.jks
 *.p12
 *.mobileprovision
+key.properties
+android/key.properties
+**/key.properties
+google-services.json
+*.pem
+*.db
+*.sqlite
+print-agent/.env*
 
 # Backend specific
 node_modules/

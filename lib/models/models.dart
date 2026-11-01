@@ -739,6 +739,8 @@ class Receipt {
   String? hallName;
   double cashPaid;
   double cardPaid;
+  String printStatus; // 'printed', 'queued', 'unprinted'
+  DateTime? printedAt;
 
   Receipt({
     required this.id,
@@ -751,6 +753,8 @@ class Receipt {
     this.hallName,
     this.cashPaid = 0,
     this.cardPaid = 0,
+    this.printStatus = 'unprinted',
+    this.printedAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -764,6 +768,8 @@ class Receipt {
         'hallName': hallName,
         'cashPaid': cashPaid,
         'cardPaid': cardPaid,
+        'printStatus': printStatus,
+        'printedAt': printedAt?.toIso8601String(),
       };
 
   factory Receipt.fromJson(Map<String, dynamic> j) => Receipt(
@@ -782,6 +788,10 @@ class Receipt {
         hallName: j['hallName'] as String?,
         cashPaid: (j['cashPaid'] as num?)?.toDouble() ?? 0,
         cardPaid: (j['cardPaid'] as num?)?.toDouble() ?? 0,
+        printStatus: j['printStatus'] as String? ?? 'unprinted',
+        printedAt: j['printedAt'] != null
+            ? DateTime.tryParse(j['printedAt'].toString())
+            : null,
       );
 
 }
