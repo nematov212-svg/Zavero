@@ -737,43 +737,63 @@ const renderBotTables = async (ctx, cafeId) => {
 // Helper: Render Real-Time Financial & Operational Report for Telegram Bot
 const renderBotReport = async (ctx, cafeId, period = 'day') => {
   try {
-    let dateFilter = "created_at >= CURRENT_DATE";
+    let stats = { count: 0, total: 0, cash: 0, card: 0 };
+    let avgCheck = 0;
+    let topDishes = [];
     let title = "BUGUNGI MOLIYAVIY HISOBOT";
-    if (period === 'week') {
-      dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '7 days')";
+
+    if (period === 'day') {
+      const { getTodayReportData } = require('../controllers/reportController');
+      const todayData = await getTodayReportData(cafeId);
+      stats = {
+        count: todayData.orderCount,
+        total: todayData.totalRevenue,
+        cash: todayData.cashTotal,
+        card: todayData.cardTotal,
+      };
+      avgCheck = todayData.averageCheck;
+      topDishes = todayData.topProducts.slice(0, 5).map((p) => ({
+        name: p.name,
+        qty: p.quantity,
+        total: p.totalRevenue,
+      }));
+    } else {
+      let dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '7 days')";
       title = "OXIRGI 7 KUNLIK HISOBOT";
-    } else if (period === 'month') {
-      dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '30 days')";
-      title = "OXIRGI 30 KUNLIK HISOBOT";
+      if (period === 'month') {
+        dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '30 days')";
+        title = "OXIRGI 30 KUNLIK HISOBOT";
+      }
+
+      const receiptsRes = await db.query(
+        `SELECT 
+           COUNT(*) as count,
+           COALESCE(SUM(total), 0) as total,
+           COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0) as cash,
+           COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0) as card
+         FROM receipts
+         WHERE cafe_id = $1 AND ${dateFilter}`,
+        [cafeId]
+      );
+
+      stats = receiptsRes.rows[0] || { count: 0, total: 0, cash: 0, card: 0 };
+      avgCheck = Number(stats.count) > 0 ? Math.round(Number(stats.total) / Number(stats.count)) : 0;
+
+      const topDishesRes = await db.query(
+        `SELECT 
+           COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum') as name,
+           SUM(COALESCE((item->>'qty')::numeric, 1))::int as qty,
+           SUM(COALESCE((item->'product'->>'price')::numeric, (item->>'price')::numeric, 0) * COALESCE((item->>'qty')::numeric, 1))::bigint as total
+         FROM receipts r,
+         LATERAL jsonb_array_elements(r.items) as item
+         WHERE r.cafe_id = $1 AND ${dateFilter}
+         GROUP BY COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum')
+         ORDER BY qty DESC
+         LIMIT 5`,
+        [cafeId]
+      );
+      topDishes = topDishesRes.rows;
     }
-
-    const receiptsRes = await db.query(
-      `SELECT 
-         COUNT(*) as count,
-         COALESCE(SUM(total), 0) as total,
-         COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0) as cash,
-         COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0) as card
-       FROM receipts
-       WHERE cafe_id = $1 AND ${dateFilter}`,
-      [cafeId]
-    );
-
-    const stats = receiptsRes.rows[0] || { count: 0, total: 0, cash: 0, card: 0 };
-    const avgCheck = Number(stats.count) > 0 ? Math.round(Number(stats.total) / Number(stats.count)) : 0;
-
-    const topDishesRes = await db.query(
-      `SELECT 
-         item->>'name' as name,
-         SUM((item->>'qty')::numeric) as qty,
-         SUM((item->>'price')::numeric * (item->>'qty')::numeric) as total
-       FROM receipts r,
-       LATERAL jsonb_array_elements(r.items) as item
-       WHERE r.cafe_id = $1 AND ${dateFilter}
-       GROUP BY item->>'name'
-       ORDER BY qty DESC
-       LIMIT 5`,
-      [cafeId]
-    );
 
     let text = `📊 <b>${title}</b>\n`;
     text += `🏢 <b>Kafe ID:</b> <code>${cafeId}</code>\n`;
@@ -785,9 +805,9 @@ const renderBotReport = async (ctx, cafeId, period = 'day') => {
     text += `📈 <b>O‘rtacha chek:</b> ${formatSum(avgCheck)} so‘m\n`;
     text += `━━━━━━━━━━━━━━━━━━━\n`;
 
-    if (topDishesRes.rows.length > 0) {
+    if (topDishes.length > 0) {
       text += `🔥 <b>TOP-5 TAOMLAR VA MAHSULOTLAR:</b>\n`;
-      topDishesRes.rows.forEach((d, i) => {
+      topDishes.forEach((d, i) => {
         text += `${i + 1}. <b>${d.name}</b>: ${d.qty} ta (${formatSum(d.total)} so‘m)\n`;
       });
       text += `━━━━━━━━━━━━━━━━━━━\n`;
@@ -841,10 +861,21 @@ const setupBotProfilesAndCommands = async (botInstance) => {
       console.warn('⚠️ setMyDescription error:', e.message);
     }
 
-    // Set Short Description
+    // Set Short Description across all languages and clear any rogue third-party text
     try {
       await botInstance.telegram.setMyShortDescription(shortDescription);
       await botInstance.telegram.setMyShortDescription(shortDescription, 'uz');
+      await botInstance.telegram.setMyShortDescription(
+        '🍽 Zavero — modern restaurant and cafe management system. Fast ordering, thermal receipts, and real-time reports.',
+        'en'
+      );
+      await botInstance.telegram.setMyShortDescription(
+        '🍽 Zavero — современная система управления для кафе и ресторанов. Упрощает учет, ускоряет обслуживание.',
+        'ru'
+      );
+      for (const l of ['es', 'de', 'fr', 'it', 'tr', 'ar', 'zh', 'pt', 'ja', 'ko', 'hi', 'uk', 'pl', 'nl', 'fa', 'id']) {
+        await botInstance.telegram.setMyShortDescription('', l).catch(() => {});
+      }
     } catch (e) {
       console.warn('⚠️ setMyShortDescription error:', e.message);
     }

@@ -143,6 +143,11 @@ class CloudService {
       if (raw['reports'] != null) {
         result['reports'] = _list(raw['reports'], DailyReport.fromJson);
       }
+      if (raw['todayReport'] is Map) {
+        try {
+          result['todayReport'] = TodayReportSummary.fromJson(Map<String, dynamic>.from(raw['todayReport'] as Map));
+        } catch (_) {}
+      }
       if (raw['employees'] != null) {
         result['employees'] = _list(raw['employees'], AppUser.fromJson);
       }
@@ -614,6 +619,23 @@ class CloudService {
     } catch (e) {
       debugPrint('clearDayReport xatosi: $e');
       return false;
+    }
+  }
+
+  /// Bugungi jonli SQL hisobotni serverdan olish (SUM/COUNT/GROUP BY)
+  Future<TodayReportSummary?> fetchTodayReport(String cafeId) async {
+    try {
+      final res = await _api.get('/reports/today');
+      final data = res['todayReport'] ?? res;
+      if (data is Map<String, dynamic>) {
+        return TodayReportSummary.fromJson(data);
+      } else if (data is Map) {
+        return TodayReportSummary.fromJson(Map<String, dynamic>.from(data));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('fetchTodayReport xatosi: $e');
+      return null;
     }
   }
 

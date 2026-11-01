@@ -555,6 +555,7 @@ class AppState extends ChangeNotifier {
   final List<Receipt> receipts = [];
   final List<CustomerOrder> customerOrders = [];
   final List<DailyReport> dailyReports = [];
+  TodayReportSummary? liveTodayReport;
   final Set<int> _notifiedOrderIds = {};
   Timer? _customerOrdersPollTimer;
 
@@ -999,6 +1000,12 @@ class AppState extends ChangeNotifier {
         dailyReports
           ..clear()
           ..addAll(cloudReports);
+      }
+
+      if (cloudData['todayReport'] is TodayReportSummary) {
+        liveTodayReport = cloudData['todayReport'] as TodayReportSummary;
+      } else {
+        unawaited(fetchLiveTodayReport());
       }
 
       final cloudEmps = cloudData['employees'] as List<AppUser>?;
@@ -1477,13 +1484,14 @@ class AppState extends ChangeNotifier {
         if (!receipts.any((x) => x.id == r.id)) {
           receipts.insert(0, r);
 
-    addAppNotification(AppNotificationItem(
-      id: 'receipt_${r.id}',
-      title: "Chek to'landi #${r.id}",
-      body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} (${r.tableNumber != null ? '${r.tableNumber}-stol' : (r.hallName ?? 'Kassa')})",
-      time: DateTime.now(),
-      type: 'receipt',
-    ));
+          addAppNotification(AppNotificationItem(
+            id: 'receipt_${r.id}',
+            title: "Chek to'landi #${r.id}",
+            body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} (${r.tableNumber != null ? '${r.tableNumber}-stol' : (r.hallName ?? 'Kassa')})",
+            time: DateTime.now(),
+            type: 'receipt',
+          ));
+          unawaited(fetchLiveTodayReport());
           notifyListeners();
         }
       }
@@ -1492,6 +1500,11 @@ class AppState extends ChangeNotifier {
     // Real-time financial reports sync across devices and Telegram WebApp
     _socketReportUpdatedSub?.cancel();
     _socketReportUpdatedSub = SocketService().on(CafeSocketEvent.reportUpdated).listen((data) {
+      if (data['todayReport'] is Map) {
+        try {
+          liveTodayReport = TodayReportSummary.fromJson(Map<String, dynamic>.from(data['todayReport'] as Map));
+        } catch (_) {}
+      }
       final repRaw = data['report'];
       if (repRaw is Map) {
         final rep = DailyReport.fromJson(Map<String, dynamic>.from(repRaw));
@@ -1501,8 +1514,8 @@ class AppState extends ChangeNotifier {
         } else {
           dailyReports.insert(0, rep);
         }
-        notifyListeners();
       }
+      notifyListeners();
     });
 
     // Real-time hisobotlar tozalanganda (barcha qurilmalarda 0 dan boshlanadi)
@@ -1511,10 +1524,21 @@ class AppState extends ChangeNotifier {
       if (data['all'] == true) {
         dailyReports.clear();
         receipts.clear();
+        liveTodayReport = TodayReportSummary(
+          totalRevenue: 0,
+          orderCount: 0,
+          cashTotal: 0,
+          cardTotal: 0,
+          averageCheck: 0,
+          waiters: [],
+          topProducts: [],
+          updatedAt: DateTime.now(),
+        );
       } else if (data['dateId'] != null) {
         final dId = data['dateId'].toString();
         dailyReports.removeWhere((r) => r.dateId == dId);
         receipts.removeWhere((r) => r.date.toIso8601String().substring(0, 10) == dId);
+        unawaited(fetchLiveTodayReport());
       }
       saveData();
       notifyListeners();
@@ -2913,8 +2937,23 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> fetchLiveTodayReport() async {
+    final cafeId = currentCafeId.isNotEmpty ? currentCafeId : (_activeLoadedCafeId ?? '');
+    if (cafeId.isEmpty || cafeId == 'local_default') return;
+    try {
+      final rep = await _cloudService.fetchTodayReport(cafeId);
+      if (rep != null) {
+        liveTodayReport = rep;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
   // ---------------- REPORT HELPERS ----------------
   double get todayRevenue {
+    if (liveTodayReport != null) {
+      return liveTodayReport!.totalRevenue.toDouble();
+    }
     final now = DateTime.now();
     return receipts
         .where(
@@ -2927,6 +2966,9 @@ class AppState extends ChangeNotifier {
   }
 
   int get todayOrders {
+    if (liveTodayReport != null) {
+      return liveTodayReport!.orderCount;
+    }
     final now = DateTime.now();
     return receipts
         .where(
@@ -15007,6 +15049,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   void initState() {
     super.initState();
     tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTabIndex.clamp(0, 2));
+    unawaited(appState.fetchLiveTodayReport());
   }
 
   @override
@@ -15175,25 +15218,44 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 700;
-    final filteredReceipts = appState.receipts.where(_isReceiptInFilter).toList();
+    return ListenableBuilder(
+      listenable: appState,
+      builder: (context, _) {
+        final isMobile = MediaQuery.of(context).size.width < 700;
+        final filteredReceipts = appState.receipts.where(_isReceiptInFilter).toList();
 
-    final totalRevenue = filteredReceipts.fold(0.0, (s, r) => s + r.total);
-    final totalOrders = filteredReceipts.length;
-    final avgOrder = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
+        final isToday = _filterMode == ReportFilterMode.day &&
+            _selectedDate.year == DateTime.now().year &&
+            _selectedDate.month == DateTime.now().month &&
+            _selectedDate.day == DateTime.now().day;
 
-    double cashTotal = 0;
-    double cardTotal = 0;
-    for (final r in filteredReceipts) {
-      if (r.cashPaid > 0 || r.cardPaid > 0) {
-        cashTotal += r.cashPaid;
-        cardTotal += r.cardPaid;
-      } else if (r.method == PaymentMethod.cash) {
-        cashTotal += r.total;
-      } else {
-        cardTotal += r.total;
-      }
-    }
+        final double totalRevenue = (isToday && appState.liveTodayReport != null)
+            ? appState.liveTodayReport!.totalRevenue.toDouble()
+            : filteredReceipts.fold(0.0, (s, r) => s + r.total);
+
+        final int totalOrders = (isToday && appState.liveTodayReport != null)
+            ? appState.liveTodayReport!.orderCount
+            : filteredReceipts.length;
+
+        final double avgOrder = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
+
+        double cashTotal = 0;
+        double cardTotal = 0;
+        if (isToday && appState.liveTodayReport != null) {
+          cashTotal = appState.liveTodayReport!.cashTotal.toDouble();
+          cardTotal = appState.liveTodayReport!.cardTotal.toDouble();
+        } else {
+          for (final r in filteredReceipts) {
+            if (r.cashPaid > 0 || r.cardPaid > 0) {
+              cashTotal += r.cashPaid;
+              cardTotal += r.cardPaid;
+            } else if (r.method == PaymentMethod.cash) {
+              cashTotal += r.total;
+            } else {
+              cardTotal += r.total;
+            }
+          }
+        }
 
     final Map<String, int> productQtySold = {};
     final Map<String, double> productRevenue = {};
@@ -15241,6 +15303,33 @@ class _ReportsScreenState extends State<ReportsScreen>
         ),
         centerTitle: false,
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: SocketService().isConnected
+                      ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                      : const Color(0xFFEF4444).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: SocketService().isConnected
+                        ? const Color(0xFF10B981).withValues(alpha: 0.5)
+                        : const Color(0xFFEF4444).withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Text(
+                  SocketService().isConnected ? '🟢 Jonli' : '🔴 Qayta ulanmoqda',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: SocketService().isConnected ? const Color(0xFF34D399) : const Color(0xFFF87171),
+                  ),
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(
@@ -15799,6 +15888,8 @@ class _ReportsScreenState extends State<ReportsScreen>
           ],
         ),
       ),
+    );
+      },
     );
   }
 

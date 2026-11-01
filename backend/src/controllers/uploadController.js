@@ -16,10 +16,13 @@ const uploadImage = async (req, res) => {
     const id = result.rows[0].id;
     const rawProto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : req.protocol);
     const host = req.get('host') || '';
+    const isLocal = host.includes('localhost') || host.includes('127.0.0.1') || host.includes('10.0.2.2');
+    const defaultHost = 'https://zavero-backend-production-7dc9.up.railway.app';
     const scheme = (host.includes('railway.app') || rawProto === 'https') ? 'https' : rawProto;
-    const url = process.env.APP_URL
-      ? `${process.env.APP_URL.replace(/\/$/, '')}/api/upload/${id}`
-      : `${scheme}://${host}/api/upload/${id}`;
+    const base = process.env.APP_URL
+      ? process.env.APP_URL.replace(/\/$/, '')
+      : (isLocal ? defaultHost : `${scheme}://${host}`);
+    const url = `${base}/api/upload/${id}`;
     return res.status(201).json({ success: true, url });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Rasmni saqlashda xatolik: ' + error.message });

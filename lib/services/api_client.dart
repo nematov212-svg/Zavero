@@ -136,12 +136,16 @@ class ApiClient {
         final prefs = await SharedPreferences.getInstance();
         final savedUrl = prefs.getString('custom_api_base_url');
         if (savedUrl != null && savedUrl.isNotEmpty) {
-          // Eski (ishlamaydigan) URLlarni avtomatik tozalab Railway'ga o'tkazamiz
-          final isObsoleteUrl = savedUrl.contains('onrender.com') ||
-              savedUrl.contains('localhost:3000') ||
-              savedUrl.contains('10.0.2.2:3000') ||
+          // Eski, nostandart yoki local IP (localhost, 127.0.0.1, 10.0.2.2, 192.168) larni tozalab,
+          // barcha qurilmalarda YAGONA Production Railway manzilini ta'minlaymiz.
+          final isInvalidUrl = savedUrl.contains('onrender.com') ||
+              savedUrl.contains('localhost') ||
+              savedUrl.contains('127.0.0.1') ||
+              savedUrl.contains('10.0.2.2') ||
+              savedUrl.contains('192.168.') ||
+              savedUrl.contains('0.0.0.0') ||
               savedUrl.contains('app.zavero.uz');
-          if (isObsoleteUrl) {
+          if (isInvalidUrl) {
             await prefs.remove('custom_api_base_url');
             _baseUrl = _defaultBaseUrl();
           } else {

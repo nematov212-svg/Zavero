@@ -951,3 +951,105 @@ class AppNotificationItem {
   );
 }
 
+class TodayWaiterMetric {
+  final String name;
+  final int orderCount;
+  final int totalRevenue;
+
+  TodayWaiterMetric({
+    required this.name,
+    required this.orderCount,
+    required this.totalRevenue,
+  });
+
+  factory TodayWaiterMetric.fromJson(Map<String, dynamic> j) => TodayWaiterMetric(
+        name: j['name'] as String? ?? 'Kassa',
+        orderCount: (j['orderCount'] as num?)?.toInt() ?? 0,
+        totalRevenue: (j['totalRevenue'] as num?)?.toInt() ?? 0,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'orderCount': orderCount,
+        'totalRevenue': totalRevenue,
+      };
+}
+
+class TodayProductMetric {
+  final String name;
+  final int quantity;
+  final int totalRevenue;
+
+  TodayProductMetric({
+    required this.name,
+    required this.quantity,
+    required this.totalRevenue,
+  });
+
+  factory TodayProductMetric.fromJson(Map<String, dynamic> j) => TodayProductMetric(
+        name: j['name'] as String? ?? '',
+        quantity: (j['quantity'] as num?)?.toInt() ?? 0,
+        totalRevenue: (j['totalRevenue'] as num?)?.toInt() ?? 0,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'quantity': quantity,
+        'totalRevenue': totalRevenue,
+      };
+}
+
+class TodayReportSummary {
+  final int totalRevenue;
+  final int orderCount;
+  final int cashTotal;
+  final int cardTotal;
+  final int averageCheck;
+  final List<TodayWaiterMetric> waiters;
+  final List<TodayProductMetric> topProducts;
+  final DateTime updatedAt;
+
+  TodayReportSummary({
+    required this.totalRevenue,
+    required this.orderCount,
+    required this.cashTotal,
+    required this.cardTotal,
+    required this.averageCheck,
+    required this.waiters,
+    required this.topProducts,
+    required this.updatedAt,
+  });
+
+  factory TodayReportSummary.fromJson(Map<String, dynamic> j) {
+    return TodayReportSummary(
+      totalRevenue: (j['totalRevenue'] as num?)?.toInt() ?? 0,
+      orderCount: (j['orderCount'] as num?)?.toInt() ?? 0,
+      cashTotal: (j['cashTotal'] as num?)?.toInt() ?? 0,
+      cardTotal: (j['cardTotal'] as num?)?.toInt() ?? 0,
+      averageCheck: (j['averageCheck'] as num?)?.toInt() ?? 0,
+      waiters: (j['waiters'] as List?)
+              ?.map((e) => TodayWaiterMetric.fromJson(Map<String, dynamic>.from(e as Map)))
+              .toList() ??
+          [],
+      topProducts: (j['topProducts'] as List?)
+              ?.map((e) => TodayProductMetric.fromJson(Map<String, dynamic>.from(e as Map)))
+              .toList() ??
+          [],
+      updatedAt: j['updatedAt'] != null
+          ? DateTime.tryParse(j['updatedAt'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'totalRevenue': totalRevenue,
+        'orderCount': orderCount,
+        'cashTotal': cashTotal,
+        'cardTotal': cardTotal,
+        'averageCheck': averageCheck,
+        'waiters': waiters.map((w) => w.toJson()).toList(),
+        'topProducts': topProducts.map((p) => p.toJson()).toList(),
+        'updatedAt': updatedAt.toIso8601String(),
+      };
+}
+

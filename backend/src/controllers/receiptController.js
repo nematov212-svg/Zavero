@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { mapReceipt, mapReport } = require('../utils/mappers');
 const { notifyCafe } = require('../socket/socketHandler');
+const { getTodayReportData } = require('./reportController');
 
 const dateIdFrom = (d) => new Date(d).toISOString().substring(0, 10);
 
@@ -233,8 +234,15 @@ const checkout = async (req, res) => {
       return { receiptRow, reportRow: reportResult.rows[0], effectiveTableId: effectiveTableId || tableId, effectiveTableNumber };
     });
 
+    let todayReport = null;
+    try {
+      todayReport = await getTodayReportData(cafeId);
+    } catch (e) {
+      console.warn('⚠️ getTodayReportData in checkout error:', e.message);
+    }
+
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow) });
-    notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow) });
+    notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow), todayReport });
 
     // 6-TALAB: Telegram bot orqali chek yuborish (agar sozlamada yoqilgan bo'lsa)
     try {
@@ -252,7 +260,7 @@ const checkout = async (req, res) => {
       notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: relId, tableNumber: effectiveTableNumber, items: [], note: '' });
     }
 
-    return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow) });
+    return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow), todayReport });
   } catch (error) {
     if (error.code === '23505' && effectiveIdempotencyKey) {
       try {

@@ -8,7 +8,7 @@ const getFullCafeData = async (req, res) => {
   try {
     const cafeId = req.user.cafeId;
 
-    const [cafeInfoR, settingsR, catR, prodR, hallR, tableR, tableOrdR, custR, recR, ordR, empR, repR] = await Promise.all([
+    const [cafeInfoR, settingsR, catR, prodR, hallR, tableR, tableOrdR, custR, recR, ordR, empR, repR, todayReport] = await Promise.all([
       db.query('SELECT cafe_name, receipt_name FROM cafes WHERE cafe_id = $1', [cafeId]),
       db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]),
       db.query('SELECT * FROM categories WHERE cafe_id = $1 ORDER BY id ASC', [cafeId]),
@@ -21,6 +21,7 @@ const getFullCafeData = async (req, res) => {
       db.query('SELECT * FROM customer_orders WHERE cafe_id = $1 ORDER BY date DESC LIMIT 100', [cafeId]),
       db.query('SELECT * FROM employees WHERE cafe_id = $1 ORDER BY id ASC', [cafeId]),
       db.query('SELECT * FROM reports WHERE cafe_id = $1 ORDER BY date_id DESC LIMIT 90', [cafeId]),
+      require('./reportController').getTodayReportData(cafeId).catch(() => null),
     ]);
 
     const cafeInfo = cafeInfoR.rows[0] || {};
@@ -53,6 +54,7 @@ const getFullCafeData = async (req, res) => {
       customerOrders: ordR.rows.map(mappers.mapCustomerOrder),
       employees: empR.rows.map(mappers.mapEmployee),
       reports: repR.rows.map(mappers.mapReport),
+      todayReport: todayReport || null,
     };
 
     return res.json({

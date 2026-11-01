@@ -2,6 +2,94 @@ const db = require('../config/db');
 const { mapReport } = require('../utils/mappers');
 const { notifyCafe } = require('../socket/socketHandler');
 
+/**
+ * Single Source of Truth for Today's SQL Aggregated Financial Metrics
+ * Calculated live via PostgreSQL (SUM/COUNT/GROUP BY) with Tashkent timezone (UTC+5).
+ */
+const getTodayReportData = async (cafeId) => {
+  const summaryRes = await db.query(
+    `SELECT 
+       COALESCE(SUM(total), 0)::bigint as total_revenue,
+       COUNT(*)::int as order_count,
+       COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0)::bigint as cash_total,
+       COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0)::bigint as card_total,
+       COALESCE(ROUND(AVG(total)), 0)::bigint as average_check
+     FROM receipts
+     WHERE cafe_id = $1 
+       AND (
+         (date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         OR (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+       )`,
+    [cafeId]
+  );
+  const summary = summaryRes.rows[0] || {};
+
+  const waiterRes = await db.query(
+    `SELECT 
+       COALESCE(NULLIF(TRIM(cashier_name), ''), 'Kassa') as waiter,
+       COUNT(*)::int as order_count,
+       COALESCE(SUM(total), 0)::bigint as total_revenue
+     FROM receipts
+     WHERE cafe_id = $1 
+       AND (
+         (date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         OR (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+       )
+     GROUP BY COALESCE(NULLIF(TRIM(cashier_name), ''), 'Kassa')
+     ORDER BY total_revenue DESC`,
+    [cafeId]
+  );
+
+  const itemsRes = await db.query(
+    `SELECT 
+       COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum') as name,
+       SUM(COALESCE((item->>'qty')::numeric, 1))::int as qty,
+       SUM(COALESCE((item->'product'->>'price')::numeric, (item->>'price')::numeric, 0) * COALESCE((item->>'qty')::numeric, 1))::bigint as total_revenue
+     FROM receipts r,
+     LATERAL jsonb_array_elements(r.items) as item
+     WHERE r.cafe_id = $1 
+       AND (
+         (r.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         OR (r.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+       )
+     GROUP BY COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum')
+     ORDER BY qty DESC
+     LIMIT 20`,
+    [cafeId]
+  );
+
+  return {
+    totalRevenue: parseInt(summary.total_revenue, 10) || 0,
+    orderCount: parseInt(summary.order_count, 10) || 0,
+    cashTotal: parseInt(summary.cash_total, 10) || 0,
+    cardTotal: parseInt(summary.card_total, 10) || 0,
+    averageCheck: parseInt(summary.average_check, 10) || 0,
+    waiters: waiterRes.rows.map(w => ({
+      name: w.waiter,
+      orderCount: parseInt(w.order_count, 10) || 0,
+      totalRevenue: parseInt(w.total_revenue, 10) || 0,
+    })),
+    topProducts: itemsRes.rows.map(i => ({
+      name: i.name,
+      quantity: parseInt(i.qty, 10) || 0,
+      totalRevenue: parseInt(i.total_revenue, 10) || 0,
+    })),
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+// GET /api/reports/today — Live SQL aggregation for today
+const getTodayReport = async (req, res) => {
+  try {
+    const cafeId = req.user.cafeId;
+    const data = await getTodayReportData(cafeId);
+    return res.json({ success: true, todayReport: data, ...data });
+  } catch (error) {
+    console.error('getTodayReport error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // GET /api/reports
 const list = async (req, res) => {
   const result = await db.query(
@@ -32,8 +120,10 @@ const clearDay = async (req, res) => {
       `DELETE FROM receipts WHERE cafe_id = $1 AND (TO_CHAR(date, 'YYYY-MM-DD') = $2 OR TO_CHAR(created_at, 'YYYY-MM-DD') = $2)`,
       [cafeId, dateId]
     );
-    notifyCafe(cafeId, 'REPORT_CLEARED', { dateId });
-    res.json({ success: true, message: `${dateId} hisoboti va cheklari tozalandi` });
+    const updatedToday = await getTodayReportData(cafeId);
+    notifyCafe(cafeId, 'REPORT_CLEARED', { dateId, todayReport: updatedToday });
+    notifyCafe(cafeId, 'REPORT_UPDATED', { todayReport: updatedToday });
+    res.json({ success: true, message: `${dateId} hisoboti va cheklari tozalandi`, todayReport: updatedToday });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -52,8 +142,10 @@ const clearMonth = async (req, res) => {
       `DELETE FROM receipts WHERE cafe_id = $1 AND (TO_CHAR(date, 'YYYY-MM') = $2 OR TO_CHAR(created_at, 'YYYY-MM') = $2)`,
       [cafeId, yearMonth]
     );
-    notifyCafe(cafeId, 'REPORT_CLEARED', { yearMonth, count: result.rows.length });
-    res.json({ success: true, count: result.rows.length });
+    const updatedToday = await getTodayReportData(cafeId);
+    notifyCafe(cafeId, 'REPORT_CLEARED', { yearMonth, count: result.rows.length, todayReport: updatedToday });
+    notifyCafe(cafeId, 'REPORT_UPDATED', { todayReport: updatedToday });
+    res.json({ success: true, count: result.rows.length, todayReport: updatedToday });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -65,9 +157,11 @@ const clearAll = async (req, res) => {
     const cafeId = req.user.cafeId;
     await db.query('DELETE FROM reports WHERE cafe_id = $1', [cafeId]);
     await db.query('DELETE FROM receipts WHERE cafe_id = $1', [cafeId]);
-    notifyCafe(cafeId, 'REPORT_CLEARED', { all: true });
+    const zeroReport = await getTodayReportData(cafeId);
+    notifyCafe(cafeId, 'REPORT_CLEARED', { all: true, todayReport: zeroReport });
     notifyCafe(cafeId, 'RECEIPTS_CLEARED', { all: true });
-    res.json({ success: true, message: 'Barcha hisobotlar va cheklar muvaffaqiyatli 0 dan tozalandi' });
+    notifyCafe(cafeId, 'REPORT_UPDATED', { todayReport: zeroReport });
+    res.json({ success: true, message: 'Barcha hisobotlar va cheklar muvaffaqiyatli 0 dan tozalandi', todayReport: zeroReport });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -212,4 +306,14 @@ const exportCsv = async (req, res) => {
   }
 };
 
-module.exports = { list, getOne, clearDay, clearMonth, clearAll, getAnalytics, exportCsv };
+module.exports = {
+  list,
+  getOne,
+  getTodayReport,
+  getTodayReportData,
+  clearDay,
+  clearMonth,
+  clearAll,
+  getAnalytics,
+  exportCsv,
+};

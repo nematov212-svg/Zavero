@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../main.dart';
+import '../services/socket_service.dart';
 import 'receipt_widget.dart';
 
 /// Image 2 ga 100% mos keluvchi professional SaaS Executive POS Dashboard.
@@ -87,21 +88,37 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     _cachedUniqueCustomers = _cachedTotalOrders > 0 ? (_cachedTotalOrders * 0.78).round().clamp(1, 999999) : 0;
     _cachedOpenOrdersCount = appState.tables.where((t) => t.status == TableStatus.occupied).length;
 
-    // Bugungi statistika
-    final todayReceipts = allReceipts.where((r) => _isSameDay(r.date, now)).toList();
-    _cachedTodayRevenue = todayReceipts.fold(0.0, (sum, r) => sum + r.total);
-    _cachedTodayOrders = todayReceipts.length;
-    _cachedTodayAvgCheck = _cachedTodayOrders > 0 ? (_cachedTodayRevenue / _cachedTodayOrders) : 0.0;
+    // Bugungi statistika — Server SQL yagona haqiqat manbai (Single Source of Truth)
+    if (appState.liveTodayReport != null) {
+      _cachedTodayRevenue = appState.liveTodayReport!.totalRevenue.toDouble();
+      _cachedTodayOrders = appState.liveTodayReport!.orderCount;
+      _cachedTodayAvgCheck = appState.liveTodayReport!.averageCheck.toDouble();
+    } else {
+      final todayReceipts = allReceipts.where((r) => _isSameDay(r.date, now)).toList();
+      _cachedTodayRevenue = todayReceipts.fold(0.0, (sum, r) => sum + r.total);
+      _cachedTodayOrders = todayReceipts.length;
+      _cachedTodayAvgCheck = _cachedTodayOrders > 0 ? (_cachedTodayRevenue / _cachedTodayOrders) : 0.0;
+    }
 
     // Naqd vs Karta taqsimoti
-    _cachedCashTotal = _cachedPeriodReceipts
-        .where((r) => r.method == PaymentMethod.cash)
-        .fold(0.0, (s, r) => s + r.total);
-    _cachedCardTotal = _cachedPeriodReceipts
-        .where((r) => r.method == PaymentMethod.card)
-        .fold(0.0, (s, r) => s + r.total);
-    _cachedCashPct = _cachedTotalRevenue > 0 ? ((_cachedCashTotal / _cachedTotalRevenue) * 100).round() : 0;
-    _cachedCardPct = _cachedTotalRevenue > 0 ? ((_cachedCardTotal / _cachedTotalRevenue) * 100).round() : 0;
+    if (_selectedPeriod == _DashboardPeriod.bugun && appState.liveTodayReport != null) {
+      _cachedTotalRevenue = appState.liveTodayReport!.totalRevenue.toDouble();
+      _cachedTotalOrders = appState.liveTodayReport!.orderCount;
+      _cachedAvgCheck = appState.liveTodayReport!.averageCheck.toDouble();
+      _cachedCashTotal = appState.liveTodayReport!.cashTotal.toDouble();
+      _cachedCardTotal = appState.liveTodayReport!.cardTotal.toDouble();
+      _cachedCashPct = _cachedTotalRevenue > 0 ? ((_cachedCashTotal / _cachedTotalRevenue) * 100).round() : 0;
+      _cachedCardPct = _cachedTotalRevenue > 0 ? ((_cachedCardTotal / _cachedTotalRevenue) * 100).round() : 0;
+    } else {
+      _cachedCashTotal = _cachedPeriodReceipts
+          .where((r) => r.method == PaymentMethod.cash)
+          .fold(0.0, (s, r) => s + r.total);
+      _cachedCardTotal = _cachedPeriodReceipts
+          .where((r) => r.method == PaymentMethod.card)
+          .fold(0.0, (s, r) => s + r.total);
+      _cachedCashPct = _cachedTotalRevenue > 0 ? ((_cachedCashTotal / _cachedTotalRevenue) * 100).round() : 0;
+      _cachedCardPct = _cachedTotalRevenue > 0 ? ((_cachedCardTotal / _cachedTotalRevenue) * 100).round() : 0;
+    }
 
     // Ofitsiantlar bo'yicha savdo
     final Map<String, _WaiterSales> waiterMap = {};
@@ -254,8 +271,16 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         final allReceipts = appState.receipts;
         final now = DateTime.now();
 
-        // Faqat cheklar yoki davr o'zgargandagina qayta hisoblaymiz (Kesh / Memoization)
-        final receiptsHash = Object.hash(allReceipts.length, allReceipts.isNotEmpty ? allReceipts.last.id : 0, appState.tables.length);
+        // Faqat cheklar, server live hisoboti yoki davr o'zgargandagina qayta hisoblaymiz
+        final receiptsHash = Object.hash(
+          appState.liveTodayReport?.totalRevenue,
+          appState.liveTodayReport?.orderCount,
+          allReceipts.length,
+          allReceipts.isNotEmpty ? allReceipts.first.id : 0,
+          allReceipts.isNotEmpty ? allReceipts.last.id : 0,
+          appState.tables.length,
+          _selectedPeriod,
+        );
         if (receiptsHash != _lastReceiptsHash || _selectedPeriod != _lastPeriod) {
           _lastReceiptsHash = receiptsHash;
           _lastPeriod = _selectedPeriod;
@@ -294,8 +319,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── 0. DAVR FILTERI (Bugun | Kecha | Hafta | Oy | Barchasi) ──
-              _buildPeriodSelector(isDark),
+              // ── 0. DAVR FILTERI (Bugun | Kecha | Hafta | Oy | Barchasi) VA REAL-TIME STATUS ──
+              _buildTopToolbar(isDark, isMobile),
               const SizedBox(height: 14),
 
               // ── 1. ASOSIY 4 TA KPI KARTALARI ─────────────────────────────
@@ -399,6 +424,90 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           ),
         );
       },
+    );
+  }
+
+  // =========================================================================
+  // 0. TOP TOOLBAR & REAL-TIME STATUS
+  // =========================================================================
+  Widget _buildTopToolbar(bool isDark, bool isMobile) {
+    final isOnline = SocketService().isConnected;
+    final statusBadge = InkWell(
+      onTap: () {
+        if (!isOnline && appState.currentCafeId.isNotEmpty) {
+          SocketService().connect(cafeId: appState.currentCafeId);
+          appState.fetchLiveTodayReport();
+        }
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isOnline
+              ? const Color(0xFF10B981).withValues(alpha: 0.15)
+              : const Color(0xFFEF4444).withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isOnline
+                ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                : const Color(0xFFEF4444).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              isOnline ? "🟢 Jonli" : "🔴 Qayta ulanmoqda",
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: isOnline ? const Color(0xFF059669) : const Color(0xFFDC2626),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Boshqaruv Paneli',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
+              statusBadge,
+            ],
+          ),
+          const SizedBox(height: 10),
+          _buildPeriodSelector(isDark),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        _buildPeriodSelector(isDark),
+        const Spacer(),
+        statusBadge,
+      ],
     );
   }
 

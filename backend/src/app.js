@@ -221,7 +221,24 @@ app.get('/menu', (req, res) => {
 app.get('/qr', serveMenuApp);
 app.get('/qr-menu', serveMenuApp);
 
+// API Cache-Control Middleware: Strict zero-caching across all API routes for real-time consistency
+app.use(['/api', '/api/v1'], (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
+// Railway Keep-Alive Background Ping (runs every 4 minutes to prevent cold sleep)
+try {
+  const keepAliveTarget = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/health`
+    : 'https://zavero-backend-production-7dc9.up.railway.app/health';
+  const https = require('https');
+  setInterval(() => {
+    https.get(keepAliveTarget, () => {}).on('error', () => {});
+  }, 4 * 60 * 1000);
+} catch (_) {}
 
 ['/api', '/api/v1'].forEach((prefix) => {
   app.use(`${prefix}/auth`, authRoutes);
