@@ -259,4 +259,204 @@ const checkout = async (req, res) => {
   }
 };
 
-module.exports = { list, checkout };
+// GET /api/receipts/:id/view — Clean 80mm thermal receipt HTML for mobile browser / printing
+const viewReceiptHtml = async (req, res) => {
+  try {
+    const receiptId = req.params.id;
+    const result = await db.query('SELECT * FROM receipts WHERE id = $1 LIMIT 1', [receiptId]);
+    if (result.rows.length === 0) {
+      return res.status(404).send('<h3>Chek topilmadi</h3>');
+    }
+
+    const r = result.rows[0];
+    const cafeId = r.cafe_id;
+
+    let settings = {};
+    try {
+      const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
+      if (sRes.rows.length > 0 && sRes.rows[0].data) {
+        settings = typeof sRes.rows[0].data === 'string' ? JSON.parse(sRes.rows[0].data) : sRes.rows[0].data;
+      }
+    } catch (_) {}
+
+    const cafeName = settings.restaurantName || settings.receiptName || 'Family Cafe';
+    const address = settings.restaurantAddress || "Navoi ko'chasi 12, Buxoro";
+    const phone = settings.restaurantPhone || "+998 90 123 45 67";
+    const slogan = settings.receiptSlogan || "Yaxshi ta'm • Baxtli onlar";
+    const footerMsg = settings.receiptFooterNote || "Bizni tanlaganingiz uchun rahmat!";
+    const date = new Date(r.date || Date.now());
+    const dateStr = `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}`;
+    const timeStr = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    const checkNo = String(r.id).padStart(6, '0').slice(-6);
+
+    const items = Array.isArray(r.items) ? r.items : (typeof r.items === 'string' ? JSON.parse(r.items) : []);
+    const itemsHtml = items.map((item, idx) => {
+      const name = item.product?.name || item.name || 'Taom';
+      const qty = item.qty || item.quantity || 1;
+      const price = Number(item.product?.price || item.price || 0).toLocaleString('uz-UZ').replace(/,/g, ' ');
+      return `
+        <tr>
+          <td style="padding: 3px 2px; text-align: left; font-size: 11px;">${idx + 1}</td>
+          <td style="padding: 3px 2px; text-align: left; font-size: 11px; font-weight: 600;">${name}</td>
+          <td style="padding: 3px 2px; text-align: center; font-size: 11px;">${qty} dona</td>
+          <td style="padding: 3px 2px; text-align: right; font-size: 11px; font-weight: 700;">${price} UZS</td>
+        </tr>
+      `;
+    }).join('');
+
+    const totalStr = Number(r.total || 0).toLocaleString('uz-UZ').replace(/,/g, ' ');
+    const cashierName = r.cashier_name || 'Admin';
+    const tableInfo = r.table_number ? `${r.table_number}-stol` : (r.table_name || '');
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Chek #${checkNo}</title>
+  <style>
+    @page { size: 80mm auto; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      color: #000;
+      background: #fff;
+      display: flex;
+      justify-content: center;
+      padding: 10px 0;
+    }
+    .receipt {
+      width: 80mm;
+      max-width: 100%;
+      padding: 10px 14px 20px 14px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .text-center { text-align: center; }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+    .header-title {
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+    }
+    .header-sub {
+      font-size: 11px;
+      color: #333;
+      margin-bottom: 6px;
+    }
+    .meta-table {
+      width: 100%;
+      font-size: 11.5px;
+      margin: 6px 0;
+      border-collapse: collapse;
+    }
+    .meta-table td { padding: 1.5px 0; }
+    .divider {
+      border-top: 1px dashed #000;
+      margin: 6px 0;
+    }
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 6px 0;
+    }
+    .items-table th {
+      border-bottom: 1px dashed #000;
+      padding: 4px 2px;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14.5px;
+      font-weight: 900;
+      margin-top: 6px;
+      padding-top: 4px;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 12px;
+      font-size: 11px;
+    }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="receipt">
+    <div class="header-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="width: 38px; height: 30px;">
+        <line x1="22" y1="64" x2="78" y2="64" stroke-width="2.2"/>
+        <line x1="24" y1="72" x2="76" y2="72" stroke-width="2.2"/>
+        <path d="M 22 64 C 6 64 6 36 20 30 C 14 18 32 8 42 16 C 46 8 54 8 58 16 C 68 8 86 18 80 30 C 94 36 94 64 78 64" stroke-width="2.4" fill="none"/>
+      </svg>
+      <span class="header-title">${cafeName}</span>
+    </div>
+    <div class="header-sub text-center">${slogan}</div>
+    <div class="text-center" style="font-size: 10.5px; color: #444;">${address} • ${phone}</div>
+    <div class="divider"></div>
+
+    <table class="meta-table">
+      <tr><td>Sana: <b>${dateStr}</b></td><td style="text-align: right;">Vaqt: <b>${timeStr}</b></td></tr>
+      <tr><td>Chek №: <b>#${checkNo}</b></td><td style="text-align: right;">Kassir: <b>${cashierName}</b></td></tr>
+      ${tableInfo ? `<tr><td colspan="2">Stol / Joy: <b>${tableInfo}</b></td></tr>` : ''}
+    </table>
+
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th style="text-align: left; width: 18px;">№</th>
+          <th style="text-align: left;">Nomi</th>
+          <th style="text-align: center; width: 55px;">Miqdori</th>
+          <th style="text-align: right; width: 85px;">Narx</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsHtml}
+      </tbody>
+    </table>
+
+    <div class="divider"></div>
+    <div class="total-row">
+      <span>JAMI TO'LOV:</span>
+      <span>${totalStr} UZS</span>
+    </div>
+    <div style="font-size: 11.5px; margin-top: 3px; display: flex; justify-content: space-between;">
+      <span>To'lov usuli:</span>
+      <span><b>${r.method === 'card' ? 'Karta' : 'Naqd pul'}</b></span>
+    </div>
+
+    <div class="divider"></div>
+    <div class="footer">
+      <div>${footerMsg}</div>
+      <div style="margin-top: 4px; font-weight: 700; font-size: 10px;">ZAVERO POS BILAN CHOP ETILDI</div>
+    </div>
+  </div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() {
+        try { window.print(); } catch(_) {}
+      }, 250);
+    };
+  </script>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (error) {
+    console.error('viewReceiptHtml error:', error);
+    return res.status(500).send('Server xatoligi');
+  }
+};
+
+module.exports = { list, checkout, viewReceiptHtml };

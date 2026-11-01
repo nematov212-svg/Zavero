@@ -135,19 +135,33 @@
     (function () {
       if (window.Telegram && window.Telegram.WebApp) {
         try {
-          window.Telegram.WebApp.ready();
-          window.Telegram.WebApp.expand();
-          if (window.Telegram.WebApp.disableVerticalSwipes) {
-            window.Telegram.WebApp.disableVerticalSwipes();
-          }
-          if (window.Telegram.WebApp.enableClosingConfirmation) {
-            window.Telegram.WebApp.enableClosingConfirmation();
-          }
-          if (window.Telegram.WebApp.setHeaderColor) {
-            window.Telegram.WebApp.setHeaderColor('#0F172A');
-          }
-          if (window.Telegram.WebApp.setBackgroundColor) {
-            window.Telegram.WebApp.setBackgroundColor('#0F172A');
+          var tg = window.Telegram.WebApp;
+          tg.ready();
+          tg.expand();
+          if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+          if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+          if (tg.setHeaderColor) tg.setHeaderColor('#0F172A');
+          if (tg.setBackgroundColor) tg.setBackgroundColor('#0F172A');
+
+          // Telegram BackButton support: ofitsiant yoki foydalanuvchi sahifalarida to'g'ri ishlashi
+          if (tg.BackButton) {
+            var updateBackButton = function () {
+              var h = window.location.hash || '';
+              if (h && h !== '#/' && h !== '#dashboard' && h !== '') {
+                tg.BackButton.show();
+              } else {
+                tg.BackButton.hide();
+              }
+            };
+            tg.BackButton.onClick(function () {
+              if (window.location.hash && window.location.hash !== '#/' && window.location.hash !== '#dashboard') {
+                window.history.back();
+              } else {
+                tg.BackButton.hide();
+              }
+            });
+            window.addEventListener('hashchange', updateBackButton);
+            updateBackButton();
           }
         } catch (e) {
           console.warn('Telegram WebApp setup error:', e);
@@ -191,6 +205,78 @@
         for (var n of names) { caches.delete(n); }
       }).catch(function () { });
     }
+  </script>
+
+  <!-- Yashirin <iframe> orqali 80mm termo chekni chop etish (blob: URLsiz, ERR_BLOCKED_BY_CLIENT ni to'liq oldini oladi) -->
+  <script>
+    window.zaveroPrintReceiptHtml = function (htmlContent) {
+      return new Promise(function (resolve) {
+        try {
+          var old = document.getElementById('zavero-receipt-iframe');
+          if (old && old.parentNode) {
+            old.parentNode.removeChild(old);
+          }
+          var iframe = document.createElement('iframe');
+          iframe.id = 'zavero-receipt-iframe';
+          iframe.style.position = 'fixed';
+          iframe.style.right = '0';
+          iframe.style.bottom = '0';
+          iframe.style.width = '0';
+          iframe.style.height = '0';
+          iframe.style.border = '0';
+          iframe.style.visibility = 'hidden';
+          iframe.style.zIndex = '-9999';
+          document.body.appendChild(iframe);
+
+          var doc = iframe.contentWindow.document;
+          doc.open();
+          doc.write(htmlContent);
+          doc.close();
+
+          var cleaned = false;
+          var cleanup = function () {
+            if (cleaned) return;
+            cleaned = true;
+            setTimeout(function () {
+              try {
+                if (iframe && iframe.parentNode) {
+                  iframe.parentNode.removeChild(iframe);
+                }
+              } catch (_) { }
+            }, 1200);
+          };
+
+          try {
+            iframe.contentWindow.addEventListener('afterprint', cleanup);
+          } catch (_) { }
+
+          var doPrint = function () {
+            try {
+              iframe.contentWindow.focus();
+              iframe.contentWindow.print();
+              resolve(true);
+            } catch (e) {
+              console.error('[Zavero] Iframe print error:', e);
+              cleanup();
+              resolve(false);
+            }
+          };
+
+          if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+            setTimeout(doPrint, 100);
+          } else {
+            iframe.onload = function () {
+              setTimeout(doPrint, 100);
+            };
+          }
+
+          setTimeout(cleanup, 60000);
+        } catch (err) {
+          console.error('[Zavero] Setup error:', err);
+          resolve(false);
+        }
+      });
+    };
   </script>
 
   <script src="mac_touch_id.js"></script>

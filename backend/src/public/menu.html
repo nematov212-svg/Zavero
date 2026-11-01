@@ -975,13 +975,19 @@
     let tableNumber = urlParams.get('tableNumber') || urlParams.get('table') || '';
 
     if (tgStartParam) {
-      const parts = tgStartParam.split('_');
-      if (parts.length >= 2) {
-        if (!cafeId) cafeId = parts[0];
-        const lastPart = parts[parts.length - 1].replace(/^t(able)?/i, '');
-        if (lastPart && !tableNumber) tableNumber = lastPart;
-      } else if (!cafeId) {
-        cafeId = tgStartParam;
+      if (/^(table|t)_/i.test(tgStartParam)) {
+        tableNumber = tgStartParam.replace(/^(table|t)_/i, '');
+      } else {
+        const parts = tgStartParam.split('_');
+        if (parts.length >= 2) {
+          if (parts[0].toLowerCase() !== 'table' && parts[0].toLowerCase() !== 't') {
+            if (!cafeId) cafeId = parts[0];
+          }
+          const lastPart = parts[parts.length - 1].replace(/^t(able)?/i, '');
+          if (lastPart) tableNumber = lastPart;
+        } else if (!cafeId) {
+          cafeId = tgStartParam;
+        }
       }
     }
 

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../main.dart';
 import '../models/models.dart';
-import '../services/sound_service.dart';
 import '../services/localization_service.dart';
 
 class CustomerOrdersScreen extends StatefulWidget {
@@ -216,60 +215,78 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> with Single
           appBar: AppBar(
             backgroundColor: Colors.white,
             elevation: 0.5,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_rounded, color: _textDark),
-              onPressed: () => Navigator.pop(context),
+            titleSpacing: 0,
+            leadingWidth: 44,
+            leading: Center(
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: const Icon(Icons.arrow_back_rounded, color: _textDark, size: 22),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
             ),
             title: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(7),
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: _orangePrimary,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 20),
+                  child: const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 19),
                 ),
-                const SizedBox(width: 10),
-                const Text(
-                  'Mijozlardan buyurtmalar',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: _textDark,
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Mijozlardan buyurtmalar',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16.5,
+                      color: _textDark,
+                      letterSpacing: -0.3,
+                    ),
                   ),
                 ),
               ],
             ),
             actions: [
-              if (completedOrders.isNotEmpty)
-                IconButton(
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   tooltip: tr('clear_old_orders'),
-                  icon: const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444)),
+                  icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 22),
                   onPressed: _confirmClearCompletedOrders,
                 ),
-              if (pendingOrders.isNotEmpty)
-                IconButton(
-                  tooltip: 'Ovozlarni o‘chirish',
-                  icon: const Icon(Icons.volume_off_rounded, color: _orangePrimary),
+              ),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: const Icon(Icons.refresh_rounded, color: _textMuted, size: 22),
+                  tooltip: 'Yangilash',
                   onPressed: () {
-                    SoundService().stopAllVoices();
+                    appState.forceRefreshCustomerOrders();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Ovozli xabarlar to‘xtatildi')),
+                      const SnackBar(content: Text('Buyurtmalar yangilandi'), duration: Duration(seconds: 1)),
                     );
                   },
                 ),
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded, color: _textMuted),
-                tooltip: 'Yangilash',
-                onPressed: () {
-                  appState.forceRefreshCustomerOrders();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Buyurtmalar yangilandi'), duration: Duration(seconds: 1)),
-                  );
-                },
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
             ],
             // 4 Pill Tabs Bar - Image 4
             bottom: PreferredSize(

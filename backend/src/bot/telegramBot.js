@@ -1218,23 +1218,26 @@ const initTelegramBot = () => {
       }
     };
 
-    // Command: /app (Mini App'ni ochish)
-    bot.command('app', async (ctx) => {
+    // Command: /app, /menu, /menyu (Mini App'ni ochish)
+    const handleOpenMiniAppCommand = async (ctx) => {
       try {
         const webAppUrl = getWebAppUrl();
         return await ctx.replyWithHTML(
           `📱 <b>ZAVERO POS TELEGRAM MINI APP</b>\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
-          `Ilovani to‘liq ekran rejimida ochish va stollarni real-time boshqarish uchun quyidagi tugmani bosing:`,
+          `Ilovani to‘liq ekran rejimida ochish va buyurtmalarni boshqarish uchun quyidagi tugmani bosing:`,
           Markup.inlineKeyboard([
             [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', webAppUrl)],
             [Markup.button.callback('⬅️ Bosh menyu', 'back_to_start')],
           ])
         );
       } catch (e) {
-        console.error('/app command error:', e);
+        console.error('/menu command error:', e);
       }
-    });
+    };
+    bot.command('app', handleOpenMiniAppCommand);
+    bot.command('menu', handleOpenMiniAppCommand);
+    bot.command('menyu', handleOpenMiniAppCommand);
 
     // Command: /refresh & /yangilash
     const handleRefreshCommand = async (ctx) => {

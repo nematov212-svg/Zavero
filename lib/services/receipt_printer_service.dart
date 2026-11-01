@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'thermal_html_generator.dart';
+import 'web_receipt_printer.dart';
 
 /// Clean model representing a line item on the printed thermal receipt.
 class ReceiptPrintItem {
@@ -724,8 +726,16 @@ class ReceiptPrinterService {
     }
 
     // 2. Fallback to System / Browser Thermal Print Dialog
-    if (kIsWeb && isAutoCheckout) {
-      debugPrint('ℹ️ [Web] Avtomatik to\'lovda printer sozlanmagan, dialog ochilmadi.');
+    if (kIsWeb) {
+      if (isAutoCheckout) {
+        debugPrint('ℹ️ [Web] Avtomatik to\'lovda printer sozlanmagan, dialog ochilmadi.');
+        return;
+      }
+      final html = ThermalHtmlGenerator.buildReceiptHtml(data);
+      final success = await WebReceiptPrinter.printHtml(html);
+      if (!success) {
+        throw Exception('Chekni chop etish oynasini ochib bo\'lmadi');
+      }
       return;
     }
 

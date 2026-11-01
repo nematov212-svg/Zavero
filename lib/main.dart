@@ -33,6 +33,8 @@ import 'services/local_cache_service.dart';
 import 'services/sound_service.dart';
 import 'services/localization_service.dart';
 import 'services/offline_sync_service.dart';
+import 'services/thermal_html_generator.dart';
+import 'services/web_receipt_printer.dart';
 import 'services/receipt_printer_service.dart';
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
@@ -1020,8 +1022,20 @@ class AppState extends ChangeNotifier {
     });
 
     _customerOrdersPollTimer?.cancel();
-    _customerOrdersPollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      // FAQAT ofitsiant paneliga kelishi kerak (Admin/Kafe paneliga emas)
+    _customerOrdersPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      // 1. Agar socket vaqtincha uzilgan bo'lsa yoki xabar kechiksa, stollarni fonda sokin sinxronlaymiz
+      if (!SocketService().isConnected && currentCafeId.isNotEmpty) {
+        _cloudService.fetchTables(currentCafeId).then((cloudTables) {
+          if (cloudTables.isNotEmpty) {
+            tables
+              ..clear()
+              ..addAll(cloudTables);
+            _syncTableStatusesFromOrders();
+            notifyListeners();
+          }
+        }).catchError((_) {});
+      }
+      // 2. FAQAT ofitsiant paneliga kelishi kerak (Admin/Kafe paneliga emas)
       if (currentUser != null && currentUser?.role == UserRole.waiter) {
         forceRefreshCustomerOrders();
       }
@@ -3375,6 +3389,18 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
       is58mm: is58mm,
     );
 
+    if (kIsWeb) {
+      final html = ThermalHtmlGenerator.buildReceiptHtml(
+        printData,
+        logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
+      );
+      final ok = await WebReceiptPrinter.printHtml(html);
+      if (!ok) {
+        throw Exception('Chop etish oynasini ochib bo\'lmadi');
+      }
+      return;
+    }
+
     final doc = ThermalPdfGenerator.buildReceiptDoc(printData, is58mm: is58mm);
     final pageFormat = ThermalPdfGenerator.getFormat(printData, is58mm: is58mm);
 
@@ -3450,11 +3476,23 @@ Future<void> printBillPreview({
     is58mm: is58mm,
   );
 
-  final doc = ThermalPdfGenerator.buildReceiptDoc(printData, is58mm: is58mm);
-  final pageFormat = ThermalPdfGenerator.getFormat(printData, is58mm: is58mm);
-
   if (!await _acquirePrintLock()) return;
   try {
+    if (kIsWeb) {
+      final html = ThermalHtmlGenerator.buildReceiptHtml(
+        printData,
+        logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
+      );
+      final ok = await WebReceiptPrinter.printHtml(html);
+      if (!ok) {
+        throw Exception('Chop etish oynasini ochib bo\'lmadi');
+      }
+      return;
+    }
+
+    final doc = ThermalPdfGenerator.buildReceiptDoc(printData, is58mm: is58mm);
+    final pageFormat = ThermalPdfGenerator.getFormat(printData, is58mm: is58mm);
+
     await Printing.layoutPdf(
       onLayout: (format) async => doc.save(),
       name: 'hisob_${DateTime.now().millisecondsSinceEpoch}',
@@ -3594,6 +3632,28 @@ Future<void> printKitchenTicket({
   );
   if (!await _acquirePrintLock()) return;
   try {
+    if (kIsWeb) {
+      final printItems = items.asMap().entries.map((e) => ReceiptPrintItem(
+        index: e.key + 1,
+        name: e.value.product.name,
+        qty: e.value.qty,
+        unitPrice: e.value.product.price,
+        lineTotal: e.value.product.price * e.value.qty,
+      )).toList();
+      final html = ThermalHtmlGenerator.buildKitchenTicketHtml(
+        items: printItems,
+        tableNumber: table != null ? '${table.number}' : null,
+        hallName: hallName,
+        note: note,
+        is58mm: is58mm,
+      );
+      final ok = await WebReceiptPrinter.printHtml(html);
+      if (!ok) {
+        throw Exception('Oshpaz chekini chop etishda xatolik');
+      }
+      return;
+    }
+
     await Printing.layoutPdf(
       onLayout: (format) async => doc.save(),
       name: 'oshpaz_cheki_${DateTime.now().millisecondsSinceEpoch}',
@@ -6934,9 +6994,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
   Color _getPingColor(int pingMs, bool isOnline) {
     if (!isOnline) return const Color(0xFFEF4444);
+    if (!SocketService().isConnected) return const Color(0xFFF59E0B); // Qayta ulanmoqda (sariq nuqta)
     if (pingMs <= 22) return const Color(0xFF10B981); // ~20ms: juda yaxshi (yashil)
     if (pingMs <= 28) return const Color(0xFF22C55E); // ~25ms: yaxshi (och yashil)
-    return const Color(0xFF10B981); // max 35ms: doimo yashil
+    return const Color(0xFF10B981); // doimo yashil
   }
 
   void _startPingTimer() {
@@ -7966,7 +8027,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                       _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
                       const SizedBox(width: 5),
                       Text(
-                        _isOnline ? '${_pingMs}ms' : 'Offline',
+                        _isOnline
+                            ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
+                            : 'Offline',
                         style: TextStyle(
                           color: _getPingColor(_pingMs, _isOnline),
                           fontWeight: FontWeight.w700,
@@ -8363,7 +8426,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
                               const SizedBox(width: 4),
                               Text(
-                                _isOnline ? '${_pingMs > 0 ? _pingMs : 1}ms' : 'Offline',
+                                _isOnline
+                                    ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
+                                    : 'Offline',
                                 style: TextStyle(
                                   color: _getPingColor(_pingMs, _isOnline),
                                   fontWeight: FontWeight.w700,
@@ -20049,155 +20114,157 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── 2. SUBSCRIPTION / TARIFF CARD ─────────────────────
-              Container(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF0F1E30), Color(0xFF1E293B)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0F1E30).withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
+              // ── 2. SUBSCRIPTION / TARIFF CARD (Faqat egasi / admin uchun, ofitsiantda ko'rinmaydi) ─────────────────────
+              if (user?.role == UserRole.admin || user?.role == UserRole.director) ...[
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF0F1E30), Color(0xFF1E293B)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                  ],
-                ),
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header of card
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFB300).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFFB300), size: 22),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                'Litsenziya va Tarif',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                'ZAVERO POS Premium obunasi',
-                                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Status pill badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: isExpired
-                                ? const Color(0xFFEF4444).withValues(alpha: 0.2)
-                                : isWarning
-                                    ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
-                                    : const Color(0xFF10B981).withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: isExpired
-                                  ? const Color(0xFFEF4444)
-                                  : isWarning
-                                      ? const Color(0xFFF59E0B)
-                                      : const Color(0xFF10B981),
-                              width: 1.2,
-                            ),
-                          ),
-                          child: Text(
-                            isExpired
-                                ? 'Tugagan'
-                                : (daysLeft != null ? '$daysLeft kun qoldi' : 'Faol'),
-                            style: TextStyle(
-                              color: isExpired
-                                  ? const Color(0xFFEF4444)
-                                  : isWarning
-                                      ? const Color(0xFFF59E0B)
-                                      : const Color(0xFF10B981),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Expiration date row & days remaining
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0F1E30).withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header of card
+                      Row(
                         children: [
-                          Row(
-                            children: const [
-                              Icon(Icons.calendar_month_rounded, color: Color(0xFF94A3B8), size: 16),
-                              SizedBox(width: 8),
-                              Text(
-                                'Tugash vaqti:',
-                                style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
-                              ),
-                            ],
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFFB300), size: 22),
                           ),
-                          Text(
-                            cafeEndDate != null
-                                ? '${cafeEndDate.year}-${cafeEndDate.month.toString().padLeft(2, '0')}-${cafeEndDate.day.toString().padLeft(2, '0')}'
-                                : 'Doimiy (Cheksiz)',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                Text(
+                                  'Litsenziya va Tarif',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'ZAVERO POS Premium obunasi',
+                                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Status pill badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: isExpired
+                                  ? const Color(0xFFEF4444).withValues(alpha: 0.2)
+                                  : isWarning
+                                      ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
+                                      : const Color(0xFF10B981).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: isExpired
+                                    ? const Color(0xFFEF4444)
+                                    : isWarning
+                                        ? const Color(0xFFF59E0B)
+                                        : const Color(0xFF10B981),
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Text(
+                              isExpired
+                                  ? 'Tugagan'
+                                  : (daysLeft != null ? '$daysLeft kun qoldi' : 'Faol'),
+                              style: TextStyle(
+                                color: isExpired
+                                    ? const Color(0xFFEF4444)
+                                    : isWarning
+                                        ? const Color(0xFFF59E0B)
+                                        : const Color(0xFF10B981),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
 
-                    // Renew subscription button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _openRenewSubscription,
-                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-                        label: const Text(
-                          'Yana 30 kun olish',
-                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                      // Expiration date row & days remaining
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF315EFB),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 2,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: const [
+                                Icon(Icons.calendar_month_rounded, color: Color(0xFF94A3B8), size: 16),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Tugash vaqti:',
+                                  style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              cafeEndDate != null
+                                  ? '${cafeEndDate.year}-${cafeEndDate.month.toString().padLeft(2, '0')}-${cafeEndDate.day.toString().padLeft(2, '0')}'
+                                  : 'Doimiy (Cheksiz)',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+
+                      // Renew subscription button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _openRenewSubscription,
+                          icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                          label: const Text(
+                            'Yana 30 kun olish',
+                            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF315EFB),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
 
               // ── 3. AKKOUNT MA'LUMOTLARI ──────────────────────────
               _section(
@@ -20218,14 +20285,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 icon: Icons.settings_outlined,
                 title: 'Sozlamalar va Xavfsizlik',
                 children: [
-                  _actionRow(
-                    icon: Icons.tune_rounded,
-                    iconColor: const Color(0xFF315EFB),
-                    title: 'Ilova sozlamalari',
-                    subtitle: 'Printer, cheklar va umumiy parametrlar',
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
-                  ),
-                  const Divider(height: 16),
                   _actionRow(
                     icon: Icons.lock_reset_rounded,
                     iconColor: const Color(0xFF0F1E30),

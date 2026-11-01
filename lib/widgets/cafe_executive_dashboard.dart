@@ -365,6 +365,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 ],
               ],
 
+              
+
               const SizedBox(height: 18),
 
               // ── 4. OFITSIANTLAR BO'LIMI (Reyting, Tushum va Ulush) ────────
@@ -2516,9 +2518,20 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           backgroundColor: const Color(0xFF2563EB),
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () {
+                        onPressed: () async {
                           Navigator.pop(ctx);
-                          printReceipt(receipt);
+                          try {
+                            await printReceipt(receipt);
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Chekni chop etishda xatolik: $e'),
+                                  backgroundColor: const Color(0xFFEF4444),
+                                ),
+                              );
+                            }
+                          }
                         },
                         icon: const Icon(Icons.print),
                         label: const Text('Qayta chop etish'),

@@ -252,6 +252,15 @@ class CloudService {
         ],
       );
 
+  Future<List<TableModel>> fetchTables(String cafeId) async {
+    try {
+      final res = await _api.get('/tables');
+      return _list(res['tables'], TableModel.fromJson);
+    } catch (_) {
+      return [];
+    }
+  }
+
   Stream<List<Hall>> streamHalls(String cafeId) =>
       _watch<List<Hall>>(
         realtimeType: RealtimeEventType.halls,
