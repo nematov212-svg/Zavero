@@ -15050,10 +15050,16 @@ class _ReportsScreenState extends State<ReportsScreen>
     super.initState();
     tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTabIndex.clamp(0, 2));
     unawaited(appState.fetchLiveTodayReport());
+    appState.addListener(_onAppStateChanged);
+  }
+
+  void _onAppStateChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    appState.removeListener(_onAppStateChanged);
     tabController.dispose();
     super.dispose();
   }
@@ -15218,44 +15224,41 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: appState,
-      builder: (context, _) {
-        final isMobile = MediaQuery.of(context).size.width < 700;
-        final filteredReceipts = appState.receipts.where(_isReceiptInFilter).toList();
+    final isMobile = MediaQuery.of(context).size.width < 700;
+    final filteredReceipts = appState.receipts.where(_isReceiptInFilter).toList();
 
-        final isToday = _filterMode == ReportFilterMode.day &&
-            _selectedDate.year == DateTime.now().year &&
-            _selectedDate.month == DateTime.now().month &&
-            _selectedDate.day == DateTime.now().day;
+    final isToday = _filterMode == ReportFilterMode.day &&
+        _selectedDate.year == DateTime.now().year &&
+        _selectedDate.month == DateTime.now().month &&
+        _selectedDate.day == DateTime.now().day;
 
-        final double totalRevenue = (isToday && appState.liveTodayReport != null)
-            ? appState.liveTodayReport!.totalRevenue.toDouble()
-            : filteredReceipts.fold(0.0, (s, r) => s + r.total);
+    final totalRevenue = (isToday && appState.liveTodayReport != null)
+        ? appState.liveTodayReport!.totalRevenue.toDouble()
+        : filteredReceipts.fold(0.0, (s, r) => s + r.total);
 
-        final int totalOrders = (isToday && appState.liveTodayReport != null)
-            ? appState.liveTodayReport!.orderCount
-            : filteredReceipts.length;
+    final totalOrders = (isToday && appState.liveTodayReport != null)
+        ? appState.liveTodayReport!.orderCount
+        : filteredReceipts.length;
 
-        final double avgOrder = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
+    final avgOrder = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
 
-        double cashTotal = 0;
-        double cardTotal = 0;
-        if (isToday && appState.liveTodayReport != null) {
-          cashTotal = appState.liveTodayReport!.cashTotal.toDouble();
-          cardTotal = appState.liveTodayReport!.cardTotal.toDouble();
+    double cashTotal = 0;
+    double cardTotal = 0;
+    if (isToday && appState.liveTodayReport != null) {
+      cashTotal = appState.liveTodayReport!.cashTotal.toDouble();
+      cardTotal = appState.liveTodayReport!.cardTotal.toDouble();
+    } else {
+      for (final r in filteredReceipts) {
+        if (r.cashPaid > 0 || r.cardPaid > 0) {
+          cashTotal += r.cashPaid;
+          cardTotal += r.cardPaid;
+        } else if (r.method == PaymentMethod.cash) {
+          cashTotal += r.total;
         } else {
-          for (final r in filteredReceipts) {
-            if (r.cashPaid > 0 || r.cardPaid > 0) {
-              cashTotal += r.cashPaid;
-              cardTotal += r.cardPaid;
-            } else if (r.method == PaymentMethod.cash) {
-              cashTotal += r.total;
-            } else {
-              cardTotal += r.total;
-            }
-          }
+          cardTotal += r.total;
         }
+      }
+    }
 
     final Map<String, int> productQtySold = {};
     final Map<String, double> productRevenue = {};
@@ -15888,8 +15891,6 @@ class _ReportsScreenState extends State<ReportsScreen>
           ],
         ),
       ),
-    );
-      },
     );
   }
 

@@ -389,8 +389,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   _buildRightSidePanel(cardBg, cardBorder, isDark, todayRevenue, todayOrders, todayAvgCheck),
                 ],
               ],
+          
 
-              
 
               const SizedBox(height: 18),
 
@@ -2627,20 +2627,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           backgroundColor: const Color(0xFF2563EB),
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () async {
+                        onPressed: () {
                           Navigator.pop(ctx);
-                          try {
-                            await printReceipt(receipt);
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Chekni chop etishda xatolik: $e'),
-                                  backgroundColor: const Color(0xFFEF4444),
-                                ),
-                              );
-                            }
-                          }
+                          printReceipt(receipt);
                         },
                         icon: const Icon(Icons.print),
                         label: const Text('Qayta chop etish'),
