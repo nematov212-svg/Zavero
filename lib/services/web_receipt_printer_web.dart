@@ -46,10 +46,10 @@ void _ensureJsPrinterFunction() {
             var iframe = document.createElement('iframe');
             iframe.id = 'zavero-receipt-iframe';
             iframe.style.position = 'fixed';
-            iframe.style.right = '0';
-            iframe.style.bottom = '0';
-            iframe.style.width = '0';
-            iframe.style.height = '0';
+            iframe.style.left = '-9999px';
+            iframe.style.top = '0';
+            iframe.style.width = '80mm';
+            iframe.style.height = '1200px';
             iframe.style.border = '0';
             iframe.style.visibility = 'hidden';
             iframe.style.zIndex = '-9999';
@@ -70,7 +70,7 @@ void _ensureJsPrinterFunction() {
                     iframe.parentNode.removeChild(iframe);
                   }
                 } catch(_) {}
-              }, 1200);
+              }, 1500);
             };
 
             try {
@@ -79,25 +79,82 @@ void _ensureJsPrinterFunction() {
 
             var doPrint = function() {
               try {
-                iframe.contentWindow.focus();
-                iframe.contentWindow.print();
-                resolve(true);
+                var container = doc.querySelector('.receipt-container') || doc.querySelector('.kitchen-container') || doc.body;
+                var images = doc.images || [];
+                var pending = images.length;
+
+                var executePrint = function() {
+                  try {
+                    // 96 DPI: 1 inch = 25.4mm = 96px => 1mm = 96 / 25.4 ≈ 3.779527559px
+                    var rect = container.getBoundingClientRect();
+                    var scrollH = Math.max(container.scrollHeight, container.offsetHeight, rect.height);
+                    var heightMm = Math.ceil(scrollH / 3.779527559) + 4; // 3-4mm cutter buffer
+                    if (heightMm < 45) heightMm = 45;
+
+                    var styleEl = doc.createElement('style');
+                    styleEl.innerHTML =
+                      '@page { size: 80mm ' + heightMm + 'mm !important; margin: 0 !important; }' +
+                      'html, body { width: 80mm !important; height: ' + heightMm + 'mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }' +
+                      '.receipt-container, .kitchen-container { width: 72mm !important; margin: 0 auto !important; padding-left: 0 !important; padding-right: 0 !important; page-break-after: avoid !important; break-after: avoid !important; page-break-inside: avoid !important; break-inside: avoid !important; }';
+                    doc.head.appendChild(styleEl);
+
+                    setTimeout(function() {
+                      try {
+                        iframe.contentWindow.focus();
+                        iframe.contentWindow.print();
+                        resolve(true);
+                      } catch(e) {
+                        console.error('[Zavero] print execution error:', e);
+                        cleanup();
+                        resolve(false);
+                      }
+                    }, 120);
+                  } catch(e) {
+                    console.error('[Zavero] measurement error:', e);
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                    resolve(true);
+                  }
+                };
+
+                if (pending === 0) {
+                  executePrint();
+                } else {
+                  var loaded = 0;
+                  var onImg = function() {
+                    loaded++;
+                    if (loaded >= pending) executePrint();
+                  };
+                  for (var i = 0; i < images.length; i++) {
+                    if (images[i].complete) {
+                      loaded++;
+                    } else {
+                      images[i].onload = onImg;
+                      images[i].onerror = onImg;
+                    }
+                  }
+                  if (loaded >= pending) {
+                    executePrint();
+                  } else {
+                    setTimeout(executePrint, 1500);
+                  }
+                }
               } catch(e) {
-                console.error('[Zavero] Iframe print error:', e);
+                console.error('[Zavero] Iframe print setup error:', e);
                 cleanup();
                 resolve(false);
               }
             };
 
             if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
-              setTimeout(doPrint, 100);
+              setTimeout(doPrint, 80);
             } else {
               iframe.onload = function() {
-                setTimeout(doPrint, 100);
+                setTimeout(doPrint, 80);
               };
             }
 
-            setTimeout(cleanup, 60000);
+            setTimeout(cleanup, 90000);
           } catch(err) {
             console.error('[Zavero] Setup error:', err);
             resolve(false);

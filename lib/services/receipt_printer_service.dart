@@ -24,6 +24,24 @@ class ReceiptPrintItem {
     required this.lineTotal,
     this.note,
   });
+
+  Map<String, dynamic> toJson() => {
+    'index': index,
+    'name': name,
+    'qty': qty,
+    'unitPrice': unitPrice,
+    'lineTotal': lineTotal,
+    'note': note,
+  };
+
+  factory ReceiptPrintItem.fromJson(Map<String, dynamic> json) => ReceiptPrintItem(
+    index: json['index'] is int ? json['index'] as int : (int.tryParse('${json['index']}') ?? 1),
+    name: json['name']?.toString() ?? '',
+    qty: json['qty'] is int ? json['qty'] as int : (int.tryParse('${json['qty']}') ?? 1),
+    unitPrice: (json['unitPrice'] is num ? (json['unitPrice'] as num).toDouble() : (double.tryParse('${json['unitPrice']}') ?? 0.0)),
+    lineTotal: (json['lineTotal'] is num ? (json['lineTotal'] as num).toDouble() : (double.tryParse('${json['lineTotal']}') ?? 0.0)),
+    note: json['note']?.toString(),
+  );
 }
 
 /// Unified transaction data model for thermal printing.
@@ -65,6 +83,49 @@ class ReceiptPrintData {
     required this.paymentMethod,
     this.is58mm = false,
   });
+
+  Map<String, dynamic> toJson() => {
+    'checkId': checkId,
+    'dateTime': dateTime.toIso8601String(),
+    'cashierName': cashierName,
+    'cafeName': cafeName,
+    'address': address,
+    'phone': phone,
+    'slogan': slogan,
+    'footerMessage': footerMessage,
+    'qrUrl': qrUrl,
+    'tableNumber': tableNumber,
+    'hallName': hallName,
+    'items': items.map((e) => e.toJson()).toList(),
+    'subtotal': subtotal,
+    'discount': discount,
+    'grandTotal': grandTotal,
+    'paymentMethod': paymentMethod,
+    'is58mm': is58mm,
+  };
+
+  factory ReceiptPrintData.fromJson(Map<String, dynamic> json) => ReceiptPrintData(
+    checkId: json['checkId']?.toString() ?? '',
+    dateTime: json['dateTime'] != null ? DateTime.tryParse(json['dateTime'].toString()) ?? DateTime.now() : DateTime.now(),
+    cashierName: json['cashierName']?.toString() ?? '',
+    cafeName: json['cafeName']?.toString() ?? '',
+    address: json['address']?.toString() ?? '',
+    phone: json['phone']?.toString() ?? '',
+    slogan: json['slogan']?.toString() ?? '',
+    footerMessage: json['footerMessage']?.toString() ?? '',
+    qrUrl: json['qrUrl']?.toString() ?? '',
+    tableNumber: json['tableNumber']?.toString(),
+    hallName: json['hallName']?.toString(),
+    items: (json['items'] as List?)
+            ?.map((e) => ReceiptPrintItem.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList() ??
+        [],
+    subtotal: (json['subtotal'] is num ? (json['subtotal'] as num).toDouble() : (double.tryParse('${json['subtotal']}') ?? 0.0)),
+    discount: (json['discount'] is num ? (json['discount'] as num).toDouble() : (double.tryParse('${json['discount']}') ?? 0.0)),
+    grandTotal: (json['grandTotal'] is num ? (json['grandTotal'] as num).toDouble() : (double.tryParse('${json['grandTotal']}') ?? 0.0)),
+    paymentMethod: json['paymentMethod']?.toString() ?? 'cash',
+    is58mm: json['is58mm'] == true,
+  );
 
   static String formatMoney(num amount) {
     final s = amount.round().toString();

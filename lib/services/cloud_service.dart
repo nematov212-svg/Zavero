@@ -597,6 +597,26 @@ class CloudService {
     await _api.delete('/reports/$dateId');
   }
 
+  Future<bool> clearAllReports(String cafeId) async {
+    try {
+      final res = await _api.delete('/reports/all');
+      return res['success'] == true;
+    } catch (e) {
+      debugPrint('clearAllReports xatosi: $e');
+      return false;
+    }
+  }
+
+  Future<bool> clearDayReport(String cafeId, String dateId) async {
+    try {
+      final res = await _api.delete('/reports/$dateId');
+      return res['success'] == true;
+    } catch (e) {
+      debugPrint('clearDayReport xatosi: $e');
+      return false;
+    }
+  }
+
   // ============================================================
   // CRUD
   // ============================================================

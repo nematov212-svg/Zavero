@@ -25,6 +25,7 @@ enum CafeSocketEvent {
   staffMovementUpdated,
   subscriptionExtended,
   bannersUpdated,
+  executePrintJob,
 }
 
 const Map<CafeSocketEvent, String> _eventNames = {
@@ -48,6 +49,7 @@ const Map<CafeSocketEvent, String> _eventNames = {
   CafeSocketEvent.staffMovementUpdated: 'STAFF_MOVEMENT_UPDATED',
   CafeSocketEvent.subscriptionExtended: 'SUBSCRIPTION_EXTENDED',
   CafeSocketEvent.bannersUpdated: 'BANNERS_UPDATED',
+  CafeSocketEvent.executePrintJob: 'EXECUTE_PRINT_JOB',
 };
 
 /// socket_io_client ustidan qatlam: JWT bilan ulanish, JOIN_CAFE,
@@ -60,6 +62,8 @@ class SocketService {
   io.Socket? _socket;
   String? _connectedCafeId;
   Timer? _heartbeatTimer;
+  bool _isPrinterStationRegistered = false;
+  String? _printerStationCafeId;
 
   final Map<String, int> _lastEventTimestamps = {};
 
@@ -108,6 +112,10 @@ class SocketService {
           'cafeId': cafeId,
           if (effectiveToken != null) 'token': effectiveToken,
         });
+        if (_isPrinterStationRegistered && _printerStationCafeId != null) {
+          _socket!.emit('REGISTER_PRINTER_STATION', {'cafeId': _printerStationCafeId});
+          debugPrint('🖨️ SocketService: Kassa printer stansiyasi qayta ro‘yxatga olindi');
+        }
         _notifyAllForResync();
         _startHeartbeat(cafeId, effectiveToken);
       });
@@ -118,6 +126,10 @@ class SocketService {
           'cafeId': cafeId,
           if (effectiveToken != null) 'token': effectiveToken,
         });
+        if (_isPrinterStationRegistered && _printerStationCafeId != null) {
+          _socket!.emit('REGISTER_PRINTER_STATION', {'cafeId': _printerStationCafeId});
+          debugPrint('🖨️ SocketService: Kassa printer stansiyasi qayta ro‘yxatga olindi (reconnect)');
+        }
         _notifyAllForResync();
       });
 
@@ -196,6 +208,26 @@ class SocketService {
   void emitStaffMovement(Map<String, dynamic> data) {
     if (_socket != null) {
       _socket!.emit('STAFF_MOVEMENT_UPDATE', data);
+    }
+  }
+
+  /// Kassa qurilmasini printer stansiyasi sifatida ro'yxatga olish
+  void registerPrinterStation(String cafeId) {
+    _isPrinterStationRegistered = true;
+    _printerStationCafeId = cafeId;
+    if (_socket != null && _socket!.connected) {
+      _socket!.emit('REGISTER_PRINTER_STATION', {'cafeId': cafeId});
+      debugPrint('🖨️ SocketService: REGISTER_PRINTER_STATION yuborildi ($cafeId)');
+    }
+  }
+
+  /// Kassa qurilmasini printer stansiyasidan chiqarish
+  void unregisterPrinterStation(String cafeId) {
+    _isPrinterStationRegistered = false;
+    _printerStationCafeId = null;
+    if (_socket != null && _socket!.connected) {
+      _socket!.emit('UNREGISTER_PRINTER_STATION', {'cafeId': cafeId});
+      debugPrint('🖨️ SocketService: UNREGISTER_PRINTER_STATION yuborildi ($cafeId)');
     }
   }
 

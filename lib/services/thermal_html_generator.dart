@@ -61,7 +61,7 @@ class ThermalHtmlGenerator {
   }) {
     final is58mm = data.is58mm;
     final widthMm = is58mm ? 58 : 80;
-    final contentWidthMm = is58mm ? 54 : 76;
+    final contentWidthMm = is58mm ? 50 : 72;
 
     final dateStr =
         '${data.dateTime.day.toString().padLeft(2, '0')}.${data.dateTime.month.toString().padLeft(2, '0')}.${data.dateTime.year}';
@@ -121,8 +121,12 @@ class ThermalHtmlGenerator {
     .receipt-container {
       width: ${contentWidthMm}mm;
       margin: 0 auto;
-      padding: 2mm 1mm 1mm 1mm;
+      padding: 2mm 0 3mm 0;
       background: #ffffff;
+      page-break-after: avoid;
+      break-after: avoid;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     .header-logo {
       text-align: center;
@@ -407,7 +411,7 @@ class ThermalHtmlGenerator {
     bool is58mm = false,
   }) {
     final widthMm = is58mm ? 58 : 80;
-    final contentWidthMm = is58mm ? 54 : 76;
+    final contentWidthMm = is58mm ? 50 : 72;
     final now = DateTime.now();
     final timeStr =
         '${now.day.toString().padLeft(2, '0')}.${now.month.toString().padLeft(2, '0')}.${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
@@ -448,7 +452,11 @@ class ThermalHtmlGenerator {
     .kitchen-container {
       width: ${contentWidthMm}mm;
       margin: 0 auto;
-      padding: 3mm 1mm;
+      padding: 2mm 0 3mm 0;
+      page-break-after: avoid;
+      break-after: avoid;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
   </style>
 </head>

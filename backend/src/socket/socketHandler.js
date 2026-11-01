@@ -4,6 +4,35 @@ const { getJwtSecret } = require('../config/jwt');
 let ioInstance = null;
 
 const cafeRoom = (cafeId) => `cafe_${cafeId}`;
+const printerRoom = (cafeId) => `printer_${cafeId}`;
+
+// Real-time Printer Stations Tracking (Cafe ID -> Set of socket.id)
+const printerStationsByCafe = new Map();
+// Deduplication cache: `${cafeId}_${jobId}` -> timestamp (5 second debounce)
+const recentPrintJobs = new Map();
+
+const getPrinterStationCount = (cafeId) => {
+  if (!cafeId) return 0;
+  const set = printerStationsByCafe.get(String(cafeId));
+  return set ? set.size : 0;
+};
+
+const isJobDuplicate = (cafeId, jobId) => {
+  if (!jobId) return false;
+  const key = `${cafeId}_${jobId}`;
+  const now = Date.now();
+  const lastTime = recentPrintJobs.get(key);
+  if (lastTime && (now - lastTime < 5000)) {
+    return true;
+  }
+  recentPrintJobs.set(key, now);
+  if (recentPrintJobs.size > 1000) {
+    for (const [k, time] of recentPrintJobs.entries()) {
+      if (now - time > 30000) recentPrintJobs.delete(k);
+    }
+  }
+  return false;
+};
 
 const initSocket = (io) => {
   ioInstance = io;
@@ -130,7 +159,81 @@ const initSocket = (io) => {
       }
     });
 
+    // ========================================================
+    // CLOUD / STATION PRINTING REAL-TIME HANDLERS
+    // ========================================================
+    socket.on('REGISTER_PRINTER_STATION', (data = {}) => {
+      const cafeId = socket.user?.cafeId || data.cafeId;
+      if (!cafeId) return;
+      const cafeStr = String(cafeId);
+      socket.join(printerRoom(cafeStr));
+      if (!printerStationsByCafe.has(cafeStr)) {
+        printerStationsByCafe.set(cafeStr, new Set());
+      }
+      printerStationsByCafe.get(cafeStr).add(socket.id);
+      socket.isPrinterStation = true;
+      socket.printerCafeId = cafeStr;
+      const count = printerStationsByCafe.get(cafeStr).size;
+      console.log(`🖨️ [Socket.IO] Printer station registered for cafe ${cafeStr}: ${socket.id} (total: ${count})`);
+      socket.emit('PRINTER_STATION_STATUS', { registered: true, cafeId: cafeStr, count });
+    });
+
+    socket.on('UNREGISTER_PRINTER_STATION', (data = {}) => {
+      const cafeId = socket.user?.cafeId || data.cafeId || socket.printerCafeId;
+      if (!cafeId) return;
+      const cafeStr = String(cafeId);
+      socket.leave(printerRoom(cafeStr));
+      if (printerStationsByCafe.has(cafeStr)) {
+        printerStationsByCafe.get(cafeStr).delete(socket.id);
+      }
+      socket.isPrinterStation = false;
+      const count = printerStationsByCafe.get(cafeStr)?.size || 0;
+      console.log(`🖨️ [Socket.IO] Printer station unregistered for cafe ${cafeStr}: ${socket.id} (remaining: ${count})`);
+      socket.emit('PRINTER_STATION_STATUS', { registered: false, cafeId: cafeStr, count });
+    });
+
+    socket.on('REQUEST_PRINT_JOB', (job = {}, callback) => {
+      const cafeId = socket.user?.cafeId || job.cafeId;
+      if (!cafeId) {
+        const res = { success: false, routedToStation: false, message: 'Kafeni aniqlab bo‘lmadi' };
+        if (typeof callback === 'function') callback(res);
+        return socket.emit('PRINT_JOB_RESULT', { id: job.id, ...res });
+      }
+      const cafeStr = String(cafeId);
+      const count = getPrinterStationCount(cafeStr);
+      if (count === 0) {
+        const res = { success: false, routedToStation: false, message: 'Printer qurilmasi ulanmagan' };
+        if (typeof callback === 'function') callback(res);
+        return socket.emit('PRINT_JOB_RESULT', { id: job.id, ...res });
+      }
+
+      // 5-soniyalik deduplication tekshiruvi (takroriy bosish himoyasi)
+      if (isJobDuplicate(cafeStr, job.id)) {
+        console.log(`⚠️ [Socket.IO] Takroriy print job rad etildi: ${job.id}`);
+        const res = { success: true, routedToStation: true, duplicate: true, message: 'Takroriy chek so‘rovi (5s debounced)' };
+        if (typeof callback === 'function') callback(res);
+        return socket.emit('PRINT_JOB_RESULT', { id: job.id, ...res });
+      }
+
+      // Kassa printeri xonasiga yuborish
+      ioInstance.to(printerRoom(cafeStr)).emit('EXECUTE_PRINT_JOB', {
+        ...job,
+        cafeId: cafeStr,
+        timestamp: new Date().toISOString(),
+      });
+      console.log(`🖨️ [Socket.IO] Print job ${job.id || 'unknown'} (${job.type || 'receipt'}) forwarded to ${printerRoom(cafeStr)} (${count} stations)`);
+
+      const res = { success: true, routedToStation: true, message: 'Chek kassa printeriga yuborildi va chop etilmoqda' };
+      if (typeof callback === 'function') callback(res);
+      socket.emit('PRINT_JOB_RESULT', { id: job.id, ...res });
+    });
+
     socket.on('disconnect', (reason) => {
+      if (socket.printerCafeId && printerStationsByCafe.has(socket.printerCafeId)) {
+        printerStationsByCafe.get(socket.printerCafeId).delete(socket.id);
+        const rem = printerStationsByCafe.get(socket.printerCafeId).size;
+        console.log(`🖨️ [Socket.IO] Printer station disconnected: ${socket.id} (remaining: ${rem})`);
+      }
       console.log(`❌ [Socket.IO] Disconnected: ${socket.id} (${reason})`);
     });
   });
@@ -180,4 +283,12 @@ const notifyDirector = (event, payload = {}) => {
 
 const getIo = () => ioInstance;
 
-module.exports = { initSocket, notifyCafe, notifyDirector, getIo };
+module.exports = {
+  initSocket,
+  notifyCafe,
+  notifyDirector,
+  getIo,
+  getPrinterStationCount,
+  isJobDuplicate,
+  printerRoom,
+};

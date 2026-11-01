@@ -22,14 +22,18 @@ const getOne = async (req, res) => {
   res.json({ success: true, report: mapReport(result.rows[0]) });
 };
 
-// DELETE /api/reports/:dateId — clear a single day's report (mirrors clearReport)
+// DELETE /api/reports/:dateId — clear a single day's report & receipts
 const clearDay = async (req, res) => {
   try {
     const cafeId = req.user.cafeId;
     const { dateId } = req.params;
     await db.query('DELETE FROM reports WHERE cafe_id = $1 AND date_id = $2', [cafeId, dateId]);
+    await db.query(
+      `DELETE FROM receipts WHERE cafe_id = $1 AND (TO_CHAR(date, 'YYYY-MM-DD') = $2 OR TO_CHAR(created_at, 'YYYY-MM-DD') = $2)`,
+      [cafeId, dateId]
+    );
     notifyCafe(cafeId, 'REPORT_CLEARED', { dateId });
-    res.json({ success: true });
+    res.json({ success: true, message: `${dateId} hisoboti va cheklari tozalandi` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -44,6 +48,10 @@ const clearMonth = async (req, res) => {
       "DELETE FROM reports WHERE cafe_id = $1 AND date_id LIKE $2 RETURNING date_id",
       [cafeId, `${yearMonth}%`]
     );
+    await db.query(
+      `DELETE FROM receipts WHERE cafe_id = $1 AND (TO_CHAR(date, 'YYYY-MM') = $2 OR TO_CHAR(created_at, 'YYYY-MM') = $2)`,
+      [cafeId, yearMonth]
+    );
     notifyCafe(cafeId, 'REPORT_CLEARED', { yearMonth, count: result.rows.length });
     res.json({ success: true, count: result.rows.length });
   } catch (error) {
@@ -51,13 +59,15 @@ const clearMonth = async (req, res) => {
   }
 };
 
-// DELETE /api/reports — clear ALL reports for this cafe
+// DELETE /api/reports / /api/reports/all — clear ALL reports and receipts for this cafe (0 dan tozalash)
 const clearAll = async (req, res) => {
   try {
     const cafeId = req.user.cafeId;
-    const result = await db.query('DELETE FROM reports WHERE cafe_id = $1 RETURNING date_id', [cafeId]);
-    notifyCafe(cafeId, 'REPORT_CLEARED', { all: true, count: result.rows.length });
-    res.json({ success: true, count: result.rows.length });
+    await db.query('DELETE FROM reports WHERE cafe_id = $1', [cafeId]);
+    await db.query('DELETE FROM receipts WHERE cafe_id = $1', [cafeId]);
+    notifyCafe(cafeId, 'REPORT_CLEARED', { all: true });
+    notifyCafe(cafeId, 'RECEIPTS_CLEARED', { all: true });
+    res.json({ success: true, message: 'Barcha hisobotlar va cheklar muvaffaqiyatli 0 dan tozalandi' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

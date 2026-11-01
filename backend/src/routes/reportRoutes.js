@@ -10,6 +10,7 @@ router.get('/analytics', c.getAnalytics);
 router.get('/export/csv', c.exportCsv);
 router.delete('/month/:yearMonth', c.clearMonth);
 router.delete('/all', c.clearAll);
+router.delete('/', c.clearAll);
 router.get('/:dateId', c.getOne);
 router.delete('/:dateId', c.clearDay);
 module.exports = router;

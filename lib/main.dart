@@ -36,6 +36,7 @@ import 'services/offline_sync_service.dart';
 import 'services/thermal_html_generator.dart';
 import 'services/web_receipt_printer.dart';
 import 'services/receipt_printer_service.dart';
+import 'services/cloud_print_service.dart';
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
 import 'widgets/receipt_widget.dart';
@@ -261,9 +262,12 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _socketNewCustomerOrderSub;
   StreamSubscription? _socketReceiptAddedSub;
   StreamSubscription? _socketReportUpdatedSub;
+  StreamSubscription? _socketReportClearedSub;
   StreamSubscription? _settingsSub;
   StreamSubscription? _subscriptionExtendedSub;
   StreamSubscription? _socketBannersSub;
+  StreamSubscription? _socketPrintJobSub;
+  final Map<String, int> _executedPrintJobs = {};
 
   List<Map<String, dynamic>> promoBanners = [];
   CloudService get cloudService => _cloudService;
@@ -345,6 +349,51 @@ class AppState extends ChangeNotifier {
 
   // ---- OVOZLI BILDIRISHNOMALAR (QR BUYURTMALAR) ----
   bool voiceNotificationEnabled = true;
+
+  // ---- KASSA PRINTER STANSTIYASI (CLOUD / STATION PRINT) ----
+  bool isPrinterStation = false;
+
+  Future<void> setPrinterStation(bool val) async {
+    isPrinterStation = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_printer_station', val);
+    if (currentCafeId.isNotEmpty) {
+      if (val) {
+        SocketService().registerPrinterStation(currentCafeId);
+      } else {
+        SocketService().unregisterPrinterStation(currentCafeId);
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Barcha hisobotlar va cheklarni 0 dan tozalash (barcha qurilmalarda real-time 0 bo'ladi)
+  Future<bool> clearAllReports() async {
+    final cafeId = currentCafeId.isNotEmpty ? currentCafeId : (currentUser?.cafeId ?? '');
+    if (cafeId.isEmpty) return false;
+    final ok = await _cloudService.clearAllReports(cafeId);
+    if (ok) {
+      dailyReports.clear();
+      receipts.clear();
+      await saveData();
+      notifyListeners();
+    }
+    return ok;
+  }
+
+  /// Tanlangan kun hisoboti va cheklarini tozalash
+  Future<bool> clearDayReport(String dateId) async {
+    final cafeId = currentCafeId.isNotEmpty ? currentCafeId : (currentUser?.cafeId ?? '');
+    if (cafeId.isEmpty) return false;
+    final ok = await _cloudService.clearDayReport(cafeId, dateId);
+    if (ok) {
+      dailyReports.removeWhere((r) => r.dateId == dateId);
+      receipts.removeWhere((r) => r.date.toIso8601String().substring(0, 10) == dateId);
+      await saveData();
+      notifyListeners();
+    }
+    return ok;
+  }
 
   bool get printerConfigured => printerIp.trim().isNotEmpty;
 
@@ -1250,6 +1299,21 @@ class AppState extends ChangeNotifier {
       }
     });
 
+    // Real-time hisobotlar tozalanganda (barcha qurilmalarda 0 dan boshlanadi)
+    _socketReportClearedSub?.cancel();
+    _socketReportClearedSub = SocketService().on(CafeSocketEvent.reportCleared).listen((data) {
+      if (data['all'] == true) {
+        dailyReports.clear();
+        receipts.clear();
+      } else if (data['dateId'] != null) {
+        final dId = data['dateId'].toString();
+        dailyReports.removeWhere((r) => r.dateId == dId);
+        receipts.removeWhere((r) => r.date.toIso8601String().substring(0, 10) == dId);
+      }
+      saveData();
+      notifyListeners();
+    });
+
     // Real-time sound / voice settings sync across devices and Telegram WebApp
     _settingsSub?.cancel();
     _settingsSub = SocketService().on(CafeSocketEvent.settingsUpdated).listen((data) {
@@ -1309,6 +1373,51 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       }
     });
+
+    // Real-time Cloud / Station printing listener (Kassa printer stansiyasi uchun)
+    _socketPrintJobSub?.cancel();
+    _socketPrintJobSub = SocketService().on(CafeSocketEvent.executePrintJob).listen((payload) async {
+      if (!isPrinterStation) return;
+      final jobId = payload['id']?.toString() ?? '';
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (jobId.isNotEmpty) {
+        final last = _executedPrintJobs[jobId] ?? 0;
+        if (now - last < 5000) {
+          debugPrint('⚠️ [PrinterStation] Takroriy chop etish so‘rovi rad etildi ($jobId)');
+          return;
+        }
+        _executedPrintJobs[jobId] = now;
+        if (_executedPrintJobs.length > 200) _executedPrintJobs.clear();
+      }
+
+      final html = payload['html']?.toString() ?? '';
+      if (html.isEmpty) return;
+
+      final tbl = payload['tableNumber']?.toString();
+      final tblText = tbl != null && tbl.isNotEmpty ? ' (Stol $tbl)' : '';
+
+      debugPrint('🖨️ [PrinterStation] Masofaviy chek keldi va chop etilmoqda$tblText: $jobId');
+
+      appMessengerKey.currentState?.showSnackBar(
+        SnackBar(
+          content: Text('🖨️ Kassa printeri: Chek chop etilmoqda$tblText'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: const Color(0xFF1E293B),
+        ),
+      );
+
+      try {
+        if (kIsWeb) {
+          await WebReceiptPrinter.printHtml(html);
+        }
+      } catch (e) {
+        debugPrint('❌ [PrinterStation] Chop etishda xatolik: $e');
+      }
+    });
+
+    if (isPrinterStation && cafeId.isNotEmpty) {
+      SocketService().registerPrinterStation(cafeId);
+    }
 
     // Xodimlar ro'yxatini kuzatuv xizmatiga sinxronlash
     StaffTrackingService().syncStaffList(users);
@@ -2564,6 +2673,7 @@ class AppState extends ChangeNotifier {
     await prefs.setBool('showDateTime', showDateTime);
     await prefs.setBool('showDeveloperTag', showDeveloperTag);
     await prefs.setBool('showCustomerCount', showCustomerCount);
+    await prefs.setBool('is_printer_station', isPrinterStation);
     if (connectedPrinterName != null) {
       await prefs.setString('connectedPrinterName', connectedPrinterName!);
     } else {
@@ -2702,6 +2812,7 @@ class AppState extends ChangeNotifier {
     showDateTime = _safeBoolFromPrefs(prefs, 'showDateTime', showDateTime);
     showDeveloperTag = _safeBoolFromPrefs(prefs, 'showDeveloperTag', showDeveloperTag);
     showCustomerCount = _safeBoolFromPrefs(prefs, 'showCustomerCount', showCustomerCount);
+    isPrinterStation = _safeBoolFromPrefs(prefs, 'is_printer_station', false);
     appLogoUrl = prefs.getString('${pfx}appLogoUrl') ?? prefs.getString('appLogoUrl') ?? appLogoUrl;
 
     void restore<T>(
@@ -3352,50 +3463,79 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
     return;
   }
 
-  // Avtomatik to'lov paytida printer sozlanmagan bo'lsa (Web, Desktop yoki Mobile),
-  // kassa ekrani to'xtab qolmasligi va ortiqcha PDF dialoglari ketma-ket chiqib
-  // dasturni qotirib qo'ymasligi uchun avtomatik modal oynani cheklaymiz.
-  if (isAutoCheckout) {
-    debugPrint('ℹ️ [Print] Avtomatik to‘lovda printer sozlanmaganligi sababli kassa bloklanmadi.');
-    return;
+  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+  final printData = ReceiptPrintData(
+    checkId: '${receipt.id}',
+    dateTime: receipt.date,
+    cashierName: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
+    cafeName: appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
+    address: appState.restaurantAddress.trim().isNotEmpty ? appState.restaurantAddress.trim() : "Navoi ko'chasi 12, Buxoro",
+    phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
+    slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
+    footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
+    qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+    tableNumber: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
+    hallName: receipt.hallName,
+    items: receipt.items.asMap().entries.map((e) => ReceiptPrintItem(
+      index: e.key + 1,
+      name: e.value.product.name,
+      qty: e.value.qty,
+      unitPrice: e.value.product.price,
+      lineTotal: e.value.product.price * e.value.qty,
+    )).toList(),
+    subtotal: receipt.total,
+    discount: 0,
+    grandTotal: receipt.total,
+    paymentMethod: receipt.method == PaymentMethod.card ? 'card' : 'cash',
+    is58mm: is58mm,
+  );
+
+  final html = ThermalHtmlGenerator.buildReceiptHtml(
+    printData,
+    logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
+  );
+
+  // Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
+  if (!appState.isPrinterStation) {
+    final result = await CloudPrintService().dispatchPrintJob(
+      id: 'rcpt_${receipt.id}',
+      type: 'receipt',
+      html: html,
+      data: printData.toJson(),
+      tableNumber: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
+      hallName: receipt.hallName,
+      isAutoCheckout: isAutoCheckout,
+    );
+
+    if (result.routedToStation) {
+      appMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text("Chek kassa printeriga yuborildi va chop etilmoqda"),
+          backgroundColor: Color(0xFF10B981),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    } else {
+      if (isAutoCheckout) {
+        debugPrint('ℹ️ [Print] Kassa printeri ulanmagan, avtomatik to‘lovda chek bloklanmadi.');
+        return;
+      }
+      appMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text("Printer qurilmasi ulanmagan, chek ekranda ko'rsatildi"),
+          backgroundColor: Color(0xFFF59E0B),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   if (!await _acquirePrintLock()) return;
   try {
-    final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
-    final printData = ReceiptPrintData(
-      checkId: '${receipt.id}',
-      dateTime: receipt.date,
-      cashierName: receipt.cashierName.isNotEmpty ? receipt.cashierName : 'Admin',
-      cafeName: appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
-      address: appState.restaurantAddress.trim().isNotEmpty ? appState.restaurantAddress.trim() : "Navoi ko'chasi 12, Buxoro",
-      phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
-      slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
-      footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
-      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
-      tableNumber: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
-      hallName: receipt.hallName,
-      items: receipt.items.asMap().entries.map((e) => ReceiptPrintItem(
-        index: e.key + 1,
-        name: e.value.product.name,
-        qty: e.value.qty,
-        unitPrice: e.value.product.price,
-        lineTotal: e.value.product.price * e.value.qty,
-      )).toList(),
-      subtotal: receipt.total,
-      discount: 0,
-      grandTotal: receipt.total,
-      paymentMethod: receipt.method == PaymentMethod.card ? 'card' : 'cash',
-      is58mm: is58mm,
-    );
-
     if (kIsWeb) {
-      final html = ThermalHtmlGenerator.buildReceiptHtml(
-        printData,
-        logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
-      );
       final ok = await WebReceiptPrinter.printHtml(html);
-      if (!ok) {
+      if (!ok && !isAutoCheckout) {
         throw Exception('Chop etish oynasini ochib bo\'lmadi');
       }
       return;
@@ -3476,13 +3616,45 @@ Future<void> printBillPreview({
     is58mm: is58mm,
   );
 
+  final html = ThermalHtmlGenerator.buildReceiptHtml(
+    printData,
+    logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
+  );
+
+  // Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
+  if (!appState.isPrinterStation) {
+    final result = await CloudPrintService().dispatchPrintJob(
+      id: checkId,
+      type: 'bill_preview',
+      html: html,
+      data: printData.toJson(),
+      tableNumber: table != null ? '${table.number}' : null,
+      hallName: hallName,
+    );
+
+    if (result.routedToStation) {
+      appMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text("Chek kassa printeriga yuborildi va chop etilmoqda"),
+          backgroundColor: Color(0xFF10B981),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    } else {
+      appMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text("Printer qurilmasi ulanmagan, chek ekranda ko'rsatildi"),
+          backgroundColor: Color(0xFFF59E0B),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   if (!await _acquirePrintLock()) return;
   try {
     if (kIsWeb) {
-      final html = ThermalHtmlGenerator.buildReceiptHtml(
-        printData,
-        logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
-      );
       final ok = await WebReceiptPrinter.printHtml(html);
       if (!ok) {
         throw Exception('Chop etish oynasini ochib bo\'lmadi');
@@ -3647,6 +3819,39 @@ Future<void> printKitchenTicket({
         note: note,
         is58mm: is58mm,
       );
+
+      final ticketId = 'kt_${table?.number ?? 0}_${DateTime.now().millisecondsSinceEpoch}';
+
+      // Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
+      if (!appState.isPrinterStation) {
+        final result = await CloudPrintService().dispatchPrintJob(
+          id: ticketId,
+          type: 'kitchen_ticket',
+          html: html,
+          tableNumber: table != null ? '${table.number}' : null,
+          hallName: hallName,
+        );
+
+        if (result.routedToStation) {
+          appMessengerKey.currentState?.showSnackBar(
+            const SnackBar(
+              content: Text("Chek kassa printeriga yuborildi va chop etilmoqda"),
+              backgroundColor: Color(0xFF10B981),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        } else {
+          appMessengerKey.currentState?.showSnackBar(
+            const SnackBar(
+              content: Text("Printer qurilmasi ulanmagan, chek ekranda ko'rsatildi"),
+              backgroundColor: Color(0xFFF59E0B),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+
       final ok = await WebReceiptPrinter.printHtml(html);
       if (!ok) {
         throw Exception('Oshpaz chekini chop etishda xatolik');
@@ -6206,6 +6411,28 @@ class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderState
 }
 
 // ============================================================
+// USER ROLE DISPLAY HELPER
+// ============================================================
+String _roleName(UserRole? role) {
+  switch (role) {
+    case UserRole.admin:
+      return 'Administrator';
+    case UserRole.director:
+      return 'Direktor';
+    case UserRole.waiter:
+      return 'Ofitsiant';
+    case UserRole.cashier:
+      return 'Kassir';
+    case UserRole.courier:
+      return 'Kuryer';
+    case UserRole.customer:
+      return 'Mijoz';
+    default:
+      return 'Foydalanuvchi';
+  }
+}
+
+// ============================================================
 // DESKTOP USER DROPDOWN BUTTON (HEADER & SIDEBAR FOOTER)
 // ============================================================
 class _UserDropdownButton extends StatelessWidget {
@@ -6218,23 +6445,6 @@ class _UserDropdownButton extends StatelessWidget {
     this.iconOnly = false,
     this.expanded = false,
   });
-
-  String _roleName(UserRole? role) {
-    switch (role) {
-      case UserRole.admin:
-        return 'Administrator';
-      case UserRole.director:
-        return 'Direktor';
-      case UserRole.waiter:
-        return 'Ofitsiant';
-      case UserRole.cashier:
-        return 'Kassir';
-      case UserRole.courier:
-        return 'Kuryer';
-      default:
-        return 'Foydalanuvchi';
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -6338,19 +6548,20 @@ class _UserDropdownButton extends StatelessWidget {
             ],
           ),
         ),
-        PopupMenuItem<String>(
-          value: 'settings',
-          child: Row(
-            children: const [
-              Icon(Icons.settings_outlined, color: Color(0xFF64748B), size: 20),
-              SizedBox(width: 12),
-              Text(
-                'Sozlamalar',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
-              ),
-            ],
+        if (user?.role == UserRole.admin || user?.role == UserRole.director)
+          PopupMenuItem<String>(
+            value: 'settings',
+            child: Row(
+              children: const [
+                Icon(Icons.settings_outlined, color: Color(0xFF64748B), size: 20),
+                SizedBox(width: 12),
+                Text(
+                  'Sozlamalar',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+                ),
+              ],
+            ),
           ),
-        ),
         PopupMenuItem<String>(
           value: 'lock',
           child: Row(
@@ -7882,9 +8093,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  const Text(
-                                    'Administrator',
-                                    style: TextStyle(color: Color(0xFF8BA5BF), fontSize: 10),
+                                  Text(
+                                    _roleName(user?.role),
+                                    style: const TextStyle(color: Color(0xFF8BA5BF), fontSize: 10),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -15831,6 +16042,123 @@ class _ReportsScreenState extends State<ReportsScreen>
     }
   }
 
+  Future<void> _showClearReportsDialog() async {
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_sweep_rounded, color: Color(0xFFDC2626), size: 24),
+            SizedBox(width: 10),
+            Text(
+              'Hisobotlarni tozalash',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Hisobotlarni 0 dan boshlamoqchimisiz? Barcha savdo ko\'rsatkichlari, tahlillar va cheklar o\'chirilib, Boshqaruv paneli (Dashboard) ham 0 holatga qaytadi.',
+              style: TextStyle(fontSize: 13.5, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Bu amalni ortga qaytarib bo‘lmaydi. Ma’lumotlar bazadan to‘liq o‘chiriladi.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF991B1B), fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Bekor qilish', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, 'all'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Barchasini tozalash (0 dan)', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (action == null || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text('Hisobotlar tozalanmoqda...', style: TextStyle(fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final ok = await appState.clearAllReports();
+      if (mounted) Navigator.pop(context); // close loading
+
+      if (ok && mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Barcha hisobotlar muvaffaqiyatli 0 dan boshlandi'),
+            backgroundColor: Color(0xFF10B981),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Hisobotlarni tozalashda xatolik yuz berdi'),
+            backgroundColor: Color(0xFFEF4444),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Xatolik: $e'), backgroundColor: const Color(0xFFEF4444)),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
@@ -15898,6 +16226,30 @@ class _ReportsScreenState extends State<ReportsScreen>
           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
         ),
         centerTitle: false,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: TextButton.icon(
+                onPressed: _showClearReportsDialog,
+                icon: const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444), size: 18),
+                label: const Text(
+                  'Tozalash',
+                  style: TextStyle(
+                    color: Color(0xFFEF4444),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ),
+        ],
         bottom: TabBar(
           controller: tabController,
           labelColor: const Color(0xFFFFB300),
@@ -15977,6 +16329,36 @@ class _ReportsScreenState extends State<ReportsScreen>
                         ),
                       ),
                     ),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: InkWell(
+                        onTap: _showClearReportsDialog,
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFCA5A5)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.restart_alt_rounded, size: 14, color: Color(0xFFDC2626)),
+                              SizedBox(width: 5),
+                              Text(
+                                'Tozalash (0 dan)',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFDC2626),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -16007,6 +16389,30 @@ class _ReportsScreenState extends State<ReportsScreen>
                               style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13.5),
                             ),
                             const Spacer(),
+                            InkWell(
+                              onTap: _showClearReportsDialog,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEF4444).withValues(alpha: 0.25),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.5)),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.delete_outline_rounded, size: 12, color: Color(0xFFF87171)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Tozalash',
+                                      style: TextStyle(color: Color(0xFFFCA5A5), fontWeight: FontWeight.bold, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
@@ -20517,6 +20923,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    if (appState.currentUser?.role == UserRole.waiter) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Ofitsiant uchun sozlamalar bo'limi yopiq"),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+        }
+      });
+    }
     if (appState.halls.isNotEmpty) {
       _selectedHallForTables = appState.halls.first;
     }
@@ -21825,6 +22244,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (appState.currentUser?.role == UserRole.waiter) {
+      return const Scaffold(
+        body: Center(
+          child: Text("Sizda ushbu bo'limga kirish huquqi yo'q"),
+        ),
+      );
+    }
     final isAdmin = appState.currentUser?.role == UserRole.admin;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -22264,6 +22690,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'yoki routerdagi ulangan qurilmalar ro\'yxatidan '
                           'topishingiz mumkin.',
                           style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: appState.isPrinterStation ? const Color(0xFF10B981) : Colors.grey.shade300,
+                      width: appState.isPrinterStation ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: appState.isPrinterStation
+                                    ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                    : Colors.grey.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.print_rounded,
+                                color: appState.isPrinterStation
+                                    ? const Color(0xFF10B981)
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Kassa Printer Stansiyasi (Cloud Print)',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                  ),
+                                  Text(
+                                    appState.isPrinterStation
+                                        ? 'Faol — ofitsiantlar cheklari ushbu qurilmada chop etiladi'
+                                        : 'O‘chirilgan',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: appState.isPrinterStation
+                                          ? const Color(0xFF10B981)
+                                          : Colors.grey,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text(
+                            'Bu qurilma printer qurilmasi (Kassa stansiyasi)',
+                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                          ),
+                          subtitle: const Text(
+                            'Yoqilganda, ofitsiantlar telefon va planshetdan yuborgan barcha cheklar avtomatik ushbu kompyuter/qurilma printeriga yuboriladi va chop etiladi.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          value: appState.isPrinterStation,
+                          onChanged: (val) async {
+                            await appState.setPrinterStation(val);
+                            setState(() {});
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Row(
+                                children: [
+                                  Icon(Icons.info_outline, size: 16, color: Color(0xFF64748B)),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Avtomatik (dialogsiz) chop etish bo‘yicha qo‘llanma:',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'Chrome brauzerida chekni oyna ochmasdan (dialogsiz) avtomatik chiqarish uchun Chrome-ni --kiosk-printing buyrug‘i bilan ishga tushiring va standart printerni tanlang.\n'
+                                'Masalan (Windows): chrome.exe --kiosk-printing\n'
+                                'Masalan (macOS): /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --kiosk-printing',
+                                style: TextStyle(fontSize: 11, color: Color(0xFF475569), height: 1.4),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
