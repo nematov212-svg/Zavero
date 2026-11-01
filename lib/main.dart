@@ -10233,7 +10233,7 @@ const List<_PresetFoodCategory> _presetFoodLibraries = [
       _PresetFoodItem(
         title: 'Tandir Shaurma',
         subtitle: 'Tandirda qizargan',
-        url: 'https://images.unsplash.com/photo-1633337474565-12c449339028?w=600&auto=format&fit=crop&q=80',
+        url: 'https://images.unsplash.com/photo-1561758033-d89a9ad46330?w=600&auto=format&fit=crop&q=80',
       ),
       _PresetFoodItem(
         title: 'Achchiq Shaurma (Hot)',
@@ -10331,7 +10331,7 @@ const List<_PresetFoodCategory> _presetFoodLibraries = [
       _PresetFoodItem(
         title: 'Tandir Lavash',
         subtitle: 'Haqiqiy tandirda pishgan',
-        url: 'https://images.unsplash.com/photo-1633337474565-12c449339028?w=600&auto=format&fit=crop&q=80',
+        url: 'https://images.unsplash.com/photo-1561758033-d89a9ad46330?w=600&auto=format&fit=crop&q=80',
       ),
       _PresetFoodItem(
         title: 'Achchiq Lavash',
@@ -13687,6 +13687,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
   void _backToTableSelection() {
     appState.leaveOrderSession();
     if (!mounted) return;
+    if (kIsWeb) {
+      WebReceiptPrinter.setHash('#dashboard');
+    }
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).popUntil((route) => route.isFirst);
     } else {
@@ -13798,27 +13801,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       // 3. TO'G'RI VA ANIQ 1 MARTA NAVIGATSIYA
       // Mavjud Dashboard ga silliq qaytish — bu dublikat sidebar va qotishlarni 100% yo'qotadi
+      if (kIsWeb) {
+        WebReceiptPrinter.setHash('#dashboard');
+      }
       if (mounted) {
-        if (Navigator.of(context).canPop()) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        } else {
-          final nav = appNavigatorKey.currentState;
-          if (nav != null) {
-            nav.pushReplacement(
-              MaterialPageRoute(
-                settings: const RouteSettings(name: 'dashboard'),
-                builder: (_) => const DashboardScreen(),
-              ),
-            );
-          } else {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                settings: const RouteSettings(name: 'dashboard'),
-                builder: (_) => const DashboardScreen(),
-              ),
-            );
-          }
-        }
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'dashboard'),
+            builder: (_) => const DashboardScreen(),
+          ),
+          (route) => false,
+        );
       }
     } catch (e) {
       debugPrint('To‘lovni amalga oshirishda xatolik: $e');
@@ -13885,47 +13878,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
           );
         }
 
-        if (appState.cart.isEmpty && !_isCompleting && !_isPaid) {
-          return Scaffold(
-            backgroundColor: const Color(0xFFF8F9FA),
-            appBar: AppBar(
-              backgroundColor: Colors.white,
-              elevation: 0,
-              title: const Text("To'lov", style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold)),
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Color(0xFF0F172A)),
-                onPressed: () => _backToTableSelection(),
-              ),
-            ),
+        if (appState.cart.isEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _backToTableSelection();
+          });
+          return const Scaffold(
+            backgroundColor: Color(0xFFF8F9FA),
             body: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.shopping_bag_outlined, size: 64, color: Colors.grey.shade400),
-                  const SizedBox(height: 16),
-                  const Text(
-                    "Savat bo'sh",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    "To'lov qilish uchun buyurtma mavjud emas.",
-                    style: TextStyle(color: Color(0xFF64748B)),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE25C1D),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onPressed: () => _backToTableSelection(),
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text("Bosh sahifaga qaytish", style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
+              child: CircularProgressIndicator(color: Color(0xFFE25C1D)),
             ),
           );
         }

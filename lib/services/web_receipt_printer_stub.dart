@@ -4,3 +4,5 @@ Future<bool> printHtmlViaHiddenIframe(String htmlContent) async {
 }
 
 void showReceiptModalInPage(String htmlContent) {}
+
+void setBrowserHash(String hash) {}

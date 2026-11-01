@@ -50,6 +50,13 @@ void showReceiptModalInPage(String htmlContent) {
   }
 }
 
+/// Web muhitida brauzer manzilidagi hashni yangilash (#dashboard)
+void setBrowserHash(String hash) {
+  try {
+    _jsEval("window.location.hash = '$hash';".toJS);
+  } catch (_) {}
+}
+
 void _ensureJsPrinterFunction() {
   try {
     _jsEval(r'''

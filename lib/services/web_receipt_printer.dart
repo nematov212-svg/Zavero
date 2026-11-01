@@ -14,4 +14,9 @@ class WebReceiptPrinter {
   static void showModal(String htmlContent) {
     showReceiptModalInPage(htmlContent);
   }
+
+  /// Brauzer manzilidagi hashni yangilash
+  static void setHash(String hash) {
+    setBrowserHash(hash);
+  }
 }
