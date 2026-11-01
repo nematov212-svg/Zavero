@@ -545,7 +545,7 @@ const blockSpammerPermanently = async (user, reason = 'Spam / Reklama tarqatish'
 const loadBlockedSpammersFromDb = async () => {
   try {
     blockedUsers.clear();
-    await db.query('TRUNCATE bot_blocked_spammers').catch(() => {});
+    await db.query('TRUNCATE bot_blocked_spammers').catch(() => { });
     console.log(`🛡️ [Anti-Spam] Barcha bloklar tozalandi, foydalanuvchilar to'siqsiz ulanishi mumkin.`);
   } catch (err) {
     console.warn('⚠️ loadBlockedSpammersFromDb xatosi:', err.message);
@@ -1009,7 +1009,7 @@ const initTelegramBot = () => {
            ON CONFLICT (telegram_id)
            DO UPDATE SET username = $2, first_name = $3, last_name = $4, updated_at = CURRENT_TIMESTAMP`,
           [telegramId, from.username || null, from.first_name || '', from.last_name || '']
-        ).catch(() => {});
+        ).catch(() => { });
 
         const webAppUrl = getWebAppUrl();
 
@@ -1018,7 +1018,7 @@ const initTelegramBot = () => {
           type: 'web_app',
           text: '🚀 ILOVANI OCHISH',
           web_app: { url: webAppUrl },
-        }).catch(() => {});
+        }).catch(() => { });
 
         const activeSub = await getUserSubscription(telegramId);
         const subInfo = activeSub

@@ -56,6 +56,7 @@ app.use(
   })
 );
 
+
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 
 // ⚡ ULTRA-FAST HEALTH / PING ENDPOINTS (Zero overhead, instant < 1ms response)

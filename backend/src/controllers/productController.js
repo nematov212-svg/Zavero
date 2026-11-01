@@ -1,7 +1,42 @@
+const path = require('path');
+const fs = require('fs');
 const db = require('../config/db');
 const { mapProduct } = require('../utils/mappers');
 const { notifyCafe } = require('../socket/socketHandler');
 const { getTenantCafeId } = require('../utils/tenantHelper');
+
+// Server diskidagi yuklangan rasm faylini o'chirish yordamchisi
+const deleteLocalImageIfExists = (imageUrl) => {
+  if (!imageUrl || typeof imageUrl !== 'string') return;
+  try {
+    const match = imageUrl.match(/(?:^|\/)uploads\/([^/?#]+)/);
+    if (match && match[1]) {
+      const fileName = match[1];
+      const filePath = path.join(__dirname, '../../uploads', fileName);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(`🗑️ [Product Image] Fayl o'chirildi: ${fileName}`);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ [Product Image Delete Warning]:', err.message);
+  }
+};
+
+const ensureDeletedProductsTable = async () => {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS deleted_products (
+        id SERIAL PRIMARY KEY,
+        cafe_id VARCHAR(64) NOT NULL,
+        product_id INTEGER,
+        product_name VARCHAR(150) NOT NULL,
+        deleted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_deleted_products_cafe ON deleted_products(cafe_id);
+    `);
+  } catch (_) {}
+};
 
 const list = async (req, res) => {
   const cafeId = getTenantCafeId(req);
@@ -76,55 +111,103 @@ const save = async (req, res) => {
 
 const remove = async (req, res) => {
   try {
+    await ensureDeletedProductsTable();
     const cafeId = getTenantCafeId(req);
     const { id } = req.params;
     const { name } = req.query;
 
     const numericId = parseInt(id, 10);
-    let deletedId = !isNaN(numericId) ? numericId : null;
+    let targetId = !isNaN(numericId) ? numericId : null;
 
-    if (deletedId) {
-      const resById = await db.query('DELETE FROM products WHERE id = $1 AND cafe_id = $2 RETURNING id', [deletedId, cafeId]);
-      if (resById.rows.length === 0 && name) {
-        const resByName = await db.query('DELETE FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2 RETURNING id', [name, cafeId]);
-        if (resByName.rows.length > 0) {
-          deletedId = resByName.rows[0].id;
-        } else {
-          return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
-        }
-      } else if (resById.rows.length === 0) {
-        return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
+    let targetProduct = null;
+    if (targetId) {
+      const findRes = await db.query(
+        'SELECT id, name, image_url FROM products WHERE id = $1 AND cafe_id = $2',
+        [targetId, cafeId]
+      );
+      if (findRes.rows.length > 0) {
+        targetProduct = findRes.rows[0];
       }
-    } else if (name) {
-      const resByName = await db.query('DELETE FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2 RETURNING id', [name, cafeId]);
-      if (resByName.rows.length > 0) {
-        deletedId = resByName.rows[0].id;
-      } else {
-        return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
+    }
+    if (!targetProduct && name) {
+      const findByName = await db.query(
+        'SELECT id, name, image_url FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND cafe_id = $2',
+        [name, cafeId]
+      );
+      if (findByName.rows.length > 0) {
+        targetProduct = findByName.rows[0];
       }
-    } else {
-      return res.status(400).json({ success: false, message: 'ID yoki nom ko\'rsatilishi shart' });
     }
 
-    notifyCafe(cafeId, 'PRODUCTS_UPDATED', { deletedId: deletedId || numericId });
-    res.json({ success: true });
+    if (!targetProduct) {
+      return res.status(404).json({ success: false, message: 'Mahsulot topilmadi' });
+    }
+
+    // 1. Agar serverga yuklangan rasm fayli bo'lsa, uni diskdan o'chirish
+    deleteLocalImageIfExists(targetProduct.image_url);
+
+    // 2. PostgreSQL bazasidan haqiqiy to'liq o'chirish (Hard Delete)
+    await db.query('DELETE FROM products WHERE id = $1 AND cafe_id = $2', [targetProduct.id, cafeId]);
+
+    // 3. Qaytib chiqmasligi uchun o'chirilganlar ro'yxatiga (deleted_products) yozib qo'yish
+    await db.query(
+      `INSERT INTO deleted_products (cafe_id, product_id, product_name)
+       VALUES ($1, $2, $3)`,
+      [cafeId, targetProduct.id, targetProduct.name]
+    ).catch(() => {});
+
+    // 4. Barcha qurilmalarga real-time Socket.IO xabari
+    notifyCafe(cafeId, 'PRODUCTS_UPDATED', { deletedId: targetProduct.id, name: targetProduct.name });
+    console.log(`✅ [Product] Taom butunlay o'chirildi: "${targetProduct.name}" (ID: ${targetProduct.id}, Kafe: ${cafeId})`);
+
+    return res.json({ success: true, message: 'Mahsulot muvaffaqiyatli o\'chirildi', deletedId: targetProduct.id });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('remove product error:', error);
+    res.status(500).json({ success: false, message: 'O\'chirishda xatolik: ' + error.message });
   }
 };
 
 const bulkRemove = async (req, res) => {
   try {
+    await ensureDeletedProductsTable();
     const cafeId = getTenantCafeId(req);
-    const { ids } = req.body;
-    if (Array.isArray(ids) && ids.length > 0) {
-      await db.query('DELETE FROM products WHERE id = ANY($1::int[]) AND cafe_id = $2', [ids, cafeId]);
-      notifyCafe(cafeId, 'PRODUCTS_UPDATED', { deletedIds: ids });
-      return res.json({ success: true, count: ids.length });
+    const rawIds = req.body.ids || req.body.productIds;
+
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Hech qanday ovqat tanlanmadi' });
     }
-    return res.status(400).json({ success: false, message: 'Hech qanday ovqat tanlanmadi' });
+
+    const ids = rawIds.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x) && x > 0);
+    if (ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Yaroqli ovqat IDlari topilmadi' });
+    }
+
+    // 1. O'chirilishi kerak bo'lgan ovqatlarning rasmlari va nomlarini olish
+    const prodsRes = await db.query(
+      'SELECT id, name, image_url FROM products WHERE id = ANY($1::int[]) AND cafe_id = $2',
+      [ids, cafeId]
+    );
+
+    for (const p of prodsRes.rows) {
+      deleteLocalImageIfExists(p.image_url);
+      await db.query(
+        `INSERT INTO deleted_products (cafe_id, product_id, product_name)
+         VALUES ($1, $2, $3)`,
+        [cafeId, p.id, p.name]
+      ).catch(() => {});
+    }
+
+    // 2. PostgreSQL bazasidan to'liq o'chirish (Hard Delete)
+    await db.query('DELETE FROM products WHERE id = ANY($1::int[]) AND cafe_id = $2', [ids, cafeId]);
+
+    // 3. Real-time xabar
+    notifyCafe(cafeId, 'PRODUCTS_UPDATED', { deletedIds: ids });
+    console.log(`✅ [Product] ${ids.length} ta ovqat butunlay o'chirildi (Kafe: ${cafeId})`);
+
+    return res.json({ success: true, count: prodsRes.rows.length, deletedIds: ids });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('bulkRemove products error:', error);
+    res.status(500).json({ success: false, message: 'O\'chirishda xatolik: ' + error.message });
   }
 };
 

@@ -95,6 +95,17 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS icon_code_point BIGINT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
 CREATE INDEX IF NOT EXISTS idx_products_cafe ON products(cafe_id);
 
+-- 4b. DELETED PRODUCTS (prevents re-seeding / resurrecting deleted products)
+CREATE TABLE IF NOT EXISTS deleted_products (
+    id SERIAL PRIMARY KEY,
+    cafe_id VARCHAR(64) NOT NULL,
+    product_id INTEGER,
+    product_name VARCHAR(150) NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_deleted_products_cafe ON deleted_products(cafe_id);
+CREATE INDEX IF NOT EXISTS idx_deleted_products_name ON deleted_products(cafe_id, product_name);
+
 -- 5. HALLS
 CREATE TABLE IF NOT EXISTS halls (
     id SERIAL PRIMARY KEY,

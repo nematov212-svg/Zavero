@@ -225,7 +225,37 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),
                         onPressed: () async {
-                          await _cloudService.deleteProduct(widget.user.ownerId, p.id);
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Mahsulotni o\'chirish'),
+                              content: Text('"${p.name}" ni rostdan ham o\'chirmoqchimisiz? Bu amalni qaytarib bo\'lmaydi.'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Bekor qilish')),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('O\'chirish', style: TextStyle(color: Colors.white)),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm == true) {
+                            try {
+                              await _cloudService.deleteProduct(widget.user.ownerId, p.id, productName: p.name);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('"${p.name}" muvaffaqiyatli o\'chirildi!'), backgroundColor: Colors.green),
+                                );
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('O\'chirishda xatolik: $e'), backgroundColor: Colors.red),
+                                );
+                              }
+                            }
+                          }
                         },
                       ),
                     ],

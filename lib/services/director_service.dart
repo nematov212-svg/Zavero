@@ -201,6 +201,7 @@ class DirectorService {
   Future<void> deleteProductsBulkForCafe(String cafeId, List<int> productIds) async {
     await _api.post('/products/bulk-delete', body: {
       'cafeId': cafeId,
+      'ids': productIds,
       'productIds': productIds,
     });
   }

@@ -267,6 +267,8 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _subscriptionExtendedSub;
   StreamSubscription? _socketBannersSub;
   StreamSubscription? _socketPrintJobSub;
+  StreamSubscription? _socketProductsSub;
+  StreamSubscription? _socketCategoriesSub;
   final Map<String, int> _executedPrintJobs = {};
 
   List<Map<String, dynamic>> promoBanners = [];
@@ -760,14 +762,14 @@ class AppState extends ChangeNotifier {
       final cloudData = await _cloudService.loadFullCafeData(cafeId);
 
       final cloudCats = cloudData['categories'] as List<Category>?;
-      if (cloudCats != null && (cloudCats.isNotEmpty || categories.isEmpty)) {
+      if (cloudCats != null) {
         categories
           ..clear()
           ..addAll(cloudCats);
       }
 
       final cloudProds = cloudData['products'] as List<Product>?;
-      if (cloudProds != null && (cloudProds.isNotEmpty || products.isEmpty)) {
+      if (cloudProds != null) {
         final deduped = _deduplicateProducts(cloudProds);
         products
           ..clear()
@@ -1371,6 +1373,54 @@ class AppState extends ChangeNotifier {
           (data['banners'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
         );
         notifyListeners();
+      }
+    });
+
+    // Real-time mahsulotlar (ovqatlar) o'zgarishi va o'chirilishi sinxronizatsiyasi
+    _socketProductsSub?.cancel();
+    _socketProductsSub = SocketService().on(CafeSocketEvent.productsUpdated).listen((data) async {
+      try {
+        final deletedId = (data['deletedId'] as num?)?.toInt();
+        final rawDeletedIds = data['deletedIds'];
+        if (deletedId != null) {
+          products.removeWhere((p) => p.id == deletedId);
+          await saveData();
+          notifyListeners();
+          return;
+        } else if (rawDeletedIds is List && rawDeletedIds.isNotEmpty) {
+          final idsSet = rawDeletedIds.map((e) => (e as num).toInt()).toSet();
+          products.removeWhere((p) => idsSet.contains(p.id));
+          await saveData();
+          notifyListeners();
+          return;
+        }
+
+        // Boshqa yangilanishlar (yangi ovqat yoki narx o'zgarganda)
+        final freshProds = await _cloudService.getProducts(cafeId);
+        products
+          ..clear()
+          ..addAll(_deduplicateProducts(freshProds));
+        await saveData();
+        notifyListeners();
+      } catch (e) {
+        debugPrint('realtime productsUpdated xatosi: $e');
+      }
+    });
+
+    // Real-time kategoriyalar sinxronizatsiyasi
+    _socketCategoriesSub?.cancel();
+    _socketCategoriesSub = SocketService().on(CafeSocketEvent.categoriesUpdated).listen((data) async {
+      try {
+        final freshCats = await _cloudService.getCategories(cafeId);
+        if (freshCats.isNotEmpty || categories.isNotEmpty) {
+          categories
+            ..clear()
+            ..addAll(freshCats);
+          await saveData();
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('realtime categoriesUpdated xatosi: $e');
       }
     });
 
@@ -2504,31 +2554,41 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteProduct(Product p) async {
-    final normName = p.name.trim().toLowerCase();
-    products.removeWhere(
-      (e) =>
-          e.id == p.id ||
-          (e.name.trim().toLowerCase() == normName &&
-              e.categoryId == p.categoryId),
-    );
-    saveData();
-    notifyListeners();
+  Future<bool> deleteProduct(Product p) async {
     try {
+      // 1. Avval backend bazasidan to'liq o'chirish (Hard Delete)
       await _cloudService.deleteProduct(currentCafeId, p.id, productName: p.name);
+
+      // 2. Faqat backend muvaffaqiyatli javob bergandagina ro'yxatdan va keshdan o'chirish
+      final normName = p.name.trim().toLowerCase();
+      products.removeWhere(
+        (e) =>
+            e.id == p.id ||
+            (e.name.trim().toLowerCase() == normName &&
+                e.categoryId == p.categoryId),
+      );
+      await saveData();
+      notifyListeners();
+      return true;
     } catch (e) {
-      debugPrint('deleteProduct cloud error: $e');
+      debugPrint('deleteProduct backend xatosi: $e');
+      rethrow;
     }
   }
 
-  Future<void> deleteProductsBulk(List<int> productIds) async {
-    products.removeWhere((e) => productIds.contains(e.id));
-    saveData();
-    notifyListeners();
+  Future<bool> deleteProductsBulk(List<int> productIds) async {
     try {
+      // 1. Avval backend bazasidan to'liq o'chirish (Hard Delete)
       await _cloudService.deleteProductsBulk(currentCafeId, productIds);
+
+      // 2. Faqat backend muvaffaqiyatli javob bergandagina ro'yxatdan va keshdan o'chirish
+      products.removeWhere((e) => productIds.contains(e.id));
+      await saveData();
+      notifyListeners();
+      return true;
     } catch (e) {
-      debugPrint('deleteProductsBulk cloud error: $e');
+      debugPrint('deleteProductsBulk backend xatosi: $e');
+      rethrow;
     }
   }
 
@@ -12425,8 +12485,25 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                           );
                           if (confirm == true && context.mounted) {
                             final prodToDelete = widget.product!;
+                            final messenger = ScaffoldMessenger.of(context);
                             Navigator.pop(context);
-                            appState.deleteProduct(prodToDelete);
+                            try {
+                              await appState.deleteProduct(prodToDelete);
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text('"${prodToDelete.name}" muvaffaqiyatli o\'chirildi!'),
+                                  backgroundColor: const Color(0xFF10B981),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            } catch (e) {
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text('O\'chirishda xatolik: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
                           }
                         },
                       ),
@@ -17767,24 +17844,46 @@ class _ProductsScreenState extends State<ProductsScreen> {
   void _delete(Product p) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dlgContext) => AlertDialog(
         title: const Text('Mahsulotni o\'chirish'),
         content: Text(
-          '"${p.name}" ni o\'chirasizmi? Buni qaytarib bo\'lmaydi.',
+          '"${p.name}" ni rostdan ham o\'chirmoqchimisiz? Bu amalni qaytarib bo\'lmaydi.',
+          style: const TextStyle(fontSize: 14),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dlgContext),
             child: const Text('Bekor qilish'),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              setState(() {
-                _selectedIds.remove(p.id);
-                appState.deleteProduct(p);
-              });
-              Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(dlgContext);
+              try {
+                await appState.deleteProduct(p);
+                if (mounted) {
+                  setState(() {
+                    _selectedIds.remove(p.id);
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('"${p.name}" muvaffaqiyatli o\'chirildi!'),
+                      backgroundColor: const Color(0xFF10B981),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('O\'chirishda xatolik: $e'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                }
+              }
             },
             child: const Text(
               'O\'chirish',
@@ -17798,27 +17897,50 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   void _deleteSelected() {
     if (_selectedIds.isEmpty) return;
+    final count = _selectedIds.length;
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dlgContext) => AlertDialog(
         title: const Text('Tanlangan mahsulotlarni o\'chirish'),
         content: Text(
-          'Tanlangan ${_selectedIds.length} ta mahsulotni haqiqatan ham o\'chirasizmi?',
+          'Rostdan ham $count ta tanlangan mahsulotni o\'chirmoqchimisiz? Bu amalni qaytarib bo\'lmaydi.',
+          style: const TextStyle(fontSize: 14),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dlgContext),
             child: const Text('Bekor qilish'),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
+            onPressed: () async {
+              Navigator.pop(dlgContext);
               final idsToDelete = _selectedIds.toList();
-              setState(() {
-                _selectedIds.clear();
-                appState.deleteProductsBulk(idsToDelete);
-              });
-              Navigator.pop(context);
+              try {
+                await appState.deleteProductsBulk(idsToDelete);
+                if (mounted) {
+                  setState(() {
+                    _selectedIds.clear();
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('$count ta mahsulot muvaffaqiyatli o\'chirildi!'),
+                      backgroundColor: const Color(0xFF10B981),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('O\'chirishda xatolik: $e'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                }
+              }
             },
             child: const Text(
               'O\'chirish',

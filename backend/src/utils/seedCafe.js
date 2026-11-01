@@ -280,8 +280,23 @@ const restoreDefaultMenu = async (cafeId, externalClient = null) => {
       }
     }
 
-    // 2. Ensure dishes/products exist (idempotent, only insert if not found)
+    // 2. Foydalanuvchi tomonidan o'chirilgan taomlar ro'yxatini olish
+    let deletedNames = new Set();
+    try {
+      const delR = await client.query(
+        'SELECT LOWER(TRIM(product_name)) as name FROM deleted_products WHERE cafe_id = $1',
+        [cafeId]
+      );
+      deletedNames = new Set(delR.rows.map((r) => r.name));
+    } catch (_) {}
+
+    // 3. Ensure dishes/products exist (faqat o'chirilmagan va bazada yo'q bo'lganlarini qo'shish)
     for (const [name, price, catName, icon, imageUrl] of DEFAULT_PRODUCTS) {
+      const lowerName = name.toLowerCase().trim();
+      if (deletedNames.has(lowerName)) {
+        continue; // O'chirilgan ovqat HECH QACHON qayta qo'shilmaydi!
+      }
+
       const catId = categoryIds[catName];
       if (catId) {
         const existingP = await client.query(

@@ -621,6 +621,26 @@ class CloudService {
   // CRUD
   // ============================================================
 
+  Future<List<Product>> getProducts(String cafeId) async {
+    try {
+      final res = await _api.get('/products');
+      return _list(res['products'], Product.fromJson);
+    } catch (e) {
+      debugPrint('getProducts error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Category>> getCategories(String cafeId) async {
+    try {
+      final res = await _api.get('/categories');
+      return _list(res['categories'], Category.fromJson);
+    } catch (e) {
+      debugPrint('getCategories error: $e');
+      return [];
+    }
+  }
+
   Future<Product?> saveProduct(String cafeId, Product p, {String? originalName}) async {
     try {
       final body = p.toJson();
@@ -641,14 +661,21 @@ class CloudService {
     final query = productName != null && productName.trim().isNotEmpty
         ? '?name=${Uri.encodeComponent(productName.trim())}'
         : '';
-    await _api.delete('/products/$productId$query');
+    final res = await _api.delete('/products/$productId$query');
+    if (res['success'] != true) {
+      throw Exception(res['message'] ?? 'Mahsulotni o\'chirishda xatolik yuz berdi');
+    }
   }
 
   Future<void> deleteProductsBulk(String cafeId, List<int> productIds) async {
-    await _api.post('/products/bulk-delete', body: {
+    final res = await _api.post('/products/bulk-delete', body: {
       'cafeId': cafeId,
+      'ids': productIds,
       'productIds': productIds,
     });
+    if (res['success'] != true) {
+      throw Exception(res['message'] ?? 'Tanlangan mahsulotlarni o\'chirishda xatolik yuz berdi');
+    }
   }
 
   Future<void> saveCategory(String cafeId, Category c) async {
