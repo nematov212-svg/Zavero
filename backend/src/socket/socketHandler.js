@@ -140,8 +140,8 @@ const initSocket = (io) => {
           cafeId: targetCafeId,
           title: `${statusDesc} — ${uName}`,
           message: `👤 <b>Xodim:</b> ${uName} (${uRole})\n📍 <b>Holat:</b> ${statusDesc}\n⏰ <b>Vaqt:</b> ${new Date().toLocaleTimeString('uz-UZ')}`,
-        }).catch(() => {});
-      } catch (_) {}
+        }).catch(() => { });
+      } catch (_) { }
     });
 
     socket.on('STAFF_MOVEMENT_UPDATE', (payload = {}) => {
@@ -268,8 +268,8 @@ const notifyCafe = (cafeId, event, payload = {}) => {
        VALUES ($1, $2, $3, $4, $5, 'processed', CURRENT_TIMESTAMP)
        ON CONFLICT (event_id) DO NOTHING`,
       [eventId, event, entityId, entityVersion, JSON.stringify(payload)]
-    ).catch(() => {});
-  } catch (_) {}
+    ).catch(() => { });
+  } catch (_) { }
 };
 
 /** Broadcast an event to director room. */

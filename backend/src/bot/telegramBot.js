@@ -937,79 +937,57 @@ const initTelegramBot = () => {
         const isGroup = chatType === 'group' || chatType === 'supergroup';
         const strId = String(from.id);
 
-        // 1. Check if user is permanently blocked
-        if (blockedUsers.has(strId)) {
+        // Guruhlarda spamni to'xtatish (shaxsiy chatlarda foydalanuvchilar hech qachon bloklanmaydi)
+        if (isGroup && blockedUsers.has(strId)) {
           try {
             await ctx.deleteMessage().catch(() => { });
           } catch (_) { }
-          if (!isGroup) {
-            await ctx.replyWithHTML(
-              `🚫 <b>SIZ BLOKLANGANSIZ!</b>\n` +
-              `Spam yoki qoidabuzarlik tufayli sizning xabarlaringiz qabul qilinmaydi.`
-            ).catch(() => { });
-          }
-          return; // Terminate update
+          return;
         }
 
-        // 2. Check Anti-Flood
+        // Shaxsiy chatlarda /start va oddiy buyruqlar har doim ochiq bo'ladi
+        if (!isGroup) {
+          return next();
+        }
+
+        // Guruhlar uchun Anti-Flood
         if (checkAntiFlood(from.id)) {
           try {
             await ctx.deleteMessage().catch(() => { });
           } catch (_) { }
-
-          const data = floodTracker.get(from.id);
-          if (data && data.count === 6 && !isGroup) {
-            await ctx.replyWithHTML(
-              `⚠️ <b>XAVFSIZLIK OGOHLANTIRISHI!</b>\n` +
-              `Iltimos, shoshilmang! Xabarlar oqimi juda tez bo‘lgani sababli 15 soniya cheklandingiz.`
-            ).catch(() => { });
-          }
-          return; // Terminate update
+          return;
         }
 
-        // 3. Check Anti-Spam / Anti-Advertising
+        // Guruhlar uchun Anti-Spam / Anti-Advertising
         if (ctx.message && isSpamOrAdMessage(ctx.message)) {
           const rawText = ctx.message.text || ctx.message.caption || '[Fayl/Media/Forward]';
           try {
             await ctx.deleteMessage().catch(() => { });
           } catch (_) { }
 
-          // Spammerni PostgreSQL ma'lumotlar bazasida doimiy bloklash
-          await blockSpammerPermanently(from, 'Reklama / Spam tarqatish', rawText);
+          await blockSpammerPermanently(from, 'Reklama / Spam tarqatish (Guruhda)', rawText);
 
-          if (isGroup) {
-            // Guruhdan spammerni darhol butunlay chetlatish (BAN)
-            try {
-              if (ctx.telegram && ctx.telegram.banChatMember) {
-                await ctx.telegram.banChatMember(ctx.chat.id, from.id).catch(() => { });
-              }
-            } catch (_) { }
+          try {
+            if (ctx.telegram && ctx.telegram.banChatMember) {
+              await ctx.telegram.banChatMember(ctx.chat.id, from.id).catch(() => { });
+            }
+          } catch (_) { }
 
-            // Guruhga 10 soniyalik ogohlantirish yuborish (va 10 soniyadan so'ng avtomatik o'chirish)
-            try {
-              const alertMsg = await ctx.replyWithHTML(
-                `🚫 <b>[XAVFSIZLIK TIZIMI]</b>\n` +
-                `Foydalanuvchi <b>${from.first_name || from.id}</b> (@${from.username || 'nomaʼlum'}) reklama/spam tarqatgani uchun <b>guruhdan haydaldi va bloklandi</b>!`
-              ).catch(() => { });
-
-              if (alertMsg && alertMsg.message_id) {
-                setTimeout(() => {
-                  ctx.telegram.deleteMessage(ctx.chat.id, alertMsg.message_id).catch(() => { });
-                }, 10000);
-              }
-            } catch (_) { }
-          } else {
-            // Shaxsiy chatda qat'iy bloklash
-            await ctx.replyWithHTML(
-              `🚫 <b>SIZ BLOKLANGANSIZ!</b>\n` +
-              `━━━━━━━━━━━━━━━━━━━\n` +
-              `Botda reklama, spam yoki qimor/stavka havolalarini tarqatish qat'iyan taqiqlangan.\n` +
-              `Sizning akkauntingiz (ID: <code>${from.id}</code>) xavfsizlik tizimi tomonidan doimiy bloklandi.`
+          try {
+            const alertMsg = await ctx.replyWithHTML(
+              `🚫 <b>[XAVFSIZLIK TIZIMI]</b>\n` +
+              `Foydalanuvchi <b>${from.first_name || from.id}</b> (@${from.username || 'nomaʼlum'}) reklama/spam tarqatgani uchun <b>guruhdan haydaldi va bloklandi</b>!`
             ).catch(() => { });
-          }
 
-          console.warn(`🛡️ [Anti-Spam] Spammer ${from.id} (@${from.username || ''}) to'xtatildi va bloklandi.`);
-          return; // Terminate update
+            if (alertMsg && alertMsg.message_id) {
+              setTimeout(() => {
+                ctx.telegram.deleteMessage(ctx.chat.id, alertMsg.message_id).catch(() => { });
+              }, 10000);
+            }
+          } catch (_) { }
+
+          console.warn(`🛡️ [Anti-Spam] Guruh spammeri ${from.id} (@${from.username || ''}) to'xtatildi.`);
+          return;
         }
       } catch (secErr) {
         console.warn('⚠️ [Anti-Spam Middleware] Xatolik:', secErr.message);
@@ -3769,7 +3747,7 @@ const sendGeneralTelegramNotification = async ({ cafeId, title, message }) => {
     const lastSent = recentNotificationCache.get(dedupeKey);
     const now = Date.now();
     if (lastSent && (now - lastSent) < 15000) {
-      console.log(`⚠️ [Telegram Bot] Dublikat xabarnoma to‘xtatildi: "${title}" (${Math.round((now - lastSent)/1000)}s oldin yuborilgan)`);
+      console.log(`⚠️ [Telegram Bot] Dublikat xabarnoma to‘xtatildi: "${title}" (${Math.round((now - lastSent) / 1000)}s oldin yuborilgan)`);
       return;
     }
     recentNotificationCache.set(dedupeKey, now);
