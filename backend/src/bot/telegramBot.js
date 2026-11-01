@@ -515,12 +515,14 @@ const sendAdminDashboard = async (ctx) => {
 };
 
 // Helper: Anti-Spam, Anti-Reklama and Anti-Flood detector
+
 const floodTracker = new Map();
 const blockedUsers = new Set();
 const userSpamViolations = new Map();
 const sentOrderNotificationCache = new Set();
 
 // Reklama va spam tarqatuvchini PostgreSQL bazasida umrbod bloklash
+
 const blockSpammerPermanently = async (user, reason = 'Spam / Reklama tarqatish', snippet = '') => {
   if (!user || !user.id) return;
   const strId = String(user.id);
@@ -539,14 +541,12 @@ const blockSpammerPermanently = async (user, reason = 'Spam / Reklama tarqatish'
   }
 };
 
-// Bot ishga tushganda bazadan barcha bloklangan spammerlarni xotiraga yuklash
+// Bot ishga tushganda bazadan barcha bloklangan spammerlarni tozalash (hech kim blokda qolmasligi uchun)
 const loadBlockedSpammersFromDb = async () => {
   try {
-    const res = await db.query('SELECT telegram_id FROM bot_blocked_spammers');
-    for (const row of res.rows) {
-      if (row.telegram_id) blockedUsers.add(String(row.telegram_id));
-    }
-    console.log(`🛡️ [Anti-Spam] ${blockedUsers.size} ta bloklangan spammerlar bazadan yuklandi.`);
+    blockedUsers.clear();
+    await db.query('TRUNCATE bot_blocked_spammers').catch(() => {});
+    console.log(`🛡️ [Anti-Spam] Barcha bloklar tozalandi, foydalanuvchilar to'siqsiz ulanishi mumkin.`);
   } catch (err) {
     console.warn('⚠️ loadBlockedSpammersFromDb xatosi:', err.message);
   }
@@ -995,7 +995,7 @@ const initTelegramBot = () => {
       return next();
     });
 
-    // 1. /start command
+    // 1. /start command — BARCHA FOYDALANUVCHILAR UCHUN CHEKLOVSIZ OCHIQ
     bot.start(async (ctx) => {
       try {
         const from = ctx.from;
@@ -1009,52 +1009,38 @@ const initTelegramBot = () => {
            ON CONFLICT (telegram_id)
            DO UPDATE SET username = $2, first_name = $3, last_name = $4, updated_at = CURRENT_TIMESTAMP`,
           [telegramId, from.username || null, from.first_name || '', from.last_name || '']
-        );
+        ).catch(() => {});
 
-        // Check if user already has an active subscription
-        const activeSub = await getUserSubscription(telegramId);
         const webAppUrl = getWebAppUrl();
 
-        if (activeSub) {
-          // Set Chat Menu Button to WebApp for active subscribers
-          ctx.setChatMenuButton({
-            type: 'web_app',
-            text: '🚀 ILOVANI OCHISH',
-            web_app: { url: webAppUrl },
-          }).catch(() => { });
+        // Har qanday foydalanuvchi uchun chat menu tugmasini web app ga ulaymiz
+        ctx.setChatMenuButton({
+          type: 'web_app',
+          text: '🚀 ILOVANI OCHISH',
+          web_app: { url: webAppUrl },
+        }).catch(() => {});
 
-          const welcomeBack =
-            `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
-            `✅ <b>Sizning ZAVERO POS litsenziyangiz faol!</b>\n` +
-            `📅 Amal qilish muddati: <b>${formatDate(activeSub.end_date)}</b> gacha\n` +
-            `⏳ Qolgan vaqt: <b>${activeSub.daysRemaining} kun</b>\n` +
-            `👤 Sizning ID: <code>${telegramId}</code>\n\n` +
-            `Tizimga kirish uchun quyidagi tugmani bosing:`;
+        const activeSub = await getUserSubscription(telegramId);
+        const subInfo = activeSub
+          ? `\n✅ <b>Litsenziyangiz faol!</b> (${activeSub.daysRemaining} kun qoldi)\n`
+          : '';
 
-          const buttons = [
-            [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', webAppUrl)],
-            [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
-            [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
-            [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
-          ];
-          if (isAdmin) {
-            buttons.push([Markup.button.callback('🛡 Admin boshqaruvi', 'admin_open_dash')]);
-          }
+        const welcome =
+          `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
+          `<b>ZAVERO POS</b> professional savdo, kassa va boshqaruv tizimiga xush kelibsiz.${subInfo}\n` +
+          `Tizimga kirish yoki boshqarish uchun quyidagi tugmani bosing:`;
 
-          return await ctx.replyWithHTML(welcomeBack, Markup.inlineKeyboard(buttons));
+        const buttons = [
+          [Markup.button.webApp('🚀 ZAVERO POS (Mini App)', webAppUrl)],
+          [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
+          [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
+          [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
+        ];
+        if (isAdmin) {
+          buttons.push([Markup.button.callback('🛡 Admin boshqaruvi', 'admin_open_dash')]);
         }
 
-        // Unpaid user: reset chat menu button to default
-        ctx.setChatMenuButton({ type: 'default' }).catch(() => { });
-
-        // Channel subscription prompt
-        const settings = await getBotSettings();
-        const greeting =
-          `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
-          `<b>ZAVERO POS</b> professional savdo va kassa tizimiga xush kelibsiz.\n\n` +
-          `Ilovadan foydalanish uchun quyidagi kanallarga a‘zo bo‘ling va <b>«🔄 Obunani tekshirish»</b> tugmasini bosing:`;
-
-        return await ctx.replyWithHTML(greeting, buildChannelKeyboard(settings, isAdmin));
+        return await ctx.replyWithHTML(welcome, Markup.inlineKeyboard(buttons));
       } catch (err) {
         console.error('❌ [Telegram Bot] /start xatosi:', err);
         return ctx.reply('Tizimda xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.');
@@ -1132,19 +1118,18 @@ const initTelegramBot = () => {
         const telegramId = from.id;
         const webAppUrl = getWebAppUrl();
         const activeSub = await getUserSubscription(telegramId);
-        const text = activeSub
-          ? `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n✅ <b>Litsenziyangiz faol!</b>\n📅 ${formatDate(activeSub.end_date)} gacha\n⏳ ${activeSub.daysRemaining} kun qoldi`
-          : `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>! /start bosib litsenziya oling.`;
+        const text =
+          `Assalomu alaykum, <b>${from.first_name || 'Foydalanuvchi'}</b>!\n\n` +
+          `<b>ZAVERO POS</b> boshqaruv tizimi:\n` +
+          `Kerakli bo'limni tanlang:`;
         const isAdmin = await isAdminUser(from);
-        const buttons = activeSub
-          ? [
-            [Markup.button.webApp("🚀 ZAVERO POS (Mini App)", webAppUrl)],
-            [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
-            [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
-            [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
-            ...(isAdmin ? [[Markup.button.callback('🛡 Admin boshqaruvi', 'admin_open_dash')]] : []),
-          ]
-          : [[Markup.button.callback('🔄 Obunani tekshirish', 'check_channels')]];
+        const buttons = [
+          [Markup.button.webApp("🚀 ZAVERO POS (Mini App)", webAppUrl)],
+          [Markup.button.callback('📋 Stol holatlari', 'bot_tables'), Markup.button.callback('📅 Bandlovlarim', 'bot_my_reservations')],
+          [Markup.button.callback('📊 Bugungi hisobot', 'bot_report'), Markup.button.callback('🔄 Yangilash', 'bot_tables_refresh')],
+          [Markup.button.callback('👤 Profilim', 'my_profile'), Markup.button.callback('ℹ️ Yordam', 'bot_help')],
+          ...(isAdmin ? [[Markup.button.callback('🛡 Admin boshqaruvi', 'admin_open_dash')]] : []),
+        ];
         return await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
       } catch (err) { console.error('back_to_start error:', err); }
     });
