@@ -1676,12 +1676,10 @@ class AppState extends ChangeNotifier {
 
       debugPrint('🖨️ [PrinterStation] Masofaviy chek keldi va chop etilmoqda$tblText: $jobId');
 
-      appMessengerKey.currentState?.showSnackBar(
-        SnackBar(
-          content: Text('🖨️ Kassa printeri: Chek chop etilmoqda$tblText'),
-          duration: const Duration(seconds: 2),
-          backgroundColor: const Color(0xFF1E293B),
-        ),
+      showZaveroSnackBar(
+        message: '🖨️ Kassa printeri: Chek chop etilmoqda$tblText',
+        duration: const Duration(seconds: 2),
+        backgroundColor: const Color(0xFF1E293B),
       );
 
       try {
@@ -3902,12 +3900,11 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
       'printedAt': receipt.printedAt?.toIso8601String(),
     }).catchError((_) => <String, dynamic>{}));
     appState.notifyChanges();
-    appMessengerKey.currentState?.showSnackBar(
-      const SnackBar(
-        content: Text("Chek printerdan muvaffaqiyatli chop etildi"),
-        backgroundColor: Color(0xFF10B981),
-        duration: Duration(seconds: 2),
-      ),
+    showZaveroSnackBar(
+      message: "Chek printerdan muvaffaqiyatli chop etildi",
+      backgroundColor: const Color(0xFF10B981),
+      duration: const Duration(seconds: 2),
+      prefixIcon: Icons.check_circle_outline,
     );
     return;
   }
@@ -3925,12 +3922,11 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
     );
 
     if (result.routedToStation) {
-      appMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text("Chek kassa printeriga yuborildi va chop etilmoqda"),
-          backgroundColor: Color(0xFF10B981),
-          duration: Duration(seconds: 2),
-        ),
+      showZaveroSnackBar(
+        message: "Chek kassa printeriga yuborildi va chop etilmoqda",
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 2),
+        prefixIcon: Icons.print_outlined,
       );
       return;
     } else {
@@ -4067,12 +4063,11 @@ Future<void> printBillPreview({
   }
 
   if (printedViaDirect) {
-    appMessengerKey.currentState?.showSnackBar(
-      const SnackBar(
-        content: Text("Xarid cheki printerdan chop etildi"),
-        backgroundColor: Color(0xFF10B981),
-        duration: Duration(seconds: 2),
-      ),
+    showZaveroSnackBar(
+      message: "Xarid cheki printerdan chop etildi",
+      backgroundColor: const Color(0xFF10B981),
+      duration: const Duration(seconds: 2),
+      prefixIcon: Icons.check_circle_outline,
     );
     return;
   }
@@ -4089,12 +4084,11 @@ Future<void> printBillPreview({
     );
 
     if (result.routedToStation) {
-      appMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text("Chek kassa printeriga yuborildi va chop etilmoqda"),
-          backgroundColor: Color(0xFF10B981),
-          duration: Duration(seconds: 2),
-        ),
+      showZaveroSnackBar(
+        message: "Chek kassa printeriga yuborildi va chop etilmoqda",
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 2),
+        prefixIcon: Icons.print_outlined,
       );
       return;
     }
@@ -4208,12 +4202,11 @@ Future<void> printKitchenTicket({
   }
 
   if (printedViaDirect) {
-    appMessengerKey.currentState?.showSnackBar(
-      const SnackBar(
-        content: Text("Oshpaz cheki printerdan chop etildi"),
-        backgroundColor: Color(0xFF10B981),
-        duration: Duration(seconds: 2),
-      ),
+    showZaveroSnackBar(
+      message: "Oshpaz cheki printerdan chop etildi",
+      backgroundColor: const Color(0xFF10B981),
+      duration: const Duration(seconds: 2),
+      prefixIcon: Icons.check_circle_outline,
     );
     return;
   }
@@ -4229,12 +4222,11 @@ Future<void> printKitchenTicket({
     );
 
     if (result.routedToStation) {
-      appMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text("Oshpaz cheki oshxona/kassa printeriga yuborildi"),
-          backgroundColor: Color(0xFF10B981),
-          duration: Duration(seconds: 2),
-        ),
+      showZaveroSnackBar(
+        message: "Oshpaz cheki oshxona/kassa printeriga yuborildi",
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 2),
+        prefixIcon: Icons.soup_kitchen_outlined,
       );
       return;
     }
@@ -4436,6 +4428,16 @@ ThemeData buildLightTheme() {
       backgroundColor: Color(0xFF0F172A),
       foregroundColor: Colors.white,
     ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: const Color(0xFF1E293B),
+      contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+      actionTextColor: const Color(0xFF60A5FA),
+      showCloseIcon: true,
+      closeIconColor: Colors.white,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      dismissDirection: DismissDirection.horizontal,
+    ),
   );
 }
 
@@ -4590,10 +4592,13 @@ ThemeData buildDarkTheme() {
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: kDarkSurface3,
-      contentTextStyle: const TextStyle(color: Colors.white),
+      contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
       actionTextColor: kDarkAccent,
+      showCloseIcon: true,
+      closeIconColor: Colors.white,
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      dismissDirection: DismissDirection.horizontal,
     ),
     tabBarTheme: const TabBarThemeData(
       labelColor: kDarkAccent,
@@ -4643,6 +4648,58 @@ ThemeData buildDarkTheme() {
       textStyle: const TextStyle(color: Colors.white),
     ),
     dividerColor: kDarkBorder,
+  );
+}
+
+/// Global dismissible SnackBar helper
+/// Har qanday xabarga (qizil, yashil, ma'lumot) avtomatik [X] yopish tugmasi qo'shadi,
+/// floating qilib ekranni to'sib qo'ymasligini ta'minlaydi va bir marta bosishda yo'qotadi.
+void showZaveroSnackBar({
+  required String message,
+  Color backgroundColor = const Color(0xFF1E293B),
+  Duration duration = const Duration(milliseconds: 3000),
+  SnackBarAction? action,
+  IconData? prefixIcon,
+  BuildContext? context,
+}) {
+  final messenger = context != null
+      ? ScaffoldMessenger.maybeOf(context) ?? appMessengerKey.currentState
+      : appMessengerKey.currentState;
+  if (messenger == null) return;
+
+  // Oldingi xabarni darhol yashiramiz (bir-birining ustiga tushib xalaqit qilmasligi uchun)
+  messenger.hideCurrentSnackBar();
+
+  messenger.showSnackBar(
+    SnackBar(
+      content: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (prefixIcon != null) ...[
+            Icon(prefixIcon, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: backgroundColor,
+      duration: duration,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      showCloseIcon: true,
+      closeIconColor: Colors.white,
+      dismissDirection: DismissDirection.horizontal,
+      action: action,
+    ),
   );
 }
 
@@ -12500,41 +12557,36 @@ class _PaymentScreenState extends State<PaymentScreen> {
             debugPrint('Avtomatik chek chiqarishda xatolik: $e');
           }
         }());
-        appMessengerKey.currentState?.showSnackBar(
-          const SnackBar(
-            content: Text("To'lov muvaffaqiyatli qabul qilindi"),
-            backgroundColor: Color(0xFF10B981),
-            duration: Duration(seconds: 2),
-          ),
+        showZaveroSnackBar(
+          message: "To'lov muvaffaqiyatli qabul qilindi",
+          backgroundColor: const Color(0xFF10B981),
+          duration: const Duration(milliseconds: 2200),
+          prefixIcon: Icons.check_circle_outline,
         );
       } else if (!isPrinterReady) {
-        // 1-TALAB: Printer ulanmagan bo'lsa qizil nonblocking bildirishnoma (6 soniya)
-        appMessengerKey.currentState?.showSnackBar(
-          SnackBar(
-            content: const Text(
-              "Printer ulanmagan. Chek Cheklar tarixiga saqlandi, keyinroq chiqarishingiz mumkin.",
-              style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
-            ),
-            backgroundColor: const Color(0xFFDC2626),
-            duration: const Duration(seconds: 6),
-            action: SnackBarAction(
-              label: "Cheklar tarixi",
-              textColor: Colors.white,
-              onPressed: () {
-                appNavigatorKey.currentState?.push(
-                  MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
-                );
-              },
-            ),
+        // Printer ulanmagan: qizil, ixcham, [X] yopish tugmali va 3.5 soniyada o'zi yo'qoladigan
+        showZaveroSnackBar(
+          message: "Printer ulanmagan. Chek Cheklar tarixiga saqlandi, keyinroq chiqarishingiz mumkin.",
+          backgroundColor: const Color(0xFFDC2626),
+          duration: const Duration(milliseconds: 3500),
+          prefixIcon: Icons.print_disabled_outlined,
+          action: SnackBarAction(
+            label: "Cheklar tarixi",
+            textColor: Colors.white,
+            onPressed: () {
+              appMessengerKey.currentState?.hideCurrentSnackBar();
+              appNavigatorKey.currentState?.push(
+                MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
+              );
+            },
           ),
         );
       } else {
-        appMessengerKey.currentState?.showSnackBar(
-          const SnackBar(
-            content: Text("To'lov muvaffaqiyatli qabul qilindi"),
-            backgroundColor: Color(0xFF10B981),
-            duration: Duration(seconds: 2),
-          ),
+        showZaveroSnackBar(
+          message: "To'lov muvaffaqiyatli qabul qilindi",
+          backgroundColor: const Color(0xFF10B981),
+          duration: const Duration(milliseconds: 2200),
+          prefixIcon: Icons.check_circle_outline,
         );
       }
       appState.clearReceiptPrintedForOrder(selTable?.id, selTable?.number);
@@ -12559,11 +12611,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
       _isCompleting = false;
       _isPaid = false;
       if (mounted) setState(() => confirming = false);
-      appMessengerKey.currentState?.showSnackBar(
-        SnackBar(
-          content: Text('To‘lovda xatolik yuz berdi: $e'),
-          backgroundColor: Colors.red,
-        ),
+      showZaveroSnackBar(
+        message: 'To‘lovda xatolik yuz berdi: $e',
+        backgroundColor: const Color(0xFFDC2626),
+        duration: const Duration(seconds: 3),
+        prefixIcon: Icons.error_outline,
       );
     } finally {
       _globalCheckoutInProgress = false;
