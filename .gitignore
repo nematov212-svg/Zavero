@@ -88,3 +88,7 @@ backend/uploads/
 .vscode/
 zavero-release.apk
 zavero/
+
+print-agent/node_modules/
+print-agent/logs/
+print-agent/.env

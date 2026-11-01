@@ -489,3 +489,25 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 );
 CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox_events(status, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_outbox_entity ON outbox_events(entity_id);
+
+-- 27. PRINT JOBS (Queue for receipt, bill preview, and kitchen tickets across all devices)
+CREATE TABLE IF NOT EXISTS print_jobs (
+    id VARCHAR(120) PRIMARY KEY,
+    cafe_id VARCHAR(64) NOT NULL,
+    type VARCHAR(32) NOT NULL DEFAULT 'receipt',
+    target_printer VARCHAR(32) DEFAULT 'cashier',
+    status VARCHAR(32) NOT NULL DEFAULT 'pending', -- pending, printing, completed, failed
+    html TEXT,
+    data JSONB,
+    image_base64 TEXT,
+    table_number VARCHAR(32),
+    hall_name VARCHAR(100),
+    waiter_id VARCHAR(64),
+    waiter_name VARCHAR(100),
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX IF NOT EXISTS idx_print_jobs_cafe_status ON print_jobs(cafe_id, status);
+CREATE INDEX IF NOT EXISTS idx_print_jobs_created ON print_jobs(created_at);
+

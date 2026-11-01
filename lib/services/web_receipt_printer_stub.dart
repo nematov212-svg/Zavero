@@ -6,3 +6,8 @@ Future<bool> printHtmlViaHiddenIframe(String htmlContent) async {
 void showReceiptModalInPage(String htmlContent) {}
 
 void setBrowserHash(String hash) {}
+
+Future<String?> renderHtmlToPng(String htmlContent, {int widthPx = 576}) async {
+  return null;
+}
+

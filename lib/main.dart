@@ -37,6 +37,8 @@ import 'services/thermal_html_generator.dart';
 import 'services/web_receipt_printer.dart';
 import 'services/receipt_printer_service.dart';
 import 'services/cloud_print_service.dart';
+import 'services/print_agent_service.dart';
+
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
 import 'widgets/receipt_widget.dart';
@@ -330,12 +332,45 @@ class AppState extends ChangeNotifier {
     return restaurantName.trim().isNotEmpty ? restaurantName.trim() : 'Family Cafe';
   }
 
-  // ---- TARMOQ (Wi-Fi/LAN) PRINTER SOZLAMALARI ----
+  // ---- TARMOQ (Wi-Fi/LAN, USB, Bluetooth) PRINTER SOZLAMALARI ----
+  String printerConnectionType = 'wifi'; // 'wifi' | 'usb' | 'bluetooth'
   String? connectedPrinterName;
   String printerIp = '';
   int printerPort = 9100;
+  String? printerUsbName;
+  String? printerBtName;
+  bool isPrinterVerified = false;
+  String? printerVerifiedInfo;
   int printerCharsPerLine = 48;
   PrinterFontSize printerFontSize = PrinterFontSize.normal;
+  bool autoPrintOnPaid = true;
+
+  // Oshxona printeri (alohida oshpaz cheki uchun)
+  bool kitchenPrinterEnabled = false;
+  String kitchenPrinterConnectionType = 'wifi';
+  String kitchenPrinterIp = '';
+  int kitchenPrinterPort = 9100;
+  String? kitchenPrinterUsbName;
+  String? kitchenPrinterBtName;
+  bool isKitchenPrinterVerified = false;
+  String? kitchenPrinterVerifiedInfo;
+
+  final Set<String> _printedReceiptOrderKeys = {};
+
+  bool isReceiptPrintedForOrder(int? tableId, [int? tableNum]) {
+    final k = 'tbl_${tableId ?? 0}_${tableNum ?? 0}';
+    return _printedReceiptOrderKeys.contains(k);
+  }
+
+  void markReceiptPrintedForOrder(int? tableId, [int? tableNum]) {
+    final k = 'tbl_${tableId ?? 0}_${tableNum ?? 0}';
+    _printedReceiptOrderKeys.add(k);
+  }
+
+  void clearReceiptPrintedForOrder(int? tableId, [int? tableNum]) {
+    final k = 'tbl_${tableId ?? 0}_${tableNum ?? 0}';
+    _printedReceiptOrderKeys.remove(k);
+  }
 
   // ---- CHEK KO'RINISHI SOZLAMALARI ----
   bool receiptBoldHeader = true;
@@ -397,7 +432,8 @@ class AppState extends ChangeNotifier {
     return ok;
   }
 
-  bool get printerConfigured => printerIp.trim().isNotEmpty;
+  bool get printerConfigured => isPrinterVerified;
+
 
   AppUser? currentUser;
   String? guestName;
@@ -894,6 +930,59 @@ class AppState extends ChangeNotifier {
             (cloudSettings['promoBanners'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
           );
         }
+        if (cloudSettings.containsKey('printerConnectionType')) {
+          printerConnectionType = cloudSettings['printerConnectionType']?.toString() ?? printerConnectionType;
+        }
+        if (cloudSettings.containsKey('printerIp')) {
+          printerIp = cloudSettings['printerIp']?.toString() ?? printerIp;
+        }
+        if (cloudSettings.containsKey('printerPort')) {
+          final p = cloudSettings['printerPort'];
+          printerPort = p is num ? p.toInt() : (int.tryParse('$p') ?? printerPort);
+        }
+        if (cloudSettings.containsKey('printerUsbName')) {
+          printerUsbName = cloudSettings['printerUsbName']?.toString();
+        }
+        if (cloudSettings.containsKey('printerBtName')) {
+          printerBtName = cloudSettings['printerBtName']?.toString();
+        }
+        if (cloudSettings.containsKey('autoPrintOnPaid')) {
+          final ap = cloudSettings['autoPrintOnPaid'];
+          autoPrintOnPaid = ap == true || ap == 'true' || ap == 1;
+        }
+        if (cloudSettings.containsKey('kitchenPrinterEnabled')) {
+          final kp = cloudSettings['kitchenPrinterEnabled'];
+          kitchenPrinterEnabled = kp == true || kp == 'true' || kp == 1;
+        }
+        if (cloudSettings.containsKey('kitchenPrinterConnectionType')) {
+          kitchenPrinterConnectionType = cloudSettings['kitchenPrinterConnectionType']?.toString() ?? kitchenPrinterConnectionType;
+        }
+        if (cloudSettings.containsKey('kitchenPrinterIp')) {
+          kitchenPrinterIp = cloudSettings['kitchenPrinterIp']?.toString() ?? kitchenPrinterIp;
+        }
+        if (cloudSettings.containsKey('kitchenPrinterPort')) {
+          final kp = cloudSettings['kitchenPrinterPort'];
+          kitchenPrinterPort = kp is num ? kp.toInt() : (int.tryParse('$kp') ?? kitchenPrinterPort);
+        }
+        if (cloudSettings.containsKey('kitchenPrinterUsbName')) {
+          kitchenPrinterUsbName = cloudSettings['kitchenPrinterUsbName']?.toString();
+        }
+        if (cloudSettings.containsKey('kitchenPrinterBtName')) {
+          kitchenPrinterBtName = cloudSettings['kitchenPrinterBtName']?.toString();
+        }
+        if (cloudSettings.containsKey('printerCharsPerLine')) {
+          final cpl = cloudSettings['printerCharsPerLine'];
+          printerCharsPerLine = cpl is num ? cpl.toInt() : (int.tryParse('$cpl') ?? printerCharsPerLine);
+        }
+        if (cloudSettings.containsKey('paperWidthMm')) {
+          final pw = cloudSettings['paperWidthMm'];
+          paperWidthMm = pw is num ? pw.toInt() : (int.tryParse('$pw') ?? paperWidthMm);
+        }
+        if (cloudSettings.containsKey('receiptBoldHeader')) {
+          final rbh = cloudSettings['receiptBoldHeader'];
+          receiptBoldHeader = rbh == true || rbh == 'true' || rbh == 1;
+        }
+
       }
 
       _startRealtimeListeners(cafeId);
@@ -2462,6 +2551,51 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> savePrinterSettingsToCloud() async {
+    final payload = {
+      'printerConnectionType': printerConnectionType,
+      'printerIp': printerIp,
+      'printerPort': printerPort,
+      'printerUsbName': printerUsbName,
+      'printerBtName': printerBtName,
+      'autoPrintOnPaid': autoPrintOnPaid,
+      'printerCharsPerLine': printerCharsPerLine,
+      'printerFontSize': printerFontSize.index,
+      'paperWidthMm': paperWidthMm,
+      'receiptBoldHeader': receiptBoldHeader,
+      'receiptHeaderAlign': receiptHeaderAlign.index,
+      'kitchenPrinterEnabled': kitchenPrinterEnabled,
+      'kitchenPrinterConnectionType': kitchenPrinterConnectionType,
+      'kitchenPrinterIp': kitchenPrinterIp,
+      'kitchenPrinterPort': kitchenPrinterPort,
+      'kitchenPrinterUsbName': kitchenPrinterUsbName,
+      'kitchenPrinterBtName': kitchenPrinterBtName,
+    };
+    try {
+      if (currentCafeId.isNotEmpty) {
+        await _cloudService.saveSettings(currentCafeId, payload);
+      }
+    } catch (e) {
+      debugPrint('savePrinterSettingsToCloud error: $e');
+    }
+    try {
+      PrintAgentService().updateAgentCafeConfig(
+        cafeId: currentCafeId,
+        backendUrl: 'https://zavero-backend-production-7dc9.up.railway.app',
+        printerConfig: {
+          'type': printerConnectionType,
+          'ip': printerIp,
+          'port': printerPort,
+          'deviceId': printerConnectionType == 'usb' ? printerUsbName : printerBtName,
+          'paperWidth': paperWidthMm,
+        },
+      );
+    } catch (_) {}
+    await saveData();
+    notifyListeners();
+  }
+
+
   void updateReceiptVisibilitySettings({
     bool? waiter,
     bool? table,
@@ -3512,17 +3646,6 @@ void _releasePrintLock() {
 }
 
 Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async {
-  if (appState.printerConfigured) {
-    await NetworkPrinterService.printReceiptNetwork(
-      receipt,
-      ip: appState.printerIp,
-      port: appState.printerPort,
-      charsPerLine: appState.printerCharsPerLine,
-      fontSize: appState.printerFontSize,
-    );
-    return;
-  }
-
   final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
   final printData = ReceiptPrintData(
     checkId: '${receipt.id}',
@@ -3555,7 +3678,64 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
     logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
   );
 
-  // Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
+  // 1. Termal printerga to'g'ridan-to'g'ri (Print Agent yoki mahalliy tarmoq orqali) chiqarish
+  bool printedViaDirect = false;
+  if (kIsWeb) {
+    try {
+      final isAgentUp = await PrintAgentService().isAgentRunning();
+      if (isAgentUp && appState.printerConfigured) {
+        final pngBase64 = await WebReceiptPrinter.renderHtmlToPng(html, widthPx: is58mm ? 384 : 576);
+        if (pngBase64 != null && pngBase64.isNotEmpty) {
+          final ok = await PrintAgentService().printJob(
+            jobId: 'rcpt_${receipt.id}_${DateTime.now().millisecondsSinceEpoch}',
+            type: 'xarid',
+            printerConfig: {
+              'type': appState.printerConnectionType,
+              'ip': appState.printerIp,
+              'port': appState.printerPort,
+              'deviceId': appState.printerConnectionType == 'usb'
+                  ? appState.printerUsbName
+                  : appState.printerBtName,
+              'paperWidth': appState.paperWidthMm,
+            },
+            imageBase64: pngBase64,
+            openDrawer: true,
+          );
+          if (ok) {
+            printedViaDirect = true;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('PrintAgent printReceipt error: $e');
+    }
+  } else if (!kIsWeb && appState.printerConfigured && appState.printerConnectionType == 'wifi') {
+    try {
+      await NetworkPrinterService.printReceiptNetwork(
+        receipt,
+        ip: appState.printerIp,
+        port: appState.printerPort,
+        charsPerLine: appState.printerCharsPerLine,
+        fontSize: appState.printerFontSize,
+      );
+      printedViaDirect = true;
+    } catch (e) {
+      debugPrint('NetworkPrinterService printReceipt error: $e');
+    }
+  }
+
+  if (printedViaDirect) {
+    appMessengerKey.currentState?.showSnackBar(
+      const SnackBar(
+        content: Text("Chek printerdan muvaffaqiyatli chop etildi"),
+        backgroundColor: Color(0xFF10B981),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    return;
+  }
+
+  // 2. Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
   if (!appState.isPrinterStation) {
     final result = await CloudPrintService().dispatchPrintJob(
       id: 'rcpt_${receipt.id}',
@@ -3581,16 +3761,10 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
         debugPrint('ℹ️ [Print] Kassa printeri ulanmagan, avtomatik to‘lovda chek bloklanmadi.');
         return;
       }
-      appMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text("Printer qurilmasi ulanmagan, chek ekranda ko'rsatildi"),
-          backgroundColor: Color(0xFFF59E0B),
-          duration: Duration(seconds: 3),
-        ),
-      );
     }
   }
 
+  // 3. Fallback: Yashirin iframe (Web) yoki Printing PDF (Native)
   if (!await _acquirePrintLock()) return;
   try {
     if (kIsWeb) {
@@ -3628,24 +3802,6 @@ Future<void> printBillPreview({
   final cashierName =
       appState.currentUser?.name ?? appState.guestName ?? 'Admin';
 
-  if (appState.printerConfigured) {
-    await NetworkPrinterService.printBillNetwork(
-      items: items,
-      productsTotal: productsTotal,
-      serviceTotal: serviceTotal,
-      grandTotal: grandTotal,
-      method: method,
-      cashierName: cashierName,
-      ip: appState.printerIp,
-      port: appState.printerPort,
-      table: table,
-      hallName: hallName,
-      charsPerLine: appState.printerCharsPerLine,
-      fontSize: appState.printerFontSize,
-    );
-    return;
-  }
-
   final now = DateTime.now();
   final checkId = 'T${table?.number ?? 1}-${now.millisecondsSinceEpoch}';
   final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
@@ -3681,7 +3837,70 @@ Future<void> printBillPreview({
     logoUrl: (appState.appLogoUrl != null && appState.appLogoUrl!.trim().isNotEmpty) ? appState.appLogoUrl!.trim() : null,
   );
 
-  // Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
+  // 1. Termal printerga to'g'ridan-to'g'ri (Print Agent yoki mahalliy tarmoq orqali) chiqarish
+  bool printedViaDirect = false;
+  if (kIsWeb) {
+    try {
+      final isAgentUp = await PrintAgentService().isAgentRunning();
+      if (isAgentUp && appState.printerConfigured) {
+        final pngBase64 = await WebReceiptPrinter.renderHtmlToPng(html, widthPx: is58mm ? 384 : 576);
+        if (pngBase64 != null && pngBase64.isNotEmpty) {
+          final ok = await PrintAgentService().printJob(
+            jobId: checkId,
+            type: 'xarid',
+            printerConfig: {
+              'type': appState.printerConnectionType,
+              'ip': appState.printerIp,
+              'port': appState.printerPort,
+              'deviceId': appState.printerConnectionType == 'usb'
+                  ? appState.printerUsbName
+                  : appState.printerBtName,
+              'paperWidth': appState.paperWidthMm,
+            },
+            imageBase64: pngBase64,
+          );
+          if (ok) {
+            printedViaDirect = true;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('PrintAgent printBillPreview error: $e');
+    }
+  } else if (!kIsWeb && appState.printerConfigured && appState.printerConnectionType == 'wifi') {
+    try {
+      await NetworkPrinterService.printBillNetwork(
+        items: items,
+        productsTotal: productsTotal,
+        serviceTotal: serviceTotal,
+        grandTotal: grandTotal,
+        method: method,
+        cashierName: cashierName,
+        ip: appState.printerIp,
+        port: appState.printerPort,
+        table: table,
+        hallName: hallName,
+        charsPerLine: appState.printerCharsPerLine,
+        fontSize: appState.printerFontSize,
+      );
+      printedViaDirect = true;
+    } catch (e) {
+      debugPrint('NetworkPrinterService printBillNetwork error: $e');
+    }
+  }
+
+  if (printedViaDirect) {
+    appMessengerKey.currentState?.showSnackBar(
+      const SnackBar(
+        content: Text("Xarid cheki printerdan chop etildi"),
+        backgroundColor: Color(0xFF10B981),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    return;
+  }
+
+  // 2. Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
   if (!appState.isPrinterStation) {
     final result = await CloudPrintService().dispatchPrintJob(
       id: checkId,
@@ -3701,17 +3920,10 @@ Future<void> printBillPreview({
         ),
       );
       return;
-    } else {
-      appMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text("Printer qurilmasi ulanmagan, chek ekranda ko'rsatildi"),
-          backgroundColor: Color(0xFFF59E0B),
-          duration: Duration(seconds: 3),
-        ),
-      );
     }
   }
 
+  // 3. Fallback: Yashirin iframe (Web) yoki Printing PDF (Native)
   if (!await _acquirePrintLock()) return;
   try {
     if (kIsWeb) {
@@ -3744,180 +3956,201 @@ Future<void> printKitchenTicket({
   String? hallName,
   String note = '',
 }) async {
-  if (appState.printerConfigured) {
-    await NetworkPrinterService.printKitchenTicketNetwork(
-      items: items,
-      ip: appState.printerIp,
-      port: appState.printerPort,
-      table: table,
-      hallName: hallName,
-      note: note,
-      charsPerLine: appState.printerCharsPerLine,
+  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
+  final printItems = items.asMap().entries.map((e) => ReceiptPrintItem(
+    index: e.key + 1,
+    name: e.value.product.name,
+    qty: e.value.qty,
+    unitPrice: e.value.product.price,
+    lineTotal: e.value.product.price * e.value.qty,
+  )).toList();
+
+  final html = ThermalHtmlGenerator.buildKitchenTicketHtml(
+    items: printItems,
+    tableNumber: table != null ? '${table.number}' : null,
+    hallName: hallName,
+    note: note,
+    is58mm: is58mm,
+  );
+
+  final ticketId = 'kt_${table?.number ?? 0}_${DateTime.now().millisecondsSinceEpoch}';
+
+  // Oshxona printer konfiguratsiyasi (agar yoqilgan bo'lsa, aks holda asosiy printer)
+  final useKitchenPrinter = appState.kitchenPrinterEnabled && appState.isKitchenPrinterVerified;
+  final printerType = useKitchenPrinter ? appState.kitchenPrinterConnectionType : appState.printerConnectionType;
+  final printerIp = useKitchenPrinter ? appState.kitchenPrinterIp : appState.printerIp;
+  final printerPort = useKitchenPrinter ? appState.kitchenPrinterPort : appState.printerPort;
+  final printerDeviceId = useKitchenPrinter
+      ? (appState.kitchenPrinterConnectionType == 'usb' ? appState.kitchenPrinterUsbName : appState.kitchenPrinterBtName)
+      : (appState.printerConnectionType == 'usb' ? appState.printerUsbName : appState.printerBtName);
+  final isConfigured = useKitchenPrinter || appState.printerConfigured;
+
+  // 1. Termal printerga to'g'ridan-to'g'ri chiqarish
+  bool printedViaDirect = false;
+  if (kIsWeb) {
+    try {
+      final isAgentUp = await PrintAgentService().isAgentRunning();
+      if (isAgentUp && isConfigured) {
+        final pngBase64 = await WebReceiptPrinter.renderHtmlToPng(html, widthPx: is58mm ? 384 : 576);
+        if (pngBase64 != null && pngBase64.isNotEmpty) {
+          final ok = await PrintAgentService().printJob(
+            jobId: ticketId,
+            type: 'oshpaz',
+            printerConfig: {
+              'type': printerType,
+              'ip': printerIp,
+              'port': printerPort,
+              'deviceId': printerDeviceId,
+              'paperWidth': appState.paperWidthMm,
+            },
+            imageBase64: pngBase64,
+          );
+          if (ok) {
+            printedViaDirect = true;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('PrintAgent printKitchenTicket error: $e');
+    }
+  } else if (!kIsWeb && isConfigured && printerType == 'wifi') {
+    try {
+      await NetworkPrinterService.printKitchenTicketNetwork(
+        items: items,
+        ip: printerIp,
+        port: printerPort,
+        table: table,
+        hallName: hallName,
+        note: note,
+        charsPerLine: appState.printerCharsPerLine,
+      );
+      printedViaDirect = true;
+    } catch (e) {
+      debugPrint('NetworkPrinterService printKitchenTicketNetwork error: $e');
+    }
+  }
+
+  if (printedViaDirect) {
+    appMessengerKey.currentState?.showSnackBar(
+      const SnackBar(
+        content: Text("Oshpaz cheki printerdan chop etildi"),
+        backgroundColor: Color(0xFF10B981),
+        duration: Duration(seconds: 2),
+      ),
     );
     return;
   }
 
-  final is58mm = appState.paperWidthMm == 58 || appState.printerCharsPerLine <= 32;
-  const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
-  final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+  // 2. Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
+  if (!appState.isPrinterStation) {
+    final result = await CloudPrintService().dispatchPrintJob(
+      id: ticketId,
+      type: 'kitchen_ticket',
+      html: html,
+      tableNumber: table != null ? '${table.number}' : null,
+      hallName: hallName,
+    );
 
-  final doc = pw.Document();
-  doc.addPage(
-    pw.Page(
-      pageFormat: rollFormat,
-      margin: const pw.EdgeInsets.all(10),
-      build: (context) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Center(
-              child: pw.Text(
-                'OSHPAZ CHEKI',
-                style: const pw.TextStyle(
-                  fontSize: 16,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ),
-            pw.SizedBox(height: 4),
-            pw.Divider(),
-            if (table != null)
-              pw.Text(
-                '${hallName ?? ''} - Stol ${table.number}',
-                style: const pw.TextStyle(
-                  fontSize: 13,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            pw.Text(
-              DateTime.now().toString().substring(0, 16),
-              style: const pw.TextStyle(fontSize: 9),
-            ),
-            pw.Divider(),
-            pw.Row(
-              children: [
-                pw.Expanded(
-                  flex: 3,
-                  child: pw.Text(
-                    'Taom',
-                    style: const pw.TextStyle(
-                      fontSize: 10,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ),
-                pw.Expanded(
-                  flex: 1,
-                  child: pw.Text(
-                    'Soni',
-                    textAlign: pw.TextAlign.center,
-                    style: const pw.TextStyle(
-                      fontSize: 10,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 4),
-            ...items.map(
-              (item) => pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 3),
-                child: pw.Row(
-                  children: [
-                    pw.Expanded(
-                      flex: 3,
-                      child: pw.Text(
-                        item.product.name,
-                        style: const pw.TextStyle(
-                          fontSize: 11,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    pw.Expanded(
-                      flex: 1,
-                      child: pw.Text(
-                        '${item.qty} ta',
-                        textAlign: pw.TextAlign.center,
-                        style: const pw.TextStyle(
-                          fontSize: 11,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (note.trim().isNotEmpty) ...[
-              pw.Divider(),
-              pw.Text(
-                'Izoh: $note',
-                style: const pw.TextStyle(fontSize: 9),
-              ),
-            ],
-          ],
-        );
-      },
-    ),
-  );
+    if (result.routedToStation) {
+      appMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text("Oshpaz cheki oshxona/kassa printeriga yuborildi"),
+          backgroundColor: Color(0xFF10B981),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+  }
+
+  // 3. Fallback: Yashirin iframe (Web) yoki Printing PDF (Native)
   if (!await _acquirePrintLock()) return;
   try {
     if (kIsWeb) {
-      final printItems = items.asMap().entries.map((e) => ReceiptPrintItem(
-        index: e.key + 1,
-        name: e.value.product.name,
-        qty: e.value.qty,
-        unitPrice: e.value.product.price,
-        lineTotal: e.value.product.price * e.value.qty,
-      )).toList();
-      final html = ThermalHtmlGenerator.buildKitchenTicketHtml(
-        items: printItems,
-        tableNumber: table != null ? '${table.number}' : null,
-        hallName: hallName,
-        note: note,
-        is58mm: is58mm,
-      );
-
-      final ticketId = 'kt_${table?.number ?? 0}_${DateTime.now().millisecondsSinceEpoch}';
-
-      // Masofaviy / Kassa printeri (Cloud Station Print) tekshiruvi:
-      if (!appState.isPrinterStation) {
-        final result = await CloudPrintService().dispatchPrintJob(
-          id: ticketId,
-          type: 'kitchen_ticket',
-          html: html,
-          tableNumber: table != null ? '${table.number}' : null,
-          hallName: hallName,
-        );
-
-        if (result.routedToStation) {
-          appMessengerKey.currentState?.showSnackBar(
-            const SnackBar(
-              content: Text("Chek kassa printeriga yuborildi va chop etilmoqda"),
-              backgroundColor: Color(0xFF10B981),
-              duration: Duration(seconds: 2),
-            ),
-          );
-          return;
-        } else {
-          appMessengerKey.currentState?.showSnackBar(
-            const SnackBar(
-              content: Text("Printer qurilmasi ulanmagan, chek ekranda ko'rsatildi"),
-              backgroundColor: Color(0xFFF59E0B),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-
       final ok = await WebReceiptPrinter.printHtml(html);
       if (!ok) {
         throw Exception('Oshpaz chekini chop etishda xatolik');
       }
       return;
     }
+
+    const roll58 = PdfPageFormat(58 * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm);
+    final rollFormat = is58mm ? roll58 : PdfPageFormat.roll80;
+    final doc = pw.Document();
+    doc.addPage(
+      pw.Page(
+        pageFormat: rollFormat,
+        margin: const pw.EdgeInsets.all(10),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Center(
+                child: pw.Text(
+                  'OSHPAZ CHEKI',
+                  style: const pw.TextStyle(
+                    fontSize: 16,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Divider(),
+              if (table != null)
+                pw.Text(
+                  '${hallName ?? ''} - Stol ${table.number}',
+                  style: const pw.TextStyle(
+                    fontSize: 13,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              pw.Text(
+                DateTime.now().toString().substring(0, 16),
+                style: const pw.TextStyle(fontSize: 9),
+              ),
+              pw.Divider(),
+              ...items.map(
+                (item) => pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                  child: pw.Row(
+                    children: [
+                      pw.Expanded(
+                        flex: 3,
+                        child: pw.Text(
+                          item.product.name,
+                          style: const pw.TextStyle(
+                            fontSize: 11,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      pw.Expanded(
+                        flex: 1,
+                        child: pw.Text(
+                          '${item.qty} ta',
+                          textAlign: pw.TextAlign.center,
+                          style: const pw.TextStyle(
+                            fontSize: 11,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (note.trim().isNotEmpty) ...[
+                pw.Divider(),
+                pw.Text(
+                  'Izoh: $note',
+                  style: const pw.TextStyle(fontSize: 9),
+                ),
+              ],
+            ],
+          );
+        },
+      ),
+    );
 
     await Printing.layoutPdf(
       onLayout: (format) async => doc.save(),
@@ -13569,6 +13802,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
         table: appState.selectedTable,
         hallName: appState.selectedHall?.name,
       );
+      // 1-TALAB: Agar oldin "Xarid cheki" chiqarilgan bo'lsa, "To'landi" da qayta chiqmasligi uchun belgilaymiz
+      appState.markReceiptPrintedForOrder(appState.selectedTable?.id, appState.selectedTable?.number);
       // 4-TALAB: Ofitsiant paneliga real vaqtda yuborish
       unawaited(_sendReceiptToBackend(type: 'bill_preview'));
     } catch (e) {
@@ -13764,9 +13999,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   void _backToTableSelection() {
     appState.leaveOrderSession();
     if (!mounted) return;
-    if (kIsWeb) {
-      WebReceiptPrinter.setHash('#dashboard');
-    }
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).popUntil((route) => route.isFirst);
     } else {
@@ -13857,12 +14089,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       _isPaid = true;
 
-      // 2. AVTOMATIK CHEK CHIQARISH: fon rejimida asinxron ishlaydi (UI to'xtab qolmaydi)
-      try {
-        unawaited(printReceipt(receipt, isAutoCheckout: true));
-      } catch (e) {
-        debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+      // 2. AVTOMATIK CHEK CHIQARISH: Agar yoqilgan bo'lsa va oldin "Xarid cheki" chiqarilmagan bo'lsa
+      final orderAlreadyPrinted = appState.isReceiptPrintedForOrder(selTable?.id, selTable?.number);
+      if (appState.autoPrintOnPaid && !orderAlreadyPrinted) {
+        try {
+          unawaited(printReceipt(receipt, isAutoCheckout: true));
+        } catch (e) {
+          debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+        }
       }
+      appState.clearReceiptPrintedForOrder(selTable?.id, selTable?.number);
 
       if (hallBeforeCheckout != null) {
         appState.selectedHall = hallBeforeCheckout;
@@ -13878,17 +14114,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       // 3. TO'G'RI VA ANIQ 1 MARTA NAVIGATSIYA
       // Mavjud Dashboard ga silliq qaytish — bu dublikat sidebar va qotishlarni 100% yo'qotadi
-      if (kIsWeb) {
-        WebReceiptPrinter.setHash('#dashboard');
-      }
       if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: 'dashboard'),
-            builder: (_) => const DashboardScreen(),
-          ),
-          (route) => false,
-        );
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              settings: const RouteSettings(name: 'dashboard'),
+              builder: (_) => const DashboardScreen(),
+            ),
+          );
+        }
       }
     } catch (e) {
       debugPrint('To‘lovni amalga oshirishda xatolik: $e');
@@ -21150,6 +21386,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool savingPrinter = false;
   Hall? _selectedHallForTables;
 
+  // Ko'p ulanishli printer sozlamalari (Wi-Fi, USB, Bluetooth)
+  String printerConnectionType = 'wifi';
+  String? selectedUsbPrinter;
+  String? selectedBtPrinter;
+  List<DiscoveredPrinter> discoveredUsbPrinters = [];
+  List<DiscoveredPrinter> discoveredBtPrinters = [];
+  bool scanningPrinters = false;
+  bool autoPrintOnPaid = true;
+  String? cashierStatusMessage;
+  bool cashierStatusOk = false;
+
+  // Oshxona printeri (alohida oshpaz cheki uchun)
+  bool kitchenPrinterEnabled = false;
+  String kitchenPrinterConnectionType = 'wifi';
+  late TextEditingController kitchenPrinterIpCtrl;
+  late TextEditingController kitchenPrinterPortCtrl;
+  String? selectedKitchenUsbPrinter;
+  String? selectedKitchenBtPrinter;
+  bool testingKitchenPrinter = false;
+  String? kitchenStatusMessage;
+  bool kitchenStatusOk = false;
+  bool printingTestReceipt = false;
+
   @override
   void initState() {
     super.initState();
@@ -21181,6 +21440,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     printerFontSize = appState.printerFontSize;
     receiptBoldHeader = appState.receiptBoldHeader;
     receiptHeaderAlign = appState.receiptHeaderAlign;
+
+    printerConnectionType = appState.printerConnectionType;
+    selectedUsbPrinter = appState.printerUsbName;
+    selectedBtPrinter = appState.printerBtName;
+    autoPrintOnPaid = appState.autoPrintOnPaid;
+    cashierStatusOk = appState.isPrinterVerified;
+    if (appState.isPrinterVerified) {
+      cashierStatusMessage = 'Ulangan ${appState.printerVerifiedInfo != null ? "(${appState.printerVerifiedInfo})" : ""}';
+    }
+
+    kitchenPrinterEnabled = appState.kitchenPrinterEnabled;
+    kitchenPrinterConnectionType = appState.kitchenPrinterConnectionType;
+    kitchenPrinterIpCtrl = TextEditingController(text: appState.kitchenPrinterIp);
+    kitchenPrinterPortCtrl = TextEditingController(text: appState.kitchenPrinterPort.toString());
+    selectedKitchenUsbPrinter = appState.kitchenPrinterUsbName;
+    selectedKitchenBtPrinter = appState.kitchenPrinterBtName;
+    kitchenStatusOk = appState.isKitchenPrinterVerified;
+    if (appState.isKitchenPrinterVerified) {
+      kitchenStatusMessage = 'Ulangan ${appState.kitchenPrinterVerifiedInfo != null ? "(${appState.kitchenPrinterVerifiedInfo})" : ""}';
+    }
   }
 
   @override
@@ -21191,6 +21470,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     footerCtrl.dispose();
     printerIpCtrl.dispose();
     printerPortCtrl.dispose();
+    kitchenPrinterIpCtrl.dispose();
+    kitchenPrinterPortCtrl.dispose();
     super.dispose();
   }
 
@@ -21477,90 +21758,215 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // IP orqali chiqadi.
   int? get _parsedPort => int.tryParse(printerPortCtrl.text.trim());
 
-  Future<void> _savePrinterSettings({bool silent = false}) async {
-    final ip = printerIpCtrl.text.trim();
-    final port = _parsedPort;
-    if (ip.isEmpty) {
-      appState.updatePrinterSettings(
-        ip: '',
-        port: appState.printerPort,
-        charsPerLine: printerCharsPerLine,
-        fontSize: printerFontSize,
-      );
-      if (!silent && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Printer ulanishi o\'chirildi')),
-        );
-      }
-      setState(() {});
-      return;
-    }
-    if (port == null || port <= 0 || port > 65535) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Port noto\'g\'ri. Masalan: 9100'),
-          ),
-        );
-      }
-      return;
-    }
-    appState.updatePrinterSettings(
-      ip: ip,
-      port: port,
-      charsPerLine: printerCharsPerLine,
-      fontSize: printerFontSize,
-    );
-    appState.updateReceiptLayoutSettings(
-      boldHeader: receiptBoldHeader,
-      headerAlign: receiptHeaderAlign,
-    );
-    if (!silent && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Printer sozlamalari saqlandi ($ip:$port)')),
-      );
-    }
-    setState(() {});
-  }
-
-  Future<void> _testPrinterConnection() async {
-    final ip = printerIpCtrl.text.trim();
-    final port = _parsedPort;
-    if (ip.isEmpty || port == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Avval printerning IP-manzili va portini kiriting'),
-        ),
-      );
-      return;
-    }
-    setState(() => testingPrinter = true);
+  Future<void> _scanPrinters() async {
+    setState(() => scanningPrinters = true);
     try {
-      await NetworkPrinterService.testConnection(
-        ip: ip,
-        port: port,
-        charsPerLine: printerCharsPerLine,
-      );
-      // Ulanish muvaffaqiyatli bo'lsa — sozlamalarni ham saqlab qo'yamiz.
-      await _savePrinterSettings(silent: true);
+      final res = await PrintAgentService().discoverPrinters();
+      setState(() {
+        discoveredUsbPrinters = res['usb'] ?? [];
+        discoveredBtPrinters = res['bluetooth'] ?? [];
+        if (selectedUsbPrinter == null && discoveredUsbPrinters.isNotEmpty) {
+          selectedUsbPrinter = discoveredUsbPrinters.first.id;
+        }
+        if (selectedBtPrinter == null && discoveredBtPrinters.isNotEmpty) {
+          selectedBtPrinter = discoveredBtPrinters.first.id;
+        }
+        if (selectedKitchenUsbPrinter == null && discoveredUsbPrinters.isNotEmpty) {
+          selectedKitchenUsbPrinter = discoveredUsbPrinters.first.id;
+        }
+        if (selectedKitchenBtPrinter == null && discoveredBtPrinters.isNotEmpty) {
+          selectedKitchenBtPrinter = discoveredBtPrinters.first.id;
+        }
+      });
       if (mounted) {
+        final total = discoveredUsbPrinters.length + discoveredBtPrinters.length;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Ulanish muvaffaqiyatli! Printerdan test cheki chiqishi kerak.',
-            ),
+          SnackBar(
+            content: Text(total > 0
+                ? '$total ta qurilma topildi (USB: ${discoveredUsbPrinters.length}, Bluetooth: ${discoveredBtPrinters.length})'
+                : 'Ulangan USB/Bluetooth printer topilmadi. Kompyuterda print-agent ishlab turganligini tekshiring.'),
+            backgroundColor: total > 0 ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e')),
+          SnackBar(content: Text('Qidirishda xatolik: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) setState(() => testingPrinter = false);
+      if (mounted) setState(() => scanningPrinters = false);
     }
+  }
+
+  Future<void> _testPrinterConnection({bool isKitchen = false}) async {
+    final type = isKitchen ? kitchenPrinterConnectionType : printerConnectionType;
+    final ip = isKitchen ? kitchenPrinterIpCtrl.text.trim() : printerIpCtrl.text.trim();
+    final port = isKitchen
+        ? (int.tryParse(kitchenPrinterPortCtrl.text.trim()) ?? 9100)
+        : (_parsedPort ?? 9100);
+    final deviceId = isKitchen
+        ? (kitchenPrinterConnectionType == 'usb' ? selectedKitchenUsbPrinter : selectedKitchenBtPrinter)
+        : (printerConnectionType == 'usb' ? selectedUsbPrinter : selectedBtPrinter);
+
+    if (type == 'wifi' && ip.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Printer IP-manzilini kiriting')),
+      );
+      return;
+    }
+
+    if (isKitchen) {
+      setState(() => testingKitchenPrinter = true);
+    } else {
+      setState(() => testingPrinter = true);
+    }
+
+    try {
+      final result = await PrintAgentService().testConnection(
+        type: type,
+        ip: ip,
+        port: port,
+        deviceId: deviceId,
+      );
+
+      setState(() {
+        if (isKitchen) {
+          kitchenStatusOk = result.ok;
+          kitchenStatusMessage = result.ok
+              ? 'Ulangan (${result.latencyMs}ms)'
+              : (result.error ?? 'Ulanmadi');
+          appState.isKitchenPrinterVerified = result.ok;
+          appState.kitchenPrinterVerifiedInfo = result.ok ? '${result.latencyMs}ms' : null;
+        } else {
+          cashierStatusOk = result.ok;
+          cashierStatusMessage = result.ok
+              ? 'Ulangan (${result.latencyMs}ms)'
+              : (result.error ?? 'Ulanmadi');
+          appState.isPrinterVerified = result.ok;
+          appState.printerVerifiedInfo = result.ok ? '${result.latencyMs}ms' : null;
+          if (result.ok) {
+            appState.connectedPrinterName = type == 'wifi'
+                ? '$ip:$port'
+                : (deviceId ?? type.toUpperCase());
+          }
+        }
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.ok
+                ? '${isKitchen ? "Oshxona" : "Kassa"} printeriga ulanish muvaffaqiyatli! (${result.latencyMs}ms)'
+                : 'Ulanishda xatolik: ${result.error ?? "Printer javob bermadi"}'),
+            backgroundColor: result.ok ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        if (isKitchen) {
+          kitchenStatusOk = false;
+          kitchenStatusMessage = 'Xatolik: $e';
+        } else {
+          cashierStatusOk = false;
+          cashierStatusMessage = 'Xatolik: $e';
+        }
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (isKitchen) {
+            testingKitchenPrinter = false;
+          } else {
+            testingPrinter = false;
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _printTestReceipt({bool isKitchen = false}) async {
+    setState(() => printingTestReceipt = true);
+    try {
+      final type = isKitchen ? kitchenPrinterConnectionType : printerConnectionType;
+      final ip = isKitchen ? kitchenPrinterIpCtrl.text.trim() : printerIpCtrl.text.trim();
+      final port = isKitchen
+          ? (int.tryParse(kitchenPrinterPortCtrl.text.trim()) ?? 9100)
+          : (_parsedPort ?? 9100);
+      final deviceId = isKitchen
+          ? (kitchenPrinterConnectionType == 'usb' ? selectedKitchenUsbPrinter : selectedKitchenBtPrinter)
+          : (printerConnectionType == 'usb' ? selectedUsbPrinter : selectedBtPrinter);
+
+      final ok = await PrintAgentService().printJob(
+        jobId: 'test_${DateTime.now().millisecondsSinceEpoch}',
+        type: 'test',
+        printerConfig: {
+          'type': type,
+          'ip': ip,
+          'port': port,
+          'deviceId': deviceId,
+          'paperWidth': printerCharsPerLine == 32 ? 58 : 80,
+        },
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ok
+                ? 'Test cheki printerdan muvaffaqiyatli chop etildi!'
+                : 'Test chek chiqarib bo‘lmadi. Printer ulanishini tekshiring.'),
+            backgroundColor: ok ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Xatolik: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => printingTestReceipt = false);
+    }
+  }
+
+  Future<void> _savePrinterSettings({bool silent = false}) async {
+    setState(() => savingPrinter = true);
+    final ip = printerIpCtrl.text.trim();
+    final port = _parsedPort ?? 9100;
+
+    appState.printerConnectionType = printerConnectionType;
+    appState.printerIp = ip;
+    appState.printerPort = port;
+    appState.printerUsbName = selectedUsbPrinter;
+    appState.printerBtName = selectedBtPrinter;
+    appState.printerCharsPerLine = printerCharsPerLine;
+    appState.paperWidthMm = printerCharsPerLine == 32 ? 58 : 80;
+    appState.printerFontSize = printerFontSize;
+    appState.autoPrintOnPaid = autoPrintOnPaid;
+    appState.receiptBoldHeader = receiptBoldHeader;
+    appState.receiptHeaderAlign = receiptHeaderAlign;
+
+    appState.kitchenPrinterEnabled = kitchenPrinterEnabled;
+    appState.kitchenPrinterConnectionType = kitchenPrinterConnectionType;
+    appState.kitchenPrinterIp = kitchenPrinterIpCtrl.text.trim();
+    appState.kitchenPrinterPort = int.tryParse(kitchenPrinterPortCtrl.text.trim()) ?? 9100;
+    appState.kitchenPrinterUsbName = selectedKitchenUsbPrinter;
+    appState.kitchenPrinterBtName = selectedKitchenBtPrinter;
+
+    await appState.savePrinterSettingsToCloud();
+
+    if (!silent && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Barcha printer sozlamalari saqlandi va bulutga yuklandi!"),
+          backgroundColor: Color(0xFF10B981),
+        ),
+      );
+    }
+    if (mounted) setState(() => savingPrinter = false);
   }
 
   void _showEditUserDialog(BuildContext context, AppUser user) {
@@ -22735,7 +23141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 24),
                 ],
                 const Text(
-                  'Printer (tarmoq / Wi-Fi, IP-manzil orqali)',
+                  'Printer Sozlamalari (Wi-Fi, USB, Bluetooth)',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -22749,44 +23155,194 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             Icon(
                               Icons.print,
-                              color: appState.printerConfigured
-                                  ? Colors.green
-                                  : Colors.grey,
+                              color: cashierStatusOk ? const Color(0xFF10B981) : Colors.grey,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                appState.printerConfigured
-                                    ? 'Ulangan: ${appState.connectedPrinterName ?? appState.printerIp}:${appState.printerPort}'
-                                    : 'Printer hali ulanmagan',
-                                style: const TextStyle(
+                                cashierStatusOk
+                                    ? (cashierStatusMessage ?? 'Ulangan')
+                                    : (cashierStatusMessage ?? 'Printer hali ulanmagan'),
+                                style: TextStyle(
                                   fontWeight: FontWeight.w600,
+                                  color: cashierStatusOk ? const Color(0xFF047857) : Colors.black87,
                                 ),
                               ),
                             ),
+                            if (cashierStatusOk)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFD1FAE5),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'Aktiv',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF065F46),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: printerIpCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Printer IP-manzili',
-                            hintText: 'masalan: 192.168.1.50',
-                            prefixIcon: Icon(Icons.wifi),
-                          ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Ulanish turi',
+                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                         ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: printerPortCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Port',
-                            hintText: '9100 (standart)',
-                            prefixIcon: Icon(Icons.numbers),
-                          ),
+                        const SizedBox(height: 8),
+                        SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(
+                              value: 'wifi',
+                              label: Text('Wi-Fi / LAN'),
+                              icon: Icon(Icons.wifi, size: 18),
+                            ),
+                            ButtonSegment(
+                              value: 'usb',
+                              label: Text('USB'),
+                              icon: Icon(Icons.usb, size: 18),
+                            ),
+                            ButtonSegment(
+                              value: 'bluetooth',
+                              label: Text('Bluetooth'),
+                              icon: Icon(Icons.bluetooth, size: 18),
+                            ),
+                          ],
+                          selected: {printerConnectionType},
+                          onSelectionChanged: (s) => setState(() {
+                            printerConnectionType = s.first;
+                            cashierStatusOk = false;
+                            cashierStatusMessage = null;
+                          }),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
+                        if (printerConnectionType == 'wifi') ...[
+                          TextField(
+                            controller: printerIpCtrl,
+                            keyboardType: TextInputType.number,
+                            onChanged: (_) => setState(() {}),
+                            decoration: const InputDecoration(
+                              labelText: 'Printer IP-manzili',
+                              hintText: 'masalan: 192.168.1.100',
+                              prefixIcon: Icon(Icons.wifi),
+                            ),
+                          ),
+                          if (printerIpCtrl.text.trim().startsWith('192.18.')) ...[
+                            Container(
+                              margin: const EdgeInsets.only(top: 8),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.amber.shade400),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Diqqat: "${printerIpCtrl.text.trim()}" kiritildi. Odatda kafe lokal Wi-Fi manzillari 192.168.x.x bo‘ladi (192.18 emas). 192.168.x.x bo‘lishi kerakmi?',
+                                      style: const TextStyle(fontSize: 12, color: Color(0xFF92400E), fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: printerPortCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Port',
+                              hintText: '9100 (standart)',
+                              prefixIcon: Icon(Icons.numbers),
+                            ),
+                          ),
+                        ] else if (printerConnectionType == 'usb') ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: discoveredUsbPrinters.isNotEmpty
+                                    ? DropdownButtonFormField<String>(
+                                        initialValue: selectedUsbPrinter ?? (discoveredUsbPrinters.isNotEmpty ? discoveredUsbPrinters.first.id : null),
+                                        decoration: const InputDecoration(
+                                          labelText: 'USB Printer tanlang',
+                                          prefixIcon: Icon(Icons.usb),
+                                        ),
+                                        items: discoveredUsbPrinters.map((p) {
+                                          return DropdownMenuItem<String>(
+                                            value: p.id,
+                                            child: Text('${p.name} (${p.id})'),
+                                          );
+                                        }).toList(),
+                                        onChanged: (val) => setState(() => selectedUsbPrinter = val),
+                                      )
+                                    : TextFormField(
+                                        initialValue: selectedUsbPrinter ?? '',
+                                        decoration: const InputDecoration(
+                                          labelText: 'USB Printer nomi / ID',
+                                          hintText: 'masalan: XP-80C yoki POS80',
+                                          prefixIcon: Icon(Icons.usb),
+                                        ),
+                                        onChanged: (val) => selectedUsbPrinter = val.trim(),
+                                      ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton.filledTonal(
+                                tooltip: 'USB qurilmalarni qidirish',
+                                icon: scanningPrinters
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.refresh),
+                                onPressed: scanningPrinters ? null : _scanPrinters,
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: discoveredBtPrinters.isNotEmpty
+                                    ? DropdownButtonFormField<String>(
+                                        initialValue: selectedBtPrinter ?? (discoveredBtPrinters.isNotEmpty ? discoveredBtPrinters.first.id : null),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Bluetooth Printer tanlang',
+                                          prefixIcon: Icon(Icons.bluetooth),
+                                        ),
+                                        items: discoveredBtPrinters.map((p) {
+                                          return DropdownMenuItem<String>(
+                                            value: p.id,
+                                            child: Text('${p.name} (${p.id})'),
+                                          );
+                                        }).toList(),
+                                        onChanged: (val) => setState(() => selectedBtPrinter = val),
+                                      )
+                                    : TextFormField(
+                                        initialValue: selectedBtPrinter ?? '',
+                                        decoration: const InputDecoration(
+                                          labelText: 'Bluetooth Printer (Port/ID)',
+                                          hintText: 'masalan: COM3 yoki BT-Printer',
+                                          prefixIcon: Icon(Icons.bluetooth),
+                                        ),
+                                        onChanged: (val) => selectedBtPrinter = val.trim(),
+                                      ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton.filledTonal(
+                                tooltip: 'Bluetooth qurilmalarni qidirish',
+                                icon: scanningPrinters
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.refresh),
+                                onPressed: scanningPrinters ? null : _scanPrinters,
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 14),
                         DropdownButtonFormField<int>(
                           initialValue: printerCharsPerLine,
                           decoration: const InputDecoration(
@@ -22809,18 +23365,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }
                           },
                         ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('To\'landi bosilganda chekni avtomatik chiqarish'),
+                          subtitle: const Text(
+                            'Yoqilgan bo\'lsa, to\'lov yakunlangach chek avtomatik chiqariladi (agar oldin "Xarid cheki" olinmagan bo\'lsa)',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          value: autoPrintOnPaid,
+                          onChanged: (v) => setState(() => autoPrintOnPaid = v),
+                        ),
                         const SizedBox(height: 4),
                         const Text(
                           'Chekdagi yozuvlar o\'lchami',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Kichik yozuvlar ko\'proq joyga sig\'adi, Katta '
-                          'yozuvlar esa uzoqdan o\'qish uchun qulayroq.',
-                          style: TextStyle(fontSize: 11),
-                        ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
                         SegmentedButton<PrinterFontSize>(
                           segments: const [
                             ButtonSegment(
@@ -22843,12 +23404,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onSelectionChanged: (s) =>
                               setState(() => printerFontSize = s.first),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 14),
                         const Text(
                           'Sarlavha joylashuvi',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
                         SegmentedButton<ReceiptHeaderAlign>(
                           segments: const [
                             ButtonSegment(
@@ -22882,45 +23443,186 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged: (v) =>
                               setState(() => receiptBoldHeader = v),
                         ),
-                        const SizedBox(height: 8),
-                        Row(
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
                           children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: testingPrinter
-                                    ? null
-                                    : _testPrinterConnection,
-                                icon: testingPrinter
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.wifi_tethering),
-                                label: const Text('Ulanishni tekshirish'),
-                              ),
+                            OutlinedButton.icon(
+                              onPressed: testingPrinter ? null : () => _testPrinterConnection(),
+                              icon: testingPrinter
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.network_check_rounded),
+                              label: const Text('Ulanishni tekshirish'),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _savePrinterSettings(),
-                                icon: const Icon(Icons.save),
-                                label: const Text('Saqlash'),
-                              ),
+                            OutlinedButton.icon(
+                              onPressed: printingTestReceipt ? null : () => _printTestReceipt(),
+                              icon: printingTestReceipt
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.print),
+                              label: const Text('Test chek chiqarish'),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: savingPrinter ? null : () => _savePrinterSettings(),
+                              icon: savingPrinter
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.save),
+                              label: const Text('Saqlash'),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 8),
                         const Text(
-                          'Printer va bu qurilma bir xil Wi-Fi tarmog\'ida '
-                          'bo\'lishi kerak. IP-manzilni printerning o\'zidan '
-                          '("tarmoq sozlamalari" chekini chiqarish orqali) '
-                          'yoki routerdagi ulangan qurilmalar ro\'yxatidan '
-                          'topishingiz mumkin.',
+                          'Eslatma: Wi-Fi printerda router orqali berilgan IP (masalan 192.168.1.x) va port (9100) kiritiladi. Mahalliy printerlar uchun kompyuterda print-agent dasturi ishlab turishi tavsiya etiladi.',
                           style: TextStyle(fontSize: 11, color: Colors.grey),
                         ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text(
+                            'Alohida Oshxona Printeri (Oshpaz cheki)',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: const Text(
+                            'Oshpaz cheklarini alohida oshxona printeriga avtomatik yuborish',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          value: kitchenPrinterEnabled,
+                          onChanged: (val) => setState(() => kitchenPrinterEnabled = val),
+                        ),
+                        if (kitchenPrinterEnabled) ...[
+                          const Divider(),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.soup_kitchen_rounded,
+                                color: kitchenStatusOk ? const Color(0xFF10B981) : Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  kitchenStatusOk
+                                      ? (kitchenStatusMessage ?? 'Ulangan')
+                                      : (kitchenStatusMessage ?? 'Oshxona printeri ulanmagan'),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: kitchenStatusOk ? const Color(0xFF047857) : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(
+                                value: 'wifi',
+                                label: Text('Wi-Fi / LAN'),
+                                icon: Icon(Icons.wifi, size: 18),
+                              ),
+                              ButtonSegment(
+                                value: 'usb',
+                                label: Text('USB'),
+                                icon: Icon(Icons.usb, size: 18),
+                              ),
+                              ButtonSegment(
+                                value: 'bluetooth',
+                                label: Text('Bluetooth'),
+                                icon: Icon(Icons.bluetooth, size: 18),
+                              ),
+                            ],
+                            selected: {kitchenPrinterConnectionType},
+                            onSelectionChanged: (s) => setState(() {
+                              kitchenPrinterConnectionType = s.first;
+                              kitchenStatusOk = false;
+                              kitchenStatusMessage = null;
+                            }),
+                          ),
+                          const SizedBox(height: 12),
+                          if (kitchenPrinterConnectionType == 'wifi') ...[
+                            TextField(
+                              controller: kitchenPrinterIpCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Oshxona Printer IP',
+                                hintText: 'masalan: 192.168.1.101',
+                                prefixIcon: Icon(Icons.wifi),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: kitchenPrinterPortCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Port',
+                                hintText: '9100',
+                                prefixIcon: Icon(Icons.numbers),
+                              ),
+                            ),
+                          ] else if (kitchenPrinterConnectionType == 'usb') ...[
+                            TextFormField(
+                              initialValue: selectedKitchenUsbPrinter ?? '',
+                              decoration: const InputDecoration(
+                                labelText: 'Oshxona USB Printeri',
+                                hintText: 'masalan: Kitchen-Printer',
+                                prefixIcon: Icon(Icons.usb),
+                              ),
+                              onChanged: (val) => selectedKitchenUsbPrinter = val.trim(),
+                            ),
+                          ] else ...[
+                            TextFormField(
+                              initialValue: selectedKitchenBtPrinter ?? '',
+                              decoration: const InputDecoration(
+                                labelText: 'Oshxona Bluetooth Printeri',
+                                hintText: 'masalan: COM4 yoki BT-Kitchen',
+                                prefixIcon: Icon(Icons.bluetooth),
+                              ),
+                              onChanged: (val) => selectedKitchenBtPrinter = val.trim(),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: testingKitchenPrinter ? null : () => _testPrinterConnection(isKitchen: true),
+                                icon: testingKitchenPrinter
+                                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.network_check_rounded),
+                                label: const Text('Oshxona ulanishini tekshirish'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: printingTestReceipt ? null : () => _printTestReceipt(isKitchen: true),
+                                icon: const Icon(Icons.receipt),
+                                label: const Text('Test oshpaz cheki'),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),

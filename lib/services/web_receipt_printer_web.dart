@@ -8,8 +8,12 @@ external JSPromise<JSBoolean>? _jsZaveroPrintReceiptHtml(JSString htmlContent);
 @JS('zaveroShowReceiptModal')
 external void _jsZaveroShowReceiptModal(JSString htmlContent);
 
+@JS('zaveroRenderHtmlToPng')
+external JSPromise<JSString>? _jsZaveroRenderHtmlToPng(JSString htmlContent, JSNumber widthPx);
+
 @JS('eval')
 external JSAny? _jsEval(JSString script);
+
 
 /// Web muhitida chek HTML kodini yashirin <iframe> ga yozib,
 /// window.open(blob:...) ishlatmasdan to'g'ridan-to'g'ri chop etadi.
@@ -56,6 +60,30 @@ void setBrowserHash(String hash) {
     _jsEval("window.location.hash = '$hash';".toJS);
   } catch (_) {}
 }
+
+/// Web muhitida mavjud chek HTML'ini 1:1 original formatda PNG rasmga (base64) aylantirish
+Future<String?> renderHtmlToPng(String htmlContent, {int widthPx = 576}) async {
+  try {
+    try {
+      final promise = _jsZaveroRenderHtmlToPng(htmlContent.toJS, widthPx.toJS);
+      if (promise != null) {
+        final res = await promise.toDart;
+        return res.toDart;
+      }
+    } catch (_) {
+      _ensureJsPrinterFunction();
+      final retryPromise = _jsZaveroRenderHtmlToPng(htmlContent.toJS, widthPx.toJS);
+      if (retryPromise != null) {
+        final res = await retryPromise.toDart;
+        return res.toDart;
+      }
+    }
+  } catch (e) {
+    debugPrint('⚠️ [WebPrint] renderHtmlToPng error: $e');
+  }
+  return null;
+}
+
 
 void _ensureJsPrinterFunction() {
   try {
@@ -312,7 +340,80 @@ void _ensureJsPrinterFunction() {
           document.body.appendChild(backdrop);
         };
       }
+
+      if (!window.zaveroRenderHtmlToPng) {
+        window.zaveroRenderHtmlToPng = function(htmlContent, widthPx) {
+          return new Promise(function(resolve) {
+            try {
+              var targetWidth = widthPx || 576;
+              var container = document.createElement('div');
+              container.id = 'zavero-render-container';
+              container.style.position = 'fixed';
+              container.style.left = '-9999px';
+              container.style.top = '0';
+              container.style.width = targetWidth + 'px';
+              container.style.backgroundColor = '#ffffff';
+              container.style.overflow = 'hidden';
+              container.style.zIndex = '-9999';
+              container.innerHTML = htmlContent;
+              document.body.appendChild(container);
+
+              var finishRender = function() {
+                try {
+                  if (window.html2canvas) {
+                    window.html2canvas(container, {
+                      scale: 1,
+                      width: targetWidth,
+                      backgroundColor: '#ffffff',
+                      useCORS: true,
+                      logging: false
+                    }).then(function(canvas) {
+                      var dataUrl = canvas.toDataURL('image/png');
+                      if (container.parentNode) container.parentNode.removeChild(container);
+                      resolve(dataUrl);
+                    }).catch(function() {
+                      if (container.parentNode) container.parentNode.removeChild(container);
+                      resolve(null);
+                    });
+                  } else {
+                    if (container.parentNode) container.parentNode.removeChild(container);
+                    resolve(null);
+                  }
+                } catch(e) {
+                  if (container.parentNode) container.parentNode.removeChild(container);
+                  resolve(null);
+                }
+              };
+
+              var imgs = container.getElementsByTagName('img');
+              if (imgs.length === 0) {
+                setTimeout(finishRender, 60);
+              } else {
+                var loaded = 0;
+                var total = imgs.length;
+                var onDone = function() {
+                  loaded++;
+                  if (loaded >= total) finishRender();
+                };
+                for (var i = 0; i < total; i++) {
+                  if (imgs[i].complete) {
+                    loaded++;
+                  } else {
+                    imgs[i].onload = onDone;
+                    imgs[i].onerror = onDone;
+                  }
+                }
+                if (loaded >= total) finishRender();
+                else setTimeout(finishRender, 800);
+              }
+            } catch(e) {
+              resolve(null);
+            }
+          });
+        };
+      }
     '''.toJS);
+
   } catch (e) {
     debugPrint('⚠️ [WebPrint] _ensureJsPrinterFunction error: $e');
   }

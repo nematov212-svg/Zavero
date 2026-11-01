@@ -19,4 +19,14 @@ class WebReceiptPrinter {
   static void setHash(String hash) {
     setBrowserHash(hash);
   }
+
+  /// Mavjud chek HTML'ini 1:1 formatda PNG rasmga (base64) render qilish
+  static Future<String?> renderToPng(String htmlContent, {int widthPx = 576}) async {
+    return renderHtmlToPng(htmlContent, widthPx: widthPx);
+  }
+
+  static Future<String?> renderHtmlToPng(String htmlContent, {int widthPx = 576}) async {
+    return renderToPng(htmlContent, widthPx: widthPx);
+  }
 }
+

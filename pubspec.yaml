@@ -28,6 +28,7 @@ dependencies:
   url_launcher: ^6.3.0
   qr_flutter: ^4.1.0
   audioplayers: ^6.8.1
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

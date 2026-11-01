@@ -41,7 +41,11 @@ if (process.env.RENDER) {
   });
 }
 
+
+
+
 app.use(
+
   helmet({
     crossOriginResourcePolicy: false,
     contentSecurityPolicy: false,
@@ -54,7 +58,9 @@ app.use(
     referrerPolicy: { policy: 'no-referrer' },
     xssFilter: true,
   })
+
 );
+
 
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
@@ -77,6 +83,8 @@ app.post(['/api/bot/webhook', '/api/v1/telegram/webhook'], (req, res) => {
     return res.status(403).json({ success: false, message: 'Forbidden: Invalid secret token' });
   }
 
+
+
   const bot = getBotInstance();
   if (bot && req.body) {
     bot.handleUpdate(req.body).catch((e) => {
@@ -98,7 +106,13 @@ app.use(
   })
 );
 
+
+
 // Serve static Flutter POS Web Application (Telegram Mini App, Web, Desktop)
+
+
+
+
 app.use(
   express.static(path.join(__dirname, 'public'), {
     maxAge: '7d',

@@ -1,0 +1,24 @@
+{
+  "name": "zavero-print-agent",
+  "version": "1.0.0",
+  "description": "Zavero POS - Local Print Bridge Service for Thermal Receipt Printers (Wi-Fi, USB, Bluetooth)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pngjs": "^7.0.0"
+  },
+  "keywords": [
+    "zavero",
+    "pos",
+    "thermal-printer",
+    "escpos",
+    "print-agent"
+  ],
+  "author": "Zavero Team",
+  "license": "ISC"
+}
