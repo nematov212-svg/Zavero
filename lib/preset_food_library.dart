@@ -2782,15 +2782,19 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                             ],
                           ),
                         )
-                      : GridView.builder(
-                          itemCount: displayedItems.length,
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                            childAspectRatio: 1.15,
-                          ),
-                          itemBuilder: (context, idx) {
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                            final count = (constraints.maxWidth / 120).floor().clamp(1, 4);
+                            return GridView.builder(
+                              itemCount: displayedItems.length,
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: count,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
+                                childAspectRatio: 1.15,
+                              ),
+                              itemBuilder: (context, idx) {
                             final item = displayedItems[idx];
                             final isSelected = _selectedImageUrl == item.url;
 
@@ -2940,7 +2944,9 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                               ),
                             );
                           },
-                        ),
+                        );
+                      },
+                    ),
                 ),
               ),
               const SizedBox(height: 14),

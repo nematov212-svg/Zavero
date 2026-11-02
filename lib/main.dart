@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
@@ -1706,11 +1707,12 @@ class AppState extends ChangeNotifier {
     final rCard = (r.method == PaymentMethod.card)
         ? r.total.round()
         : (r.cardPaid.round());
-    if (liveTodayReport != null) {
-      final newRev = liveTodayReport!.totalRevenue + r.total.round();
-      final newOrders = liveTodayReport!.orderCount + 1;
-      final newCash = liveTodayReport!.cashTotal + rCash;
-      final newCard = liveTodayReport!.cardTotal + rCard;
+    final currentRep = liveTodayReport;
+    if (currentRep != null) {
+      final newRev = currentRep.totalRevenue + r.total.round();
+      final newOrders = currentRep.orderCount + 1;
+      final newCash = currentRep.cashTotal + rCash;
+      final newCard = currentRep.cardTotal + rCard;
       final newAvg = newOrders > 0 ? (newRev / newOrders).round() : 0;
       liveTodayReport = TodayReportSummary(
         totalRevenue: newRev,
@@ -1718,8 +1720,8 @@ class AppState extends ChangeNotifier {
         cashTotal: newCash,
         cardTotal: newCard,
         averageCheck: newAvg,
-        waiters: liveTodayReport!.waiters,
-        topProducts: liveTodayReport!.topProducts,
+        waiters: currentRep.waiters,
+        topProducts: currentRep.topProducts,
         updatedAt: DateTime.now(),
       );
     } else {
@@ -2664,11 +2666,12 @@ class AppState extends ChangeNotifier {
     final rCard = (r.method == PaymentMethod.card)
         ? r.total.round()
         : (r.cardPaid.round());
-    if (liveTodayReport != null) {
-      final newRev = liveTodayReport!.totalRevenue + r.total.round();
-      final newOrders = liveTodayReport!.orderCount + 1;
-      final newCash = liveTodayReport!.cashTotal + rCash;
-      final newCard = liveTodayReport!.cardTotal + rCard;
+    final currentRep = liveTodayReport;
+    if (currentRep != null) {
+      final newRev = currentRep.totalRevenue + r.total.round();
+      final newOrders = currentRep.orderCount + 1;
+      final newCash = currentRep.cashTotal + rCash;
+      final newCard = currentRep.cardTotal + rCard;
       final newAvg = newOrders > 0 ? (newRev / newOrders).round() : 0;
       liveTodayReport = TodayReportSummary(
         totalRevenue: newRev,
@@ -2676,8 +2679,8 @@ class AppState extends ChangeNotifier {
         cashTotal: newCash,
         cardTotal: newCard,
         averageCheck: newAvg,
-        waiters: liveTodayReport!.waiters,
-        topProducts: liveTodayReport!.topProducts,
+        waiters: currentRep.waiters,
+        topProducts: currentRep.topProducts,
         updatedAt: DateTime.now(),
       );
     } else {
@@ -3350,8 +3353,9 @@ class AppState extends ChangeNotifier {
 
   // ---------------- REPORT HELPERS ----------------
   double get todayRevenue {
-    if (effectiveTodayReport != null) {
-      return effectiveTodayReport!.totalRevenue.toDouble();
+    final rep = effectiveTodayReport;
+    if (rep != null) {
+      return rep.totalRevenue.toDouble();
     }
     final now = DateTime.now();
     return receipts
@@ -3365,8 +3369,9 @@ class AppState extends ChangeNotifier {
   }
 
   int get todayOrders {
-    if (effectiveTodayReport != null) {
-      return effectiveTodayReport!.orderCount;
+    final rep = effectiveTodayReport;
+    if (rep != null) {
+      return rep.orderCount;
     }
     final now = DateTime.now();
     return receipts
@@ -6288,18 +6293,23 @@ class _CustomerMenuScreenState extends State<CustomerMenuScreen> {
                           ],
                         ),
                       )
-                    : GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 200,
-                          childAspectRatio: 0.85,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                        ),
-                        itemCount: filtered.length,
-                        itemBuilder: (context, i) =>
-                            _CustomerProductCard(product: filtered[i]),
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                          return GridView.builder(
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
+                            gridDelegate:
+                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: 200,
+                              childAspectRatio: 0.85,
+                              crossAxisSpacing: 12,
+                              mainAxisSpacing: 12,
+                            ),
+                            itemCount: filtered.length,
+                            itemBuilder: (context, i) =>
+                                _CustomerProductCard(product: filtered[i]),
+                          );
+                        },
                       ),
               ),
             ],
@@ -9518,44 +9528,49 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                             ]));
                           }
 
-                          return GridView.builder(
-                            padding: EdgeInsets.fromLTRB(16, 8, 16, isMobile ? 32 : 24),
-                            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: isMobile ? 220 : 240,
-                              childAspectRatio: 0.92,
-                              crossAxisSpacing: 14,
-                              mainAxisSpacing: 14,
-                            ),
-                            itemCount: myTables.length,
-                            itemBuilder: (context, i) {
-                              final t = myTables[i];
-                              final free = t.status == TableStatus.free;
-                              final orderTotal = appState.tableOrderTotal(t);
+                          return LayoutBuilder(
+                            builder: (context, constraints) {
+                              if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                              return GridView.builder(
+                                padding: EdgeInsets.fromLTRB(16, 8, 16, isMobile ? 32 : 24),
+                                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                                  maxCrossAxisExtent: isMobile ? 220 : 240,
+                                  childAspectRatio: 0.92,
+                                  crossAxisSpacing: 14,
+                                  mainAxisSpacing: 14,
+                                ),
+                                itemCount: myTables.length,
+                                itemBuilder: (context, i) {
+                                  final t = myTables[i];
+                                  final free = t.status == TableStatus.free;
+                                  final orderTotal = appState.tableOrderTotal(t);
 
-                              return _PremiumTableCard(
-                                table: t,
-                                isFree: free,
-                                orderTotal: orderTotal,
-                                index: i,
-                                onTap: () {
-                                  appState.selectTable(t);
-                                  if (free) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        settings: const RouteSettings(name: 'pos'),
-                                        builder: (_) => const POSScreen(),
-                                      ),
-                                    );
-                                  } else {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        settings: const RouteSettings(name: 'payment'),
-                                        builder: (_) => const PaymentScreen(),
-                                      ),
-                                    );
-                                  }
+                                  return _PremiumTableCard(
+                                    table: t,
+                                    isFree: free,
+                                    orderTotal: orderTotal,
+                                    index: i,
+                                    onTap: () {
+                                      appState.selectTable(t);
+                                      if (free) {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            settings: const RouteSettings(name: 'pos'),
+                                            builder: (_) => const POSScreen(),
+                                          ),
+                                        );
+                                      } else {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            settings: const RouteSettings(name: 'payment'),
+                                            builder: (_) => const PaymentScreen(),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  );
                                 },
                               );
                             },
@@ -10921,20 +10936,27 @@ class _POSScreenState extends State<POSScreen> {
                     ],
                   ),
                 )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(12),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: gridCols,
-                    childAspectRatio: gridRatio,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                  ),
-                  itemCount: filtered.length,
-                  itemBuilder: (context, i) => _ProductCard(
-                    product: filtered[i],
-                    canManage: _canManageMenu,
-                    onEdited: () => setState(() {}),
-                  ),
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                    final isNarrow = screenWidth < 600;
+                    final actualCols = math.max(1, (constraints.maxWidth / (isNarrow ? 160 : 200)).floor());
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: actualCols,
+                        childAspectRatio: gridRatio,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                      ),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, i) => _ProductCard(
+                        product: filtered[i],
+                        canManage: _canManageMenu,
+                        onEdited: () => setState(() {}),
+                      ),
+                    );
+                  },
                 ),
         ),
       ],
@@ -15954,21 +15976,22 @@ class _ReportsScreenState extends State<ReportsScreen>
         _selectedDate.month == DateTime.now().month &&
         _selectedDate.day == DateTime.now().day;
 
-    final totalRevenue = (isToday && appState.effectiveTodayReport != null)
-        ? appState.effectiveTodayReport!.totalRevenue.toDouble()
+    final todayRep = appState.effectiveTodayReport;
+    final totalRevenue = (isToday && todayRep != null)
+        ? todayRep.totalRevenue.toDouble()
         : filteredReceipts.fold(0.0, (s, r) => s + r.total);
 
-    final totalOrders = (isToday && appState.effectiveTodayReport != null)
-        ? appState.effectiveTodayReport!.orderCount
+    final totalOrders = (isToday && todayRep != null)
+        ? todayRep.orderCount
         : filteredReceipts.length;
 
     final avgOrder = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
 
     double cashTotal = 0;
     double cardTotal = 0;
-    if (isToday && appState.effectiveTodayReport != null) {
-      cashTotal = appState.effectiveTodayReport!.cashTotal.toDouble();
-      cardTotal = appState.effectiveTodayReport!.cardTotal.toDouble();
+    if (isToday && todayRep != null) {
+      cashTotal = todayRep.cashTotal.toDouble();
+      cardTotal = todayRep.cardTotal.toDouble();
     } else {
       for (final r in filteredReceipts) {
         if (r.cashPaid > 0 || r.cardPaid > 0) {

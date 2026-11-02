@@ -799,9 +799,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         border: Border.all(color: cardBorder, width: 1.2),
       ),
       child: LayoutBuilder(builder: (context, constraints) {
+        if (constraints.maxWidth <= 0) return const SizedBox.shrink();
         final isNarrow = constraints.maxWidth < 600;
         final openOrdersWidget = Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.all(7),
@@ -812,29 +812,34 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               child: const Icon(Icons.timelapse_rounded, color: Color(0xFFF59E0B), size: 18),
             ),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Ochiq Buyurtmalar',
-                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
-                ),
-                Text(
-                  '$openOrdersCount ta faol stol',
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? Colors.white : Colors.black87,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Ochiq Buyurtmalar',
+                    style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                  Text(
+                    '$openOrdersCount ta faol stol',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         );
 
         final paymentSplitWidget = Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.all(7),
@@ -845,23 +850,42 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               child: const Icon(Icons.payments_outlined, color: Color(0xFF10B981), size: 18),
             ),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "To'lov Taqsimoti",
-                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
-                ),
-                Text(
-                  'Naqd: $cashPct% (${_formatMoney(cashTotal)} so\'m) • Karta: $cardPct% (${_formatMoney(cardTotal)} so\'m)',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.white : Colors.black87,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "To'lov Taqsimoti",
+                    style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 2,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        'Naqd: $cashPct% (${_formatMoney(cashTotal)} so\'m)',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        '• Karta: $cardPct% (${_formatMoney(cardTotal)} so\'m)',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         );
@@ -878,10 +902,10 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         }
 
         return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            openOrdersWidget,
-            paymentSplitWidget,
+            Expanded(child: openOrdersWidget),
+            const SizedBox(width: 16),
+            Expanded(child: paymentSplitWidget),
           ],
         );
       }),
@@ -927,12 +951,16 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 child: const Icon(Icons.badge_outlined, color: Color(0xFF8B5CF6), size: 19),
               ),
               const SizedBox(width: 10),
-              Text(
-                "Ofitsiantlar va Xodimlar Natijalari",
-                style: TextStyle(
-                  fontSize: 16.5,
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+              Expanded(
+                child: Text(
+                  "Ofitsiantlar va Xodimlar Natijalari",
+                  style: TextStyle(
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -1017,12 +1045,16 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                             children: [
                               Row(
                                 children: [
-                                  Text(
-                                    w.name,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                  Flexible(
+                                    child: Text(
+                                      w.name,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                   const SizedBox(width: 6),
@@ -1050,6 +1082,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                                   fontSize: 11.5,
                                   color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
@@ -1126,9 +1160,10 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         fullDateLabels.add('${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}');
       }
       // Bugungi kun ko'rsatkichi yagona haqiqat manbai (effectiveTodayReport) bilan 100% tenglashtiriladi
-      if (revenuePoints.isNotEmpty && appState.effectiveTodayReport != null) {
-        revenuePoints[revenuePoints.length - 1] = appState.effectiveTodayReport!.totalRevenue.toDouble();
-        ordersPoints[ordersPoints.length - 1] = appState.effectiveTodayReport!.orderCount;
+      final todayRep = appState.effectiveTodayReport;
+      if (revenuePoints.isNotEmpty && todayRep != null) {
+        revenuePoints[revenuePoints.length - 1] = todayRep.totalRevenue.toDouble();
+        ordersPoints[ordersPoints.length - 1] = todayRep.orderCount;
       }
     } else if (_selectedChartPeriod == _SalesChartPeriod.hafta) {
       // So'nggi 8 hafta
@@ -1465,12 +1500,16 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               children: [
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
-                Text(
-                  'Daromad: ${_formatMoney(revenues[safeIdx])} so\'m',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
+                Flexible(
+                  child: Text(
+                    'Daromad: ${_formatMoney(revenues[safeIdx])} so\'m',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -1480,12 +1519,16 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               children: [
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
-                Text(
-                  'Buyurtmalar: ${orders[safeIdx]} ta',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
+                Flexible(
+                  child: Text(
+                    'Buyurtmalar: ${orders[safeIdx]} ta',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -1509,10 +1552,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     final Map<String, int> productQty = {};
     final Map<String, double> productRev = {};
 
+    final todayRep = appState.effectiveTodayReport;
     if (_selectedPeriod == _DashboardPeriod.bugun &&
-        appState.effectiveTodayReport != null &&
-        appState.effectiveTodayReport!.topProducts.isNotEmpty) {
-      for (final p in appState.effectiveTodayReport!.topProducts) {
+        todayRep != null &&
+        todayRep.topProducts.isNotEmpty) {
+      for (final p in todayRep.topProducts) {
         final name = p.name.trim();
         if (name.isEmpty) continue;
         productQty[name] = p.quantity;
@@ -2192,28 +2236,35 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(10),
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.emoji_events_outlined, color: Color(0xFFF59E0B), size: 19),
                     ),
-                    child: const Icon(Icons.emoji_events_outlined, color: Color(0xFFF59E0B), size: 19),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Eng Mashhur Taomlar',
-                    style: TextStyle(
-                      fontSize: 16.5,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Eng Mashhur Taomlar',
+                        style: TextStyle(
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               InkWell(
                 onTap: () => _showAllTopDishesModal(context, sortedProducts, revenues, isDark),
                 borderRadius: BorderRadius.circular(8),
@@ -2337,13 +2388,17 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                                 const SizedBox(height: 1.5),
                                 Row(
                                   children: [
-                                    Text(
-                                      '${_formatMoney(unitPrice)} so\'m',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
-                                        color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                                        fontFeatures: const [FontFeature.tabularFigures()],
+                                    Flexible(
+                                      child: Text(
+                                        '${_formatMoney(unitPrice)} so\'m',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                          fontFeatures: const [FontFeature.tabularFigures()],
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                     const SizedBox(width: 6),
@@ -2466,28 +2521,35 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2563EB).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF2563EB), size: 19),
                     ),
-                    child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF2563EB), size: 19),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    "So'nggi Cheklar Tarixi",
-                    style: TextStyle(
-                      fontSize: 16.5,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "So'nggi Cheklar Tarixi",
+                        style: TextStyle(
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               InkWell(
                 onTap: widget.onViewAllReceipts,
                 child: const Row(
@@ -2560,6 +2622,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                             fontWeight: FontWeight.w700,
                             color: Color(0xFF2563EB),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       Expanded(
@@ -2571,6 +2635,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                             fontWeight: FontWeight.w500,
                             color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       SizedBox(
@@ -2604,6 +2670,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                             fontWeight: FontWeight.w800,
                             color: isDark ? Colors.white : const Color(0xFF0F172A),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       const SizedBox(width: 8),

@@ -63,10 +63,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return StreamBuilder<List<CustomerOrder>>(
       stream: _cloudService.streamCustomerOrders(widget.user.ownerId),
       builder: (context, snapshot) {
-        int orderCount = snapshot.hasData ? snapshot.data!.length : 0;
-        double totalRevenue = snapshot.hasData
-            ? snapshot.data!.fold(0, (sum, item) => sum + item.total)
-            : 0;
+        final orders = snapshot.data ?? [];
+        final int orderCount = orders.length;
+        final double totalRevenue = orders.fold(0.0, (sum, item) => sum + item.total);
 
         return Padding(
           padding: const EdgeInsets.all(16.0),
@@ -325,7 +324,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final orders = snapshot.data!;
+        final orders = snapshot.data ?? [];
         if (orders.isEmpty) {
           return const Center(child: Text('Buyurtmalar yo\'q'));
         }

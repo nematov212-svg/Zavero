@@ -77,14 +77,18 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                 if (products.isEmpty) {
                   return const Center(child: Text('Taomlar mavjud emas'));
                 }
-                return GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.0,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                  ),
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                    final crossCount = (constraints.maxWidth / 160).floor().clamp(1, 6);
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(8),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossCount,
+                        childAspectRatio: 1.0,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
                   itemCount: products.length,
                   itemBuilder: (context, idx) {
                     final p = products[idx];
@@ -143,6 +147,8 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                   },
                 );
               },
+            );
+          },
             ),
           ),
           if (_cart.isNotEmpty)

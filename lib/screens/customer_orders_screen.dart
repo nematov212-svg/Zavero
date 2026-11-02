@@ -446,6 +446,7 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> with Single
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        if (constraints.maxWidth <= 0) return const SizedBox.shrink();
         final isWideDesktop = constraints.maxWidth >= 900;
         final isTablet = constraints.maxWidth >= 600 && constraints.maxWidth < 900;
 

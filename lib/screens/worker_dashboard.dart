@@ -35,7 +35,7 @@ class _WorkerDashboardState extends State<WorkerDashboard> {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final orders = snapshot.data!;
+          final orders = snapshot.data ?? [];
           if (orders.isEmpty) {
             return const Center(child: Text('Hozircha buyurtmalar yo\'q'));
           }

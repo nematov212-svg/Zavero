@@ -2013,7 +2013,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             );
           }
 
-          final data = snapshot.data!;
+          final data = snapshot.data ?? {};
           final users = (data['users'] as List? ?? []);
           final devices = (data['devices'] as List? ?? []);
           final events = (data['events'] as List? ?? []);
@@ -3286,9 +3286,10 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             else
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final crossCount = constraints.maxWidth > 1150
+                  if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                  final crossCount = (constraints.maxWidth > 1150
                       ? 2
-                      : (constraints.maxWidth > 800 ? 2 : 1);
+                      : (constraints.maxWidth > 800 ? 2 : 1)).clamp(1, 4);
                   return GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -3507,26 +3508,36 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
 
     if (isMobile) {
       // 2x2 grid for mobile
-      return GridView.count(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisCount: 2,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 1.45,
-        children: cards,
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+          return GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 1.45,
+            children: cards,
+          );
+        },
       );
     }
 
     if (isTablet) {
-      return GridView.count(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisCount: 2,
-        crossAxisSpacing: 14,
-        mainAxisSpacing: 14,
-        childAspectRatio: 2.3,
-        children: cards,
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+          return GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+            childAspectRatio: 2.3,
+            children: cards,
+          );
+        },
       );
     }
 

@@ -164,49 +164,54 @@ class _CashierDashboardState extends State<CashierDashboard> {
                       if (products.isEmpty) {
                         return const Center(child: Text('Taomlar mavjud emas'));
                       }
-                      return GridView.builder(
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          childAspectRatio: 1.1,
-                        ),
-                        itemCount: products.length,
-                        itemBuilder: (context, idx) {
-                          final p = products[idx];
-                          final resolvedUrl = ApiClient().resolveImageUrl(p.imageUrl);
-                          return Card(
-                            child: InkWell(
-                              onTap: () => _addToCart(p),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  if (resolvedUrl.isNotEmpty)
-                                    OptimizedImage(
-                                      imageUrl: resolvedUrl,
-                                      width: 40,
-                                      height: 40,
-                                      fit: BoxFit.cover,
-                                      fallbackIcon: p.icon,
-                                      iconSize: 24,
-                                      iconColor: Colors.orange.shade800,
-                                      borderRadius: BorderRadius.circular(8),
-                                    )
-                                  else
-                                    Icon(p.icon, size: 24, color: Colors.orange.shade800),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    p.name,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text('${p.price.toStringAsFixed(0)} so\'m'),
-                                ],
-                              ),
+                      return LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                          final crossCount = (constraints.maxWidth / 160).floor().clamp(1, 6);
+                          return GridView.builder(
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: crossCount,
+                              childAspectRatio: 1.1,
                             ),
+                            itemCount: products.length,
+                            itemBuilder: (context, idx) {
+                              final p = products[idx];
+                              final resolvedUrl = ApiClient().resolveImageUrl(p.imageUrl);
+                              return Card(
+                                child: InkWell(
+                                  onTap: () => _addToCart(p),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      if (resolvedUrl.isNotEmpty)
+                                        OptimizedImage(
+                                          imageUrl: resolvedUrl,
+                                          width: 40,
+                                          height: 40,
+                                          fit: BoxFit.cover,
+                                          fallbackIcon: p.icon,
+                                          iconSize: 24,
+                                          iconColor: Colors.orange.shade800,
+                                          borderRadius: BorderRadius.circular(8),
+                                        )
+                                      else
+                                        Icon(p.icon, size: 24, color: Colors.orange.shade800),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        p.name,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold),
+                                        textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text('${p.price.toStringAsFixed(0)} so\'m'),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           );
                         },
                       );
