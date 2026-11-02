@@ -9,6 +9,7 @@ import '../services/socket_service.dart';
 import '../services/pin_security_service.dart';
 import 'auth_screen.dart';
 import 'cafe_management_screen.dart';
+import '../config/app_config.dart';
 
 class DirectorScreen extends StatefulWidget {
   final AppUser directorUser;
@@ -594,7 +595,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     final headerCtrl = TextEditingController();
     final footerCtrl = TextEditingController(text: 'Xaridingiz uchun rahmat! Yana kutib qolamiz');
     final logoCtrl = TextEditingController();
-    final qrUrlCtrl = TextEditingController(text: 'https://www.instagram.com/family_cafe.1');
+    final qrUrlCtrl = TextEditingController(text: AppConfig.defaultCafeInstagramUrl);
     final servicePercentCtrl = TextEditingController(text: '0');
     bool showLogo = true;
     bool showQr = true;
@@ -807,6 +808,17 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                         setDlgState(() => error = 'Chek sarlavhasi bo‘sh bo‘lishi mumkin emas');
                         return;
                       }
+                      final rQrUrl = qrUrlCtrl.text.trim();
+                      if (showQr) {
+                        if (rQrUrl.isEmpty) {
+                          setDlgState(() => error = 'QR kod havolasi bo‘sh bo‘lishi mumkin emas');
+                          return;
+                        }
+                        if (!AppConfig.isValidUrl(rQrUrl)) {
+                          setDlgState(() => error = 'Havola noto‘g‘ri formatda! "https://" yoki "http://" bilan boshlanishi kerak');
+                          return;
+                        }
+                      }
                       setDlgState(() {
                         saving = true;
                         error = null;
@@ -822,10 +834,16 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                           receiptFooter: footerCtrl.text.trim(),
                           receiptLogoUrl: logoCtrl.text.trim(),
                           showLogoOnReceipt: showLogo,
-                          receiptQrUrl: qrUrlCtrl.text.trim(),
+                          receiptQrUrl: rQrUrl,
                           showQrOnReceipt: showQr,
                           servicePercent: sPercent,
                         );
+                        if (cafe.cafeId == appState.currentCafeId) {
+                          appState.receiptQrUrl = rQrUrl;
+                          appState.receiptQrEnabled = showQr;
+                          appState.saveData();
+                          appState.notifyChanges();
+                        }
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
                         _loadAllData();

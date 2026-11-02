@@ -38,6 +38,7 @@ import 'services/thermal_html_generator.dart';
 import 'services/web_receipt_printer.dart';
 import 'services/receipt_printer_service.dart';
 import 'services/cloud_print_service.dart';
+import 'config/app_config.dart';
 import 'services/print_agent_service.dart';
 
 import 'widgets/connectivity_badge.dart';
@@ -384,7 +385,14 @@ class AppState extends ChangeNotifier {
   String receiptSlogan = 'Yaxshi ta\'m  •  Baxtli onlar';
   String receiptFooterNote = 'Bizni tanlaganingiz uchun rahmat!';
   bool receiptQrEnabled = true;
-  String receiptQrUrl = 'https://zaverouz.netlify.app/';
+  String receiptQrUrl = AppConfig.defaultCafeInstagramUrl;
+
+  String get effectiveReceiptQrUrl {
+    if (receiptQrUrl.trim().isNotEmpty) {
+      return receiptQrUrl.trim();
+    }
+    return AppConfig.defaultCafeInstagramUrl;
+  }
   String? appLogoUrl;
 
   String get effectiveReceiptName {
@@ -1202,9 +1210,16 @@ class AppState extends ChangeNotifier {
         receiptFooterNote =
             cloudSettings['receiptFooterNote'] ?? receiptFooterNote;
         receiptSlogan = cloudSettings['receiptSlogan'] ?? receiptSlogan;
-        if (cloudSettings.containsKey('receiptQrEnabled')) {
+        if (cloudSettings.containsKey('showQrOnReceipt')) {
+          final sq = cloudSettings['showQrOnReceipt'];
+          receiptQrEnabled = sq == true || sq == 'true' || sq == 1;
+        } else if (cloudSettings.containsKey('receiptQrEnabled')) {
           final qe = cloudSettings['receiptQrEnabled'];
           receiptQrEnabled = qe == true || qe == 'true' || qe == 1;
+        }
+        if (cloudSettings.containsKey('receiptQrUrl') && cloudSettings['receiptQrUrl'] != null) {
+          final qu = cloudSettings['receiptQrUrl'].toString().trim();
+          if (qu.isNotEmpty) receiptQrUrl = qu;
         }
         if (cloudSettings.containsKey('darkMode')) {
           final dm = cloudSettings['darkMode'];
@@ -1459,6 +1474,28 @@ class AppState extends ChangeNotifier {
     _ordersSub?.cancel();
     _ordersSub = _cloudService.streamCustomerOrders(cafeId).listen((newOrders) {
       _handleIncomingCustomerOrders(newOrders);
+    });
+
+    _settingsSub?.cancel();
+    _settingsSub = SocketService().on(CafeSocketEvent.settingsUpdated).listen((eventData) {
+      if (eventData is Map) {
+        final raw = eventData['settings'] ?? eventData;
+        if (raw is Map) {
+          if (raw.containsKey('receiptQrUrl') && raw['receiptQrUrl'] != null) {
+            final qu = raw['receiptQrUrl'].toString().trim();
+            if (qu.isNotEmpty) receiptQrUrl = qu;
+          }
+          if (raw.containsKey('showQrOnReceipt')) {
+            final sq = raw['showQrOnReceipt'];
+            receiptQrEnabled = sq == true || sq == 'true' || sq == 1;
+          } else if (raw.containsKey('receiptQrEnabled')) {
+            final re = raw['receiptQrEnabled'];
+            receiptQrEnabled = re == true || re == 'true' || re == 1;
+          }
+          saveData();
+          notifyListeners();
+        }
+      }
     });
 
     _customerOrdersPollTimer?.cancel();
@@ -2977,6 +3014,7 @@ class AppState extends ChangeNotifier {
     String? footerNote,
     String? logoUrl,
     bool? qrEnabled,
+    String? qrUrl,
   }) {
     if (name != null && name.isNotEmpty) restaurantName = name;
     if (receiptName != null) {
@@ -2988,6 +3026,9 @@ class AppState extends ChangeNotifier {
     if (footerNote != null) receiptFooterNote = footerNote;
     if (logoUrl != null) appLogoUrl = logoUrl;
     if (qrEnabled != null) receiptQrEnabled = qrEnabled;
+    if (qrUrl != null && qrUrl.trim().isNotEmpty) {
+      receiptQrUrl = qrUrl.trim();
+    }
     _cloudService.saveSettings(currentCafeId, {
       'restaurantName': restaurantName,
       'receiptName': this.receiptName,
@@ -2996,6 +3037,8 @@ class AppState extends ChangeNotifier {
       'receiptSlogan': receiptSlogan,
       'receiptFooterNote': receiptFooterNote,
       'receiptQrEnabled': receiptQrEnabled,
+      'showQrOnReceipt': receiptQrEnabled,
+      'receiptQrUrl': receiptQrUrl,
       'darkMode': darkMode,
       'appLogoUrl': appLogoUrl,
     });
@@ -3372,6 +3415,7 @@ class AppState extends ChangeNotifier {
     await prefs.setString('${pfx}receiptSlogan', receiptSlogan);
     await prefs.setString('${pfx}receiptFooterNote', receiptFooterNote);
     await prefs.setBool('${pfx}receiptQrEnabled', receiptQrEnabled);
+    await prefs.setString('${pfx}receiptQrUrl', receiptQrUrl);
     await prefs.setBool('darkMode', darkMode);
     await prefs.setInt('${pfx}idCounter', _idCounter);
     await prefs.setString('printerIp', printerIp);
@@ -3494,6 +3538,7 @@ class AppState extends ChangeNotifier {
     receiptFooterNote =
         prefs.getString('${pfx}receiptFooterNote') ?? prefs.getString('receiptFooterNote') ?? receiptFooterNote;
     receiptQrEnabled = _safeBoolFromPrefs(prefs, '${pfx}receiptQrEnabled', _safeBoolFromPrefs(prefs, 'receiptQrEnabled', receiptQrEnabled));
+    receiptQrUrl = prefs.getString('${pfx}receiptQrUrl') ?? prefs.getString('receiptQrUrl') ?? AppConfig.defaultCafeInstagramUrl;
     darkMode = _safeBoolFromPrefs(prefs, 'darkMode', darkMode);
     voiceNotificationEnabled = _safeBoolFromPrefs(
       prefs,
@@ -4039,9 +4084,7 @@ class NetworkPrinterService {
       footerMessage: appState.receiptFooterNote.isNotEmpty
           ? appState.receiptFooterNote
           : "Bizni tanlaganingiz uchun rahmat!",
-      qrUrl: appState.receiptQrUrl.isNotEmpty
-          ? appState.receiptQrUrl
-          : 'https://zavero-backend-production-7dc9.up.railway.app',
+      qrUrl: appState.receiptQrEnabled ? appState.effectiveReceiptQrUrl : '',
       tableNumber: tableNumberStr,
       hallName: hallName,
       items: printItems,
@@ -4229,7 +4272,7 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
     phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
     slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
     footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
-    qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+    qrUrl: appState.receiptQrEnabled ? appState.effectiveReceiptQrUrl : '',
     tableNumber: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
     hallName: receipt.hallName,
     items: receipt.items.asMap().entries.map((e) => ReceiptPrintItem(
@@ -4404,7 +4447,7 @@ Future<void> printBillPreview({
     phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
     slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
     footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
-    qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+    qrUrl: appState.receiptQrEnabled ? appState.effectiveReceiptQrUrl : '',
     tableNumber: table != null ? '${table.number}' : null,
     hallName: hallName,
     items: items.asMap().entries.map((e) => ReceiptPrintItem(
@@ -12878,7 +12921,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
       slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
       footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
-      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+      qrUrl: appState.receiptQrEnabled ? appState.effectiveReceiptQrUrl : '',
       tableNumber: table != null ? '${table.number}' : null,
       hallName: hall?.name,
       items: appState.cart.asMap().entries.map((e) => ReceiptPrintItem(
@@ -14566,7 +14609,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
       slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
       footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
-      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+      qrUrl: appState.receiptQrEnabled ? appState.effectiveReceiptQrUrl : '',
       tableNumber: receipt.tableNumber != null ? '${receipt.tableNumber}' : null,
       hallName: receipt.hallName,
       items: receipt.items.asMap().entries.map((e) => ReceiptPrintItem(
@@ -15594,7 +15637,7 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
       phone: appState.restaurantPhone.trim().isNotEmpty ? appState.restaurantPhone.trim() : '+998 90 123 45 67',
       slogan: appState.receiptSlogan.trim().isNotEmpty ? appState.receiptSlogan.trim() : "Yaxshi ta'm • Baxtli onlar",
       footerMessage: appState.receiptFooterNote.trim().isNotEmpty ? appState.receiptFooterNote.trim() : 'Bizni tanlaganingiz uchun rahmat!',
-      qrUrl: appState.receiptQrUrl.isNotEmpty ? appState.receiptQrUrl : 'https://zavero-backend-production-7dc9.up.railway.app',
+      qrUrl: appState.receiptQrEnabled ? appState.effectiveReceiptQrUrl : '',
       tableNumber: r.tableNumber != null ? '${r.tableNumber}' : null,
       hallName: r.hallName,
       items: r.items.asMap().entries.map((e) => ReceiptPrintItem(

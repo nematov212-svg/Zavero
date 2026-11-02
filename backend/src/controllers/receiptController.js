@@ -314,6 +314,9 @@ const viewReceiptHtml = async (req, res) => {
     const phone = settings.restaurantPhone || "+998 90 123 45 67";
     const slogan = settings.receiptSlogan || "Yaxshi ta'm • Baxtli onlar";
     const footerMsg = settings.receiptFooterNote || "Bizni tanlaganingiz uchun rahmat!";
+    const defaultQrUrl = 'https://www.instagram.com/family_cafe.1?exln=MWFtaHg2c2NqZW95Zg==';
+    const receiptQrUrl = settings.receiptQrUrl || defaultQrUrl;
+    const showQr = settings.showQrOnReceipt !== false && settings.receiptQrEnabled !== false;
     const date = new Date(r.date || Date.now());
     const dateStr = `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}`;
     const timeStr = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -465,12 +468,15 @@ const viewReceiptHtml = async (req, res) => {
       <span><b>${r.method === 'card' ? 'Karta' : 'Naqd pul'}</b></span>
     </div>
 
+    ${showQr ? `
     <div class="divider"></div>
     <div style="text-align: center; margin: 8px 0;">
-      <div style="font-size: 11px; font-weight: 700; margin-bottom: 4px;">Bizni Instagram'da kuzating</div>
-      <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https%3A%2F%2Fwww.instagram.com%2Ffamily_cafe.1" alt="Instagram QR" style="width: 90px; height: 90px; display: block; margin: 0 auto; border: 1px solid #000; border-radius: 6px; padding: 3px;" />
-      <div style="font-size: 11px; font-weight: 700; margin-top: 4px;">Rahmat!</div>
+      <div style="border: 1.2px solid #000; border-radius: 8px; padding: 6px; display: inline-block; background: #fff;">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(receiptQrUrl)}" alt="Instagram QR" style="width: 84px; height: 84px; display: block; margin: 0 auto;" />
+      </div>
+      <div style="font-size: 11px; font-weight: 700; margin-top: 5px;">QR kodni skaner qiling</div>
     </div>
+    ` : ''}
     <div class="footer">
       <div>${footerMsg}</div>
       <div style="margin-top: 4px; font-weight: 700; font-size: 10px;">ZAVERO POS BILAN CHOP ETILDI</div>

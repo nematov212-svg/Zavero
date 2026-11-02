@@ -471,7 +471,7 @@ const createUser = async (req, res) => {
        VALUES ($1, $2, $3)
        ON CONFLICT (user_id, cafe_id) DO UPDATE SET role = EXCLUDED.role`,
       [userRes.rows[0].id, cafeId, targetRole]
-    ).catch(() => {});
+    ).catch(() => { });
 
     // Audit log
     await db.query(
@@ -931,7 +931,7 @@ const toggleMaintenance = async (req, res) => {
     const { cafeId } = req.params;
     const { isUnderMaintenance } = req.body;
     await db.query('UPDATE cafes SET is_under_maintenance = $1 WHERE cafe_id = $2', [!!isUnderMaintenance, cafeId]);
-    
+
     const { notifyCafe } = require('../socket/socketHandler');
     notifyCafe(cafeId, 'CAFE_MAINTENANCE_STATUS', { cafeId, isUnderMaintenance: !!isUnderMaintenance });
 
@@ -967,7 +967,7 @@ const getCafeReceiptSettings = async (req, res) => {
         receiptFooter: data.receiptFooter || 'Xaridingiz uchun rahmat!',
         receiptLogoUrl: data.receiptLogoUrl || '',
         showLogoOnReceipt: data.showLogoOnReceipt !== false,
-        receiptQrUrl: data.receiptQrUrl || 'https://www.instagram.com/family_cafe.1',
+        receiptQrUrl: data.receiptQrUrl || 'https://www.instagram.com/family_cafe.1?exln=MWFtaHg2c2NqZW95Zg==',
         showQrOnReceipt: data.showQrOnReceipt !== false,
         servicePercent: data.servicePercent || 0,
       },

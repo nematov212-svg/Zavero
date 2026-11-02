@@ -1,9 +1,23 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zavero/services/receipt_printer_service.dart';
 import 'package:zavero/theme/design_tokens.dart';
+import 'package:zavero/config/app_config.dart';
 
 void main() {
   group('ReceiptPrinterService and DesignTokens Tests', () {
+    test('AppConfig default Instagram URL and URL validator work correctly', () {
+      expect(
+        AppConfig.defaultCafeInstagramUrl,
+        'https://www.instagram.com/family_cafe.1?exln=MWFtaHg2c2NqZW95Zg==',
+      );
+      expect(AppConfig.isValidUrl('https://instagram.com/test'), isTrue);
+      expect(AppConfig.isValidUrl('http://example.com'), isTrue);
+      expect(AppConfig.isValidUrl('ftp://example.com'), isFalse);
+      expect(AppConfig.isValidUrl('not-a-url'), isFalse);
+      expect(AppConfig.isValidUrl(''), isFalse);
+      expect(AppConfig.isValidUrl(null), isFalse);
+    });
+
     test('ReceiptPrintData money formatting produces correct space-separated sums', () {
       expect(ReceiptPrintData.formatMoney(82000), "82 000");
       expect(ReceiptPrintData.formatMoney(35000), "35 000");
@@ -21,7 +35,7 @@ void main() {
         phone: '+998 90 123 45 67',
         slogan: "Yaxshi ta'm • Baxtli onlar",
         footerMessage: 'Bizni tanlaganingiz uchun rahmat!',
-        qrUrl: 'https://zavero-backend-production-7dc9.up.railway.app',
+        qrUrl: AppConfig.defaultCafeInstagramUrl,
         tableNumber: '2',
         hallName: 'Zal',
         items: [
@@ -58,7 +72,7 @@ void main() {
         phone: '+998 90 123 45 67',
         slogan: "Yaxshi ta'm • Baxtli onlar",
         footerMessage: 'Bizni tanlaganingiz uchun rahmat!',
-        qrUrl: 'https://zavero-backend-production-7dc9.up.railway.app',
+        qrUrl: AppConfig.defaultCafeInstagramUrl,
         tableNumber: '2',
         hallName: 'Zal',
         items: [

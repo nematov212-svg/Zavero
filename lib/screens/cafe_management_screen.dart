@@ -12,6 +12,7 @@ import '../services/director_service.dart';
 import '../services/socket_service.dart';
 import '../services/supabase_realtime_service.dart';
 import '../widgets/receipt_widget.dart';
+import '../config/app_config.dart';
 
 class CafeManagementScreen extends StatefulWidget {
   final CafeSaaSItem cafe;
@@ -1822,6 +1823,7 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
   late TextEditingController _phoneCtrl;
   late TextEditingController _addrCtrl;
   late TextEditingController _noteCtrl;
+  late TextEditingController _qrUrlCtrl;
   String? _logoUrl;
   bool _qrEnabled = true;
   bool _saving = false;
@@ -1853,6 +1855,9 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
     _noteCtrl = TextEditingController(
       text: widget.initialSettings['receiptFooterNote']?.toString() ?? appState.receiptFooterNote,
     );
+    _qrUrlCtrl = TextEditingController(
+      text: widget.initialSettings['receiptQrUrl']?.toString() ?? appState.effectiveReceiptQrUrl,
+    );
     _logoUrl = widget.initialSettings['appLogoUrl']?.toString() ?? appState.appLogoUrl;
     if (widget.initialSettings.containsKey('receiptQrEnabled')) {
       _qrEnabled = widget.initialSettings['receiptQrEnabled'] == true;
@@ -1868,6 +1873,7 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
     _phoneCtrl.dispose();
     _addrCtrl.dispose();
     _noteCtrl.dispose();
+    _qrUrlCtrl.dispose();
     super.dispose();
   }
 
@@ -1903,6 +1909,22 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
   }
 
   Future<void> _handleSave() async {
+    final qrUrlText = _qrUrlCtrl.text.trim();
+    if (_qrEnabled) {
+      if (qrUrlText.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('QR kod havolasi bo‘sh bo‘lishi mumkin emas'), backgroundColor: Colors.redAccent),
+        );
+        return;
+      }
+      if (!AppConfig.isValidUrl(qrUrlText)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Havola noto‘g‘ri formatda! "https://" yoki "http://" bilan boshlanishi kerak'), backgroundColor: Colors.redAccent),
+        );
+        return;
+      }
+    }
+
     setState(() => _saving = true);
     try {
       final newSettings = Map<String, dynamic>.from(widget.initialSettings);
@@ -1913,6 +1935,8 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
       newSettings['restaurantAddress'] = _addrCtrl.text.trim();
       newSettings['receiptFooterNote'] = _noteCtrl.text.trim();
       newSettings['receiptQrEnabled'] = _qrEnabled;
+      newSettings['showQrOnReceipt'] = _qrEnabled;
+      newSettings['receiptQrUrl'] = qrUrlText;
       if (_logoUrl != null) {
         newSettings['appLogoUrl'] = _logoUrl;
       } else {
@@ -1928,6 +1952,7 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
         footerNote: _noteCtrl.text.trim(),
         logoUrl: _logoUrl,
         qrEnabled: _qrEnabled,
+        qrUrl: qrUrlText,
       );
 
       await widget.onSave(newSettings);
@@ -2134,12 +2159,29 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
                 ),
                 child: SwitchListTile(
                   title: const Text('QR Kodni chekda ko\'rsatish', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: const Text('Skaner qilganda Zavero web sahifasiga o\'tadi', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                  subtitle: const Text('Chek pastida QR kod va "QR kodni skaner qiling" chiqadi', style: TextStyle(color: Colors.grey, fontSize: 11)),
                   activeThumbColor: const Color(0xFFFFC107),
                   value: _qrEnabled,
                   onChanged: (v) => setState(() => _qrEnabled = v),
                 ),
               ),
+              if (_qrEnabled) ...[
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _qrUrlCtrl,
+                  style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w600),
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: Colors.white,
+                    labelText: 'Chekdagi QR kod havolasi (Instagram / Sayt / Telegram)',
+                    hintText: 'https://www.instagram.com/...',
+                    prefixIcon: const Icon(Icons.qr_code_2, color: Color(0xFF1E293B)),
+                    labelStyle: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
 
               // SAQLASH TUGMASI
@@ -2198,6 +2240,7 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
                   customFooter: _noteCtrl.text,
                   customLogoUrl: _logoUrl,
                   customShowQr: _qrEnabled,
+                  customQrUrl: _qrUrlCtrl.text.trim(),
                   items: _sampleItems,
                 ),
               ),

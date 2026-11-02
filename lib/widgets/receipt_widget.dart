@@ -79,9 +79,12 @@ class ReceiptWidget extends StatelessWidget {
     this.customFooter,
     this.customLogoUrl,
     this.customShowQr,
+    this.customQrUrl,
     this.showThreeDotsMenu = false,
     this.onOpenSettings,
   });
+
+  final String? customQrUrl;
 
   static int parsePrice(String raw) {
     final cleaned = raw.replaceAll(',', '').replaceAll(' ', '').replaceAll('UZS', '').replaceAll("so'm", '').trim();
@@ -301,7 +304,7 @@ class ReceiptWidget extends StatelessWidget {
                       const SizedBox(height: 12),
 
                       // ── 5. QR KOD (Yupqa yumaloq burchakli ramkali) ──────────
-                      if (showQr) _buildQrSection(),
+                      if (showQr) _buildQrSection(customQrUrl),
                       const SizedBox(height: 10),
 
                       // ── 6. FOOTER: Chiziq + Rahmat matni + Yurakcha + Kafe nomi ──
@@ -664,10 +667,10 @@ class ReceiptWidget extends StatelessWidget {
   // ─────────────────────────────────────────────────────────
   //  QR KOD: Yupqa yumaloq burchakli to'rtburchak ramkada
   // ─────────────────────────────────────────────────────────
-  Widget _buildQrSection() {
-    final qrData = appState.receiptQrUrl.isNotEmpty
-        ? appState.receiptQrUrl
-        : 'https://zavero-backend-production-7dc9.up.railway.app';
+  Widget _buildQrSection([String? customUrl]) {
+    final qrData = (customUrl != null && customUrl.trim().isNotEmpty)
+        ? customUrl.trim()
+        : appState.effectiveReceiptQrUrl;
 
     return Column(
       children: [
