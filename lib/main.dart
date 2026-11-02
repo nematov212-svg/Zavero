@@ -451,9 +451,9 @@ class AppState extends ChangeNotifier {
         return result.ok;
       } else if (printerConnectionType == 'wifi' && printerIp.isNotEmpty) {
         try {
-          await NetworkPrinterService.testConnection(ip: printerIp, port: printerPort);
-          isPrinterVerified = true;
-          printerVerifiedInfo = '< 50ms';
+          final isUp = await NetworkPrinterService.ping(ip: printerIp, port: printerPort);
+          isPrinterVerified = isUp;
+          printerVerifiedInfo = isUp ? '< 50ms' : null;
         } catch (_) {
           isPrinterVerified = false;
           printerVerifiedInfo = null;
@@ -2227,11 +2227,15 @@ class AppState extends ChangeNotifier {
     final note = targetNote ?? selectedTableNote;
     try {
       if (items.isNotEmpty) {
+        final isPrivileged = currentUser?.role == UserRole.director ||
+            currentUser?.role == UserRole.admin ||
+            currentUser?.role == UserRole.cashier;
         await _cloudService.saveTableOrder(
           cafeId: currentCafeId,
           tableId: tableId,
           items: items,
           note: note,
+          forceOccupy: isPrivileged,
         );
       }
     } on TableBusyException catch (e) {
@@ -3876,6 +3880,28 @@ class NetworkPrinterService {
   }
 
   // ------------------------------------------------------------
+  // JIMGINA ULANISHNI TEKSHIRISH (Chek chop etmasdan soket tekshirish)
+  // ------------------------------------------------------------
+  static Future<bool> ping({
+    required String ip,
+    required int port,
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (ip.trim().isEmpty) return false;
+    Socket? socket;
+    try {
+      socket = await Socket.connect(ip.trim(), port, timeout: timeout);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      try {
+        await socket?.close();
+      } catch (_) {}
+    }
+  }
+
+  // ------------------------------------------------------------
   // ULANISHNI TEKSHIRISH (Sozlamalar ekranidagi "Ulanishni tekshirish")
   // ------------------------------------------------------------
   static Future<void> testConnection({
@@ -5300,6 +5326,7 @@ class CafeLogo extends StatelessWidget {
               fit: BoxFit.cover,
             );
           } else if (trimmed.startsWith('assets/')) {
+
             childWidget = Image.asset(
               trimmed,
               fit: BoxFit.cover,
@@ -5320,6 +5347,7 @@ class CafeLogo extends StatelessWidget {
         } else {
           childWidget = _buildFallback(context);
         }
+        
 
         return Container(
           width: size,
@@ -12789,9 +12817,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
     } catch (e) {
       if (mounted) {
         showZaveroSnackBar(
-          message: 'Chop etishda xatolik yuz berdi: $e',
+          message: 'Kassa printeri oflayn yoki ulanmagan: $e',
           backgroundColor: const Color(0xFFEF4444),
-          prefixIcon: Icons.error_outline,
+          prefixIcon: Icons.print_disabled_outlined,
         );
       }
     } finally {
@@ -14471,71 +14499,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Widget _buildPrinterStatusBadge() {
-    final isStation = appState.isPrinterStation;
-    final hasDirect = appState.printerConfigured && appState.isPrinterVerified;
-    final hasCloudStation = appState.hasCloudPrinterStation && appState.isCloudStationPrinterReady;
-
-    final bool isReady = isStation ? appState.isPrinterVerified : (hasDirect || hasCloudStation);
-
-    String label;
-    if (isStation) {
-      label = appState.isPrinterVerified
-          ? 'Printer ulangan (Kassa stansiyasi)'
-          : 'Printer ulanmagan (Kassa stansiyasi)';
-    } else if (hasDirect) {
-      label = 'Printer ulangan';
-    } else if (hasCloudStation) {
-      label = 'Printer ulangan (Kassa stansiyasi)';
-    } else {
-      label = 'Kassa printeri oflayn';
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Center(
-        child: InkWell(
-          onTap: () async {
-            await appState.checkPrinterConnectionQuick();
-            await appState.checkCloudPrinterStationStatus();
-            if (mounted) setState(() {});
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: (isReady ? const Color(0xFF10B981) : const Color(0xFFEF4444)).withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: (isReady ? const Color(0xFF10B981) : const Color(0xFFEF4444)).withValues(alpha: 0.25),
-                width: 1,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: isReady ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: isReady ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    // Vazifa 2: Ekranni toza qilish uchun status badge UI dan yashirilgan
+    return const SizedBox.shrink();
   }
 }
 

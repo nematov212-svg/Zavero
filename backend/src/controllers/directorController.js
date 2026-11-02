@@ -17,7 +17,7 @@ const slugifyCafe = (name) => {
 // GET /api/director/metrics
 const getMetrics = async (req, res) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin';
+    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.role === 'director';
     const userId = req.user?.id;
 
     const cafeScopeCondition = isSuperAdmin
@@ -91,7 +91,7 @@ const getMetrics = async (req, res) => {
 const listCafes = async (req, res) => {
   try {
     const { q, status } = req.query;
-    const isSuperAdmin = req.user?.role === 'super_admin';
+    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.role === 'director';
     const userId = req.user?.id;
 
     const whereClauses = ["c.cafe_id != 'zavero'"];
@@ -967,6 +967,8 @@ const getCafeReceiptSettings = async (req, res) => {
         receiptFooter: data.receiptFooter || 'Xaridingiz uchun rahmat!',
         receiptLogoUrl: data.receiptLogoUrl || '',
         showLogoOnReceipt: data.showLogoOnReceipt !== false,
+        receiptQrUrl: data.receiptQrUrl || 'https://www.instagram.com/family_cafe.1',
+        showQrOnReceipt: data.showQrOnReceipt !== false,
         servicePercent: data.servicePercent || 0,
       },
     });
@@ -988,6 +990,8 @@ const updateCafeReceiptSettings = async (req, res) => {
       receiptFooter,
       receiptLogoUrl,
       showLogoOnReceipt,
+      receiptQrUrl,
+      showQrOnReceipt,
       servicePercent,
     } = req.body;
 
@@ -1009,6 +1013,8 @@ const updateCafeReceiptSettings = async (req, res) => {
     if (receiptFooter !== undefined) data.receiptFooter = receiptFooter.trim();
     if (receiptLogoUrl !== undefined) data.receiptLogoUrl = receiptLogoUrl.trim();
     if (showLogoOnReceipt !== undefined) data.showLogoOnReceipt = !!showLogoOnReceipt;
+    if (receiptQrUrl !== undefined) data.receiptQrUrl = receiptQrUrl.trim();
+    if (showQrOnReceipt !== undefined) data.showQrOnReceipt = !!showQrOnReceipt;
     if (servicePercent !== undefined) data.servicePercent = Number(servicePercent) || 0;
 
     await db.query(

@@ -442,6 +442,8 @@ class DirectorService {
     String? receiptFooter,
     String? receiptLogoUrl,
     bool? showLogoOnReceipt,
+    String? receiptQrUrl,
+    bool? showQrOnReceipt,
     double? servicePercent,
   }) async {
     await _api.post('/director/cafes/$cafeId/receipt', body: {
@@ -452,6 +454,8 @@ class DirectorService {
       if (receiptFooter != null) 'receiptFooter': receiptFooter.trim(),
       if (receiptLogoUrl != null) 'receiptLogoUrl': receiptLogoUrl.trim(),
       if (showLogoOnReceipt != null) 'showLogoOnReceipt': showLogoOnReceipt,
+      if (receiptQrUrl != null) 'receiptQrUrl': receiptQrUrl.trim(),
+      if (showQrOnReceipt != null) 'showQrOnReceipt': showQrOnReceipt,
       if (servicePercent != null) 'servicePercent': servicePercent,
     });
   }

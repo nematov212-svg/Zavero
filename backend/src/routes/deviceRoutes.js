@@ -9,11 +9,17 @@ router.use(auth);
 router.get('/', async (req, res) => {
   try {
     let result;
-    if (req.user.role === 'director' && req.query.cafeId) {
-      result = await db.query(
-        `SELECT d.*, u.name as user_name FROM devices d LEFT JOIN users u ON d.user_id = u.id WHERE d.cafe_id = $1 ORDER BY d.last_seen DESC`,
-        [req.query.cafeId]
-      );
+    if (req.user.role === 'director' || req.user.role === 'super_admin') {
+      if (req.query.cafeId) {
+        result = await db.query(
+          `SELECT d.*, u.name as user_name FROM devices d LEFT JOIN users u ON d.user_id = u.id WHERE d.cafe_id = $1 ORDER BY d.last_seen DESC`,
+          [req.query.cafeId]
+        );
+      } else {
+        result = await db.query(
+          `SELECT d.*, u.name as user_name FROM devices d LEFT JOIN users u ON d.user_id = u.id ORDER BY d.last_seen DESC LIMIT 100`
+        );
+      }
     } else {
       result = await db.query(
         `SELECT d.*, u.name as user_name FROM devices d LEFT JOIN users u ON d.user_id = u.id WHERE d.cafe_id = $1 ORDER BY d.last_seen DESC`,

@@ -423,8 +423,7 @@ class EscPosBuilder {
       builder.qrCode(data.qrUrl, size: width >= 48 ? 6 : 4);
       builder.printLine();
       builder.boldOn();
-      builder.printLine('QR skaner qiling va');
-      builder.printLine('Zavero web saytiga o\'ting!');
+      builder.printLine('QR kodni skaner qiling');
       builder.boldOff();
       builder.divider();
     }
@@ -698,7 +697,7 @@ class ThermalPdfGenerator {
                 pw.SizedBox(height: 4),
                 pw.Center(
                   child: pw.Text(
-                    'QR skaner qiling va\nZavero web saytiga o\'ting!',
+                    'QR kodni skaner qiling',
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(font: fontBold, fontSize: 6.6, color: PdfColors.black),
                   ),

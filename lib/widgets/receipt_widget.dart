@@ -325,13 +325,7 @@ class ReceiptWidget extends StatelessWidget {
     return Column(
       children: [
         if (logoUrl != null && logoUrl.trim().isNotEmpty && !logoUrl.contains('default'))
-          _buildLogoImage(logoUrl.trim())
-        else
-          const SizedBox(
-            width: 80,
-            height: 56,
-            child: CustomPaint(painter: ChefHatLogoPainter()),
-          ),
+          _buildLogoImage(logoUrl.trim()),
         const SizedBox(height: 4),
         // "Family Cafe" on a SINGLE line, side-by-side
         Row(
@@ -701,7 +695,7 @@ class ReceiptWidget extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         const Text(
-          "QR skaner qiling va\nZavero web saytiga o'ting!",
+          "QR kodni skaner qiling",
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 11.5,

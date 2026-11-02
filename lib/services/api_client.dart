@@ -35,6 +35,10 @@ class ApiClient {
   static const _refreshTokenKey = 'zavero_refresh_token';
   static const _userKey = 'zavero_current_user';
 
+  static const _directorTokenKey = 'zavero_director_auth_token';
+  static const _directorRefreshTokenKey = 'zavero_director_refresh_token';
+  static const _directorUserKey = 'zavero_director_current_user';
+
   /// Backend bulut API manzili (Railway)
   /// --dart-define=API_BASE_URL=... orqali o'zgartirish mumkin.
   static const String _railwayBaseUrl =
@@ -220,12 +224,26 @@ class ApiClient {
       } catch (_) {}
     }
     try {
-      _token = await _storage.read(key: _tokenKey);
-      _refreshToken = await _storage.read(key: _refreshTokenKey);
+      final isDirectorContext = kIsWeb && (Uri.base.fragment.contains('director') || Uri.base.path.contains('director'));
+      final activeTokenKey = isDirectorContext ? _directorTokenKey : _tokenKey;
+      final activeRefreshKey = isDirectorContext ? _directorRefreshTokenKey : _refreshTokenKey;
+
+      _token = await _storage.read(key: activeTokenKey);
+      _refreshToken = await _storage.read(key: activeRefreshKey);
       if (_token == null || _token!.isEmpty) {
         final prefs = await SharedPreferences.getInstance();
-        _token = prefs.getString(_tokenKey);
-        _refreshToken = prefs.getString(_refreshTokenKey);
+        _token = prefs.getString(activeTokenKey);
+        _refreshToken = prefs.getString(activeRefreshKey);
+      }
+      // Agar director kontekstida topilmasa, umumiy tokenga fallback qilamiz
+      if (isDirectorContext && (_token == null || _token!.isEmpty)) {
+        _token = await _storage.read(key: _tokenKey);
+        _refreshToken = await _storage.read(key: _refreshTokenKey);
+        if (_token == null || _token!.isEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          _token = prefs.getString(_tokenKey);
+          _refreshToken = prefs.getString(_refreshTokenKey);
+        }
       }
     } catch (e) {
       debugPrint('ApiClient init xatoligi: $e');
@@ -249,12 +267,19 @@ class ApiClient {
     }
   }
 
-  Future<void> setToken(String token, {String? refreshToken}) async {
+  Future<void> setToken(String token, {String? refreshToken, bool isDirector = false}) async {
     _token = token;
     if (refreshToken != null && refreshToken.isNotEmpty) {
       _refreshToken = refreshToken;
     }
+    final keyToUse = isDirector ? _directorTokenKey : _tokenKey;
+    final refreshKeyToUse = isDirector ? _directorRefreshTokenKey : _refreshTokenKey;
+
     try {
+      await _storage.write(key: keyToUse, value: token);
+      if (_refreshToken != null) {
+        await _storage.write(key: refreshKeyToUse, value: _refreshToken);
+      }
       await _storage.write(key: _tokenKey, value: token);
       if (_refreshToken != null) {
         await _storage.write(key: _refreshTokenKey, value: _refreshToken);
@@ -264,6 +289,10 @@ class ApiClient {
     }
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(keyToUse, token);
+      if (_refreshToken != null) {
+        await prefs.setString(refreshKeyToUse, _refreshToken!);
+      }
       await prefs.setString(_tokenKey, token);
       if (_refreshToken != null) {
         await prefs.setString(_refreshTokenKey, _refreshToken!);
@@ -271,11 +300,18 @@ class ApiClient {
     } catch (_) {}
   }
 
-  Future<void> clearToken() async {
+  Future<void> clearToken({bool isDirector = false}) async {
     _token = null;
     _refreshToken = null;
     targetCafeId = null;
+    final isDirectorContext = isDirector ||
+        (kIsWeb && (Uri.base.fragment.contains('director') || Uri.base.path.contains('director')));
     try {
+      if (isDirectorContext) {
+        await _storage.delete(key: _directorTokenKey);
+        await _storage.delete(key: _directorRefreshTokenKey);
+        await _storage.delete(key: _directorUserKey);
+      }
       await _storage.delete(key: _tokenKey);
       await _storage.delete(key: _refreshTokenKey);
       await _storage.delete(key: _userKey);
@@ -284,6 +320,11 @@ class ApiClient {
     }
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (isDirectorContext) {
+        await prefs.remove(_directorTokenKey);
+        await prefs.remove(_directorRefreshTokenKey);
+        await prefs.remove(_directorUserKey);
+      }
       await prefs.remove(_tokenKey);
       await prefs.remove(_refreshTokenKey);
       await prefs.remove(_userKey);
@@ -291,25 +332,41 @@ class ApiClient {
   }
 
   /// So'nggi tizimga kirgan foydalanuvchi JSON'ini mahalliy saqlash (offline fallback uchun).
-  Future<void> cacheUserJson(Map<String, dynamic> userJson) async {
+  Future<void> cacheUserJson(Map<String, dynamic> userJson, {bool isDirector = false}) async {
     final encoded = jsonEncode(userJson);
+    final isDirectorUser = isDirector || userJson['role'] == 'director';
+    final keyToUse = isDirectorUser ? _directorUserKey : _userKey;
+
     try {
+      await _storage.write(key: keyToUse, value: encoded);
       await _storage.write(key: _userKey, value: encoded);
     } catch (e) {
       debugPrint('ApiClient cacheUserJson xatoligi: $e');
     }
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(keyToUse, encoded);
       await prefs.setString(_userKey, encoded);
     } catch (_) {}
   }
 
-  Future<Map<String, dynamic>?> readCachedUserJson() async {
+  Future<Map<String, dynamic>?> readCachedUserJson({bool isDirector = false}) async {
+    final isDirectorContext = isDirector ||
+        (kIsWeb && (Uri.base.fragment.contains('director') || Uri.base.path.contains('director')));
+    final keyToUse = isDirectorContext ? _directorUserKey : _userKey;
+
     try {
-      String? raw = await _storage.read(key: _userKey);
+      String? raw = await _storage.read(key: keyToUse);
       if (raw == null || raw.isEmpty) {
         final prefs = await SharedPreferences.getInstance();
-        raw = prefs.getString(_userKey);
+        raw = prefs.getString(keyToUse);
+      }
+      if (raw == null || raw.isEmpty) {
+        raw = await _storage.read(key: _userKey);
+        if (raw == null || raw.isEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          raw = prefs.getString(_userKey);
+        }
       }
       if (raw == null || raw.isEmpty) return null;
       return jsonDecode(raw) as Map<String, dynamic>;
@@ -317,7 +374,7 @@ class ApiClient {
       debugPrint('ApiClient readCachedUserJson xatoligi: $e');
       try {
         final prefs = await SharedPreferences.getInstance();
-        final raw = prefs.getString(_userKey);
+        final raw = prefs.getString(keyToUse) ?? prefs.getString(_userKey);
         if (raw != null && raw.isNotEmpty) {
           return jsonDecode(raw) as Map<String, dynamic>;
         }

@@ -594,8 +594,10 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     final headerCtrl = TextEditingController();
     final footerCtrl = TextEditingController(text: 'Xaridingiz uchun rahmat! Yana kutib qolamiz');
     final logoCtrl = TextEditingController();
+    final qrUrlCtrl = TextEditingController(text: 'https://www.instagram.com/family_cafe.1');
     final servicePercentCtrl = TextEditingController(text: '0');
     bool showLogo = true;
+    bool showQr = true;
     bool saving = false;
     String? error;
 
@@ -609,6 +611,8 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
         if (data['receiptFooter'] != null) footerCtrl.text = data['receiptFooter'].toString();
         if (data['receiptLogoUrl'] != null) logoCtrl.text = data['receiptLogoUrl'].toString();
         if (data['showLogoOnReceipt'] != null) showLogo = data['showLogoOnReceipt'] == true;
+        if (data['receiptQrUrl'] != null) qrUrlCtrl.text = data['receiptQrUrl'].toString();
+        if (data['showQrOnReceipt'] != null) showQr = data['showQrOnReceipt'] == true;
         if (data['servicePercent'] != null) servicePercentCtrl.text = data['servicePercent'].toString();
       }
     });
@@ -749,6 +753,21 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  // CHEK QR KODI LINKI
+                  TextField(
+                    controller: qrUrlCtrl,
+                    style: const TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.w500),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      labelText: 'Chekdagi QR kod havolasi (Instagram / Sayt / Telegram)',
+                      labelStyle: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+                      hintText: 'https://instagram.com/...',
+                      hintStyle: TextStyle(color: Colors.grey.shade500),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   // LOGO KO'RSATILSINMI SWITCH
                   SwitchListTile(
@@ -757,6 +776,13 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                     value: showLogo,
                     activeThumbColor: const Color(0xFFFFC107),
                     onChanged: (val) => setDlgState(() => showLogo = val),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Chekda QR kodni chop etish', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                    subtitle: const Text('Chek pastida QR kod va "QR kodni skaner qiling" matni chiqadi', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    value: showQr,
+                    activeThumbColor: const Color(0xFFFFC107),
+                    onChanged: (val) => setDlgState(() => showQr = val),
                   ),
                 ],
               ),
@@ -796,6 +822,8 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                           receiptFooter: footerCtrl.text.trim(),
                           receiptLogoUrl: logoCtrl.text.trim(),
                           showLogoOnReceipt: showLogo,
+                          receiptQrUrl: qrUrlCtrl.text.trim(),
+                          showQrOnReceipt: showQr,
                           servicePercent: sPercent,
                         );
                         if (!ctx.mounted) return;

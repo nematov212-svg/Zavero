@@ -314,7 +314,7 @@ class ThermalHtmlGenerator {
   <div class="receipt-container">
     <!-- 1. LOGO & HEADER -->
     <div class="header-logo">
-      ${hasCustomLogo ? '<img src="${_escapeHtml(logoUrl.trim())}" style="max-height: 48px; max-width: 140px; display: block; margin: 0 auto;" />' : chefHatSvg}
+      ${hasCustomLogo ? '<img src="${_escapeHtml(logoUrl.trim())}" style="max-height: 48px; max-width: 140px; display: block; margin: 0 auto;" />' : ''}
     </div>
     <div class="header-title">
       <span class="cafe-name-first">${_escapeHtml(cafeNameFirst)}</span>
@@ -383,7 +383,7 @@ class ThermalHtmlGenerator {
       <div class="qr-box">
         $qrSvg
       </div>
-      <div class="qr-text">QR skaner qiling va<br/>Zavero web saytiga o'ting!</div>
+      <div class="qr-text">QR kodni skaner qiling</div>
     </div>
     ''' : ''}
 

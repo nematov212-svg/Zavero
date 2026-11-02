@@ -466,6 +466,11 @@ const viewReceiptHtml = async (req, res) => {
     </div>
 
     <div class="divider"></div>
+    <div style="text-align: center; margin: 8px 0;">
+      <div style="font-size: 11px; font-weight: 700; margin-bottom: 4px;">Bizni Instagram'da kuzating</div>
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https%3A%2F%2Fwww.instagram.com%2Ffamily_cafe.1" alt="Instagram QR" style="width: 90px; height: 90px; display: block; margin: 0 auto; border: 1px solid #000; border-radius: 6px; padding: 3px;" />
+      <div style="font-size: 11px; font-weight: 700; margin-top: 4px;">Rahmat!</div>
+    </div>
     <div class="footer">
       <div>${footerMsg}</div>
       <div style="margin-top: 4px; font-weight: 700; font-size: 10px;">ZAVERO POS BILAN CHOP ETILDI</div>
