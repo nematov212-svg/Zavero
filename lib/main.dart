@@ -117,7 +117,7 @@ void main() async {
     if (token != null && token.isNotEmpty) {
       final cachedUser = await ApiClient().readCachedUserJson();
       final cafeId = cachedUser?['cafeId'] as String?;
-      if (cafeId != null && cafeId.isNotEmpty) {
+      if (cafeId != null && cafeId.isNotEmpty && cafeId != 'local_default') {
         SocketService().connect(token: token, cafeId: cafeId);
         SupabaseRealtimeService().subscribeToCafe(cafeId);
       }
@@ -556,8 +556,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> checkCloudPrinterStationStatus() async {
     if (isPrinterStation) return;
+    if (!ApiClient().isAuthenticated) return;
     final cafeId = currentCafeId.isNotEmpty ? currentCafeId : (currentUser?.cafeId ?? '');
-    if (cafeId.isEmpty) return;
+    if (cafeId.isEmpty || cafeId == 'local_default') return;
     try {
       final res = await CloudPrintService().getPrinterStationStatus(cafeId);
       hasCloudPrinterStation = res['hasStation'] == true;
@@ -931,6 +932,13 @@ class AppState extends ChangeNotifier {
 
   Future<AppUser?> restoreUserSession() async {
     try {
+      if (!ApiClient().isAuthenticated) {
+        await ApiClient().init();
+      }
+      if (!ApiClient().isAuthenticated) {
+        return null;
+      }
+
       final prefs = await SharedPreferences.getInstance();
       final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
       if (!isLoggedIn) return null;
@@ -1034,6 +1042,13 @@ class AppState extends ChangeNotifier {
 
   /// Bulutdan joriy cafe ma'lumotlarini yuklash va real-time obuna bo'lish
   Future<void> loadCloudDataForCafe(String cafeId) async {
+    if (cafeId.isEmpty || cafeId == 'local_default' || !ApiClient().isAuthenticated) {
+      if (categories.isEmpty && products.isEmpty) {
+        await _loadFromLocalCache();
+      }
+      return;
+    }
+
     final isSwitchingCafe = _activeLoadedCafeId != null && _activeLoadedCafeId != cafeId;
     _activeLoadedCafeId = cafeId;
 
@@ -1295,6 +1310,9 @@ class AppState extends ChangeNotifier {
   }
 
   void _startRealtimeListeners(String cafeId) {
+    if (cafeId.isEmpty || cafeId == 'local_default' || !ApiClient().isAuthenticated) {
+      return;
+    }
     try {
       SocketService().connect(token: ApiClient().token, cafeId: cafeId);
     } catch (_) {}
@@ -1819,6 +1837,9 @@ class AppState extends ChangeNotifier {
         }
 
         // Boshqa yangilanishlar (yangi ovqat yoki narx o'zgarganda)
+        if (!ApiClient().isAuthenticated || cafeId.isEmpty || cafeId == 'local_default') {
+          return;
+        }
         final freshProds = await _cloudService.getProducts(cafeId);
         products
           ..clear()
@@ -1834,6 +1855,9 @@ class AppState extends ChangeNotifier {
     _socketCategoriesSub?.cancel();
     _socketCategoriesSub = SocketService().on(CafeSocketEvent.categoriesUpdated).listen((data) async {
       try {
+        if (!ApiClient().isAuthenticated || cafeId.isEmpty || cafeId == 'local_default') {
+          return;
+        }
         final freshCats = await _cloudService.getCategories(cafeId);
         if (freshCats.isNotEmpty || categories.isNotEmpty) {
           categories
@@ -1879,7 +1903,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
 
-    if (isPrinterStation && cafeId.isNotEmpty) {
+    if (isPrinterStation && cafeId.isNotEmpty && cafeId != 'local_default') {
       SocketService().registerPrinterStation(
         cafeId,
         stationName: effectiveReceiptName.isNotEmpty ? effectiveReceiptName : 'Kassa stansiyasi',
@@ -1887,7 +1911,7 @@ class AppState extends ChangeNotifier {
       );
       _startPrinterStationHeartbeat();
       unawaited(_processPendingPrintJobs());
-    } else {
+    } else if (cafeId.isNotEmpty && cafeId != 'local_default') {
       unawaited(checkCloudPrinterStationStatus());
     }
 
@@ -3589,17 +3613,23 @@ class AppState extends ChangeNotifier {
     await _loadFromLocalCache();
     _reconcileAllTableStatuses();
 
-    try {
-      final profile = await _authService.getCurrentUserDetails();
-      if (profile != null) {
-        currentUser = profile;
-      }
-    } catch (_) {}
+    // Faqat tizimga kirilgan va token mavjud bo'lganda profil va bulut ma'lumotlarini yuklaymiz
+    if (ApiClient().isAuthenticated) {
+      try {
+        final profile = await _authService.getCurrentUserDetails();
+        if (profile != null) {
+          currentUser = profile;
+        }
+      } catch (_) {}
 
-    try {
-      await loadCloudDataForCafe(currentCafeId);
-    } catch (e) {
-      debugPrint('loadData cloud sync error: $e');
+      final cafe = currentCafeId;
+      if (cafe.isNotEmpty && cafe != 'local_default') {
+        try {
+          await loadCloudDataForCafe(cafe);
+        } catch (e) {
+          debugPrint('loadData cloud sync error: $e');
+        }
+      }
     }
 
     await saveData();
@@ -5361,7 +5391,9 @@ class _SplashScreenState extends State<SplashScreen>
 
       // 1. Avval saqlangan sessiyani tekshiramiz
       final savedUser = await appState.restoreUserSession();
-      if (savedUser != null) {
+      final hasToken = ApiClient().isAuthenticated;
+
+      if (savedUser != null && hasToken) {
         if (savedUser.role == UserRole.director) {
           if (!mounted) return;
           Navigator.of(context).pushReplacement(
@@ -5384,54 +5416,13 @@ class _SplashScreenState extends State<SplashScreen>
           return;
         }
 
-        try {
-          await appState.loadCloudDataForCafe(appState.currentCafeId);
-        } catch (e) {
-          debugPrint('Splash saved session load error: $e');
-        }
-        if (!mounted) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: 'dashboard'),
-            builder: (_) => const DashboardScreen(),
-          ),
-        );
-        return;
-      }
-
-      // 2. Agar Firebase / API sessiyasi bo'lsa
-      final fbUser = AuthService().currentFirebaseUser;
-      if (fbUser != null) {
-        try {
-          final profile = await AuthService().getCurrentUserDetails();
-          if (profile != null) {
-            await appState.saveUserSession(profile);
-
-            if (profile.role == UserRole.director) {
-              if (!mounted) return;
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(
-                  settings: const RouteSettings(name: 'director'),
-                  builder: (_) => DirectorScreen(directorUser: profile),
-                ),
-              );
-              return;
-            }
-
-            if (profile.isBlocked || profile.isExpired) {
-              if (!mounted) return;
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(
-                  settings: const RouteSettings(name: 'blocked'),
-                  builder: (_) => BlockedScreen(user: profile),
-                ),
-              );
-              return;
-            }
+        final cafeId = appState.currentCafeId;
+        if (cafeId.isNotEmpty && cafeId != 'local_default') {
+          try {
+            await appState.loadCloudDataForCafe(cafeId);
+          } catch (e) {
+            debugPrint('Splash saved session load error: $e');
           }
-          await appState.loadCloudDataForCafe(appState.currentCafeId);
-        } catch (e) {
-          debugPrint('Splash session check error: $e');
         }
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
@@ -5443,7 +5434,7 @@ class _SplashScreenState extends State<SplashScreen>
         return;
       }
 
-      // 3. Agar sessiya yo'q bo'lsa, AuthScreen ochiladi
+      // 2. Agar sessiya yoki token yo'q bo'lsa -> to'g'ridan-to'g'ri AuthScreen ochiladi
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -8238,7 +8229,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     if (state == AppLifecycleState.resumed) {
       _checkPing();
       final cafeId = appState.currentCafeId;
-      if (cafeId.isNotEmpty) {
+      if (cafeId.isNotEmpty && cafeId != 'local_default' && ApiClient().isAuthenticated) {
         if (!SocketService().isConnected) {
           SocketService().connect(cafeId: cafeId);
         }

@@ -194,15 +194,29 @@
   </div>
 
   <script>
+    var _zaveroLoaderRemoved = false;
     function hideLoader() {
+      if (_zaveroLoaderRemoved) return;
       var loader = document.getElementById('app-loading-container');
-      if (loader) {
+      if (!loader) {
+        _zaveroLoaderRemoved = true;
+        return;
+      }
+      try {
         loader.style.opacity = '0';
         loader.style.visibility = 'hidden';
-        setTimeout(function () {
-          if (loader.parentNode) loader.parentNode.removeChild(loader);
-        }, 400);
-      }
+      } catch (_) {}
+      setTimeout(function () {
+        if (_zaveroLoaderRemoved) return;
+        _zaveroLoaderRemoved = true;
+        try {
+          if (loader && loader.remove) {
+            loader.remove();
+          } else if (loader && loader.parentNode) {
+            loader.parentNode.removeChild(loader);
+          }
+        } catch (_) {}
+      }, 400);
     }
     window.addEventListener('flutter-first-frame', hideLoader);
     setTimeout(hideLoader, 6000);
@@ -228,8 +242,11 @@
       return new Promise(function (resolve) {
         try {
           var old = document.getElementById('zavero-receipt-iframe');
-          if (old && old.parentNode) {
-            old.parentNode.removeChild(old);
+          if (old) {
+            try {
+              if (old.remove) old.remove();
+              else if (old.parentNode) old.parentNode.removeChild(old);
+            } catch (_) {}
           }
           var iframe = document.createElement('iframe');
           iframe.id = 'zavero-receipt-iframe';
@@ -254,8 +271,9 @@
             cleaned = true;
             setTimeout(function () {
               try {
-                if (iframe && iframe.parentNode) {
-                  iframe.parentNode.removeChild(iframe);
+                if (iframe) {
+                  if (iframe.remove) iframe.remove();
+                  else if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
                 }
               } catch (_) { }
             }, 1500);
@@ -353,7 +371,12 @@
 
     window.zaveroShowReceiptModal = function (htmlContent) {
       var prev = document.getElementById('zavero-receipt-modal');
-      if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+      if (prev) {
+        try {
+          if (prev.remove) prev.remove();
+          else if (prev.parentNode) prev.parentNode.removeChild(prev);
+        } catch (_) {}
+      }
 
       var backdrop = document.createElement('div');
       backdrop.id = 'zavero-receipt-modal';
@@ -452,7 +475,12 @@
       printBtn.style.gap = '6px';
 
       var closeModal = function () {
-        if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+        try {
+          if (backdrop) {
+            if (backdrop.remove) backdrop.remove();
+            else if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+          }
+        } catch (_) {}
       };
 
       closeBtn.onclick = closeModal;

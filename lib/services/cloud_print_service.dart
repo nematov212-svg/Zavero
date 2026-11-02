@@ -54,6 +54,9 @@ class CloudPrintService {
 
   /// Kassa printer stansiyasining real holatini tekshirish
   Future<Map<String, dynamic>> getPrinterStationStatus(String cafeId) async {
+    if (cafeId.isEmpty || cafeId == 'local_default' || !ApiClient().isAuthenticated) {
+      return {'hasStation': false, 'isPrinterReady': false};
+    }
     try {
       final res = await ApiClient().get('/receipts/printer-status?cafeId=$cafeId').timeout(const Duration(seconds: 3));
       return res;

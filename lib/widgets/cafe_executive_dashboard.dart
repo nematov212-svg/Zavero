@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../main.dart';
 import '../services/socket_service.dart';
+import '../services/api_client.dart';
 import 'receipt_widget.dart';
 
 /// Image 2 ga 100% mos keluvchi professional SaaS Executive POS Dashboard.
@@ -436,7 +437,10 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     final isOnline = SocketService().isConnected;
     final statusBadge = InkWell(
       onTap: () {
-        if (!isOnline && appState.currentCafeId.isNotEmpty) {
+        if (!isOnline &&
+            appState.currentCafeId.isNotEmpty &&
+            appState.currentCafeId != 'local_default' &&
+            ApiClient().isAuthenticated) {
           SocketService().connect(cafeId: appState.currentCafeId);
           appState.fetchLiveTodayReport();
         }

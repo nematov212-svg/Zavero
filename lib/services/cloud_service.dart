@@ -91,7 +91,7 @@ class CloudService {
       'tableNotes': <int, String>{},
     };
 
-    if (_api.token == null || _api.token!.isEmpty) {
+    if (cafeId.isEmpty || cafeId == 'local_default' || !_api.isAuthenticated) {
       return result;
     }
 
@@ -645,6 +645,9 @@ class CloudService {
   // ============================================================
 
   Future<List<Product>> getProducts(String cafeId) async {
+    if (cafeId.isEmpty || cafeId == 'local_default' || !_api.isAuthenticated) {
+      return [];
+    }
     try {
       final res = await _api.get('/products');
       return _list(res['products'], Product.fromJson);
@@ -655,6 +658,9 @@ class CloudService {
   }
 
   Future<List<Category>> getCategories(String cafeId) async {
+    if (cafeId.isEmpty || cafeId == 'local_default' || !_api.isAuthenticated) {
+      return [];
+    }
     try {
       final res = await _api.get('/categories');
       return _list(res['categories'], Category.fromJson);
@@ -776,6 +782,9 @@ class CloudService {
   }
 
   Future<bool> getMaintenanceStatus() async {
+    if (!_api.isAuthenticated) {
+      return false;
+    }
     try {
       final res = await _api.get('/cafe/maintenance-status');
       return res['isUnderMaintenance'] == true;

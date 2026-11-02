@@ -70,6 +70,7 @@ class SocketService {
   Timer? _heartbeatTimer;
   bool _isPrinterStationRegistered = false;
   String? _printerStationCafeId;
+  bool _isConnecting = false;
 
   final Map<String, int> _lastEventTimestamps = {};
 
@@ -88,9 +89,26 @@ class SocketService {
   /// JWT token bilan socket ulanishini o'rnatish va cafe xonasiga qo'shilish.
   void connect({String? token, required String cafeId}) {
     final effectiveToken = token ?? ApiClient().token;
-    if (_socket != null && _connectedCafeId == cafeId && isConnected) return;
 
+    // Token yoki cafeId yo'q bo'lsa yoki local_default bo'lsa umuman ulanmasin
+    if (cafeId.isEmpty || cafeId == 'local_default') {
+      debugPrint('ℹ️ [SocketService] Ulanish bekor qilindi: yaroqsiz cafeId ("$cafeId")');
+      return;
+    }
+    if (effectiveToken == null || effectiveToken.isEmpty) {
+      debugPrint('ℹ️ [SocketService] Ulanish bekor qilindi: token topilmadi');
+      return;
+    }
+
+    // Duplicate ulanishni oldini olish: allaqachon shu cafeId bilan ulangan yoki ulanayotgan bo'lsa
+    if (_socket != null && _connectedCafeId == cafeId && (_isConnecting || isConnected)) {
+      return;
+    }
+
+    // Oldingi ulanishni yopish
     disconnect();
+
+    _isConnecting = true;
     _connectedCafeId = cafeId;
 
     final url = ApiClient().socketUrl;
@@ -98,56 +116,61 @@ class SocketService {
         .setTransports(['websocket', 'polling'])
         .enableAutoConnect()
         .enableReconnection()
-        .setReconnectionAttempts(999999)
-        .setReconnectionDelay(1000)
-        .setReconnectionDelayMax(5000)
-        .setTimeout(12000)
-        .enableForceNew();
-
-    if (effectiveToken != null && effectiveToken.isNotEmpty) {
-      options.setAuth({'token': effectiveToken});
-      options.setExtraHeaders({'Authorization': 'Bearer $effectiveToken'});
-    }
+        .setReconnectionAttempts(10) // Cheksiz loopni to'xtatish
+        .setReconnectionDelay(2000)
+        .setReconnectionDelayMax(30000) // Eksponentsial backoff (2s -> 30s)
+        .setTimeout(15000)
+        .setAuth({'token': effectiveToken})
+        .setExtraHeaders({'Authorization': 'Bearer $effectiveToken'});
 
     try {
       _socket = io.io(url, options.build());
 
       _socket!.onConnect((_) {
+        _isConnecting = false;
         debugPrint('🔌 SocketService: ulandi ($url)');
         _socket!.emit('JOIN_CAFE', {
           'cafeId': cafeId,
-          if (effectiveToken != null) 'token': effectiveToken,
+          'token': effectiveToken,
         });
         if (_isPrinterStationRegistered && _printerStationCafeId != null) {
           _socket!.emit('REGISTER_PRINTER_STATION', {'cafeId': _printerStationCafeId});
           debugPrint('🖨️ SocketService: Kassa printer stansiyasi qayta ro‘yxatga olindi');
         }
-        _notifyAllForResync();
+        if (ApiClient().isAuthenticated) {
+          _notifyAllForResync();
+        }
         _startHeartbeat(cafeId, effectiveToken);
       });
 
       _socket!.onReconnect((_) {
+        _isConnecting = false;
         debugPrint('🔄 SocketService: qayta ulandi ($url)');
         _socket!.emit('JOIN_CAFE', {
           'cafeId': cafeId,
-          if (effectiveToken != null) 'token': effectiveToken,
+          'token': effectiveToken,
         });
         if (_isPrinterStationRegistered && _printerStationCafeId != null) {
           _socket!.emit('REGISTER_PRINTER_STATION', {'cafeId': _printerStationCafeId});
           debugPrint('🖨️ SocketService: Kassa printer stansiyasi qayta ro‘yxatga olindi (reconnect)');
         }
-        _notifyAllForResync();
+        if (ApiClient().isAuthenticated) {
+          _notifyAllForResync();
+        }
       });
 
-      _socket!.onDisconnect((_) {
-        debugPrint('❌ SocketService: uzildi');
+      _socket!.onDisconnect((reason) {
+        _isConnecting = false;
+        debugPrint('❌ SocketService: uzildi ($reason)');
       });
 
       _socket!.onConnectError((e) {
+        _isConnecting = false;
         debugPrint('SocketService ulanish xatoligi: $e');
       });
 
       _socket!.onError((e) {
+        _isConnecting = false;
         debugPrint('SocketService xatoligi: $e');
       });
 
@@ -169,6 +192,7 @@ class SocketService {
         });
       }
     } catch (e) {
+      _isConnecting = false;
       debugPrint('SocketService init xatoligi: $e');
     }
   }
@@ -181,10 +205,6 @@ class SocketService {
           'cafeId': cafeId,
           if (token != null) 'token': token,
         });
-      } else if (_socket != null && !_socket!.connected) {
-        try {
-          _socket!.connect();
-        } catch (_) {}
       }
     });
   }
@@ -255,10 +275,15 @@ class SocketService {
   void disconnect() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-    try {
-      _socket?.dispose();
-    } catch (_) {}
-    _socket = null;
+    _isConnecting = false;
+    if (_socket != null) {
+      try {
+        _socket!.clearListeners();
+        _socket!.disconnect();
+        _socket!.dispose();
+      } catch (_) {}
+      _socket = null;
+    }
     _connectedCafeId = null;
   }
 

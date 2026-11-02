@@ -77,6 +77,7 @@ class AuthService {
         'password': password,
       }).timeout(const Duration(seconds: 25));
       final token = response['token'] as String;
+      final refreshToken = response['refreshToken'] as String?;
       final userJson = Map<String, dynamic>.from(response['user'] as Map);
 
       if (response['isBlocked'] == true) {
@@ -92,7 +93,7 @@ class AuthService {
         userJson['cafeEndDate'] = c['endDate']?.toString();
       }
 
-      await _api.setToken(token);
+      await _api.setToken(token, refreshToken: refreshToken);
       await _api.cacheUserJson(userJson);
       _applySession(userJson, token);
       return AppUser.fromJson(userJson);
@@ -149,8 +150,9 @@ class AuthService {
         'role': role.name,
       });
       final token = response['token'] as String;
+      final refreshToken = response['refreshToken'] as String?;
       final userJson = Map<String, dynamic>.from(response['user'] as Map);
-      await _api.setToken(token);
+      await _api.setToken(token, refreshToken: refreshToken);
       await _api.cacheUserJson(userJson);
       _applySession(userJson, token);
       // Eski Firestore oqimida register keyin initializeNewCafe chaqirilardi —
@@ -220,9 +222,10 @@ class AuthService {
       });
 
       final token = response['token'] as String?;
+      final refreshToken = response['refreshToken'] as String?;
       final userJson = Map<String, dynamic>.from(response['user'] as Map);
       if (token != null && token.isNotEmpty) {
-        await _api.setToken(token);
+        await _api.setToken(token, refreshToken: refreshToken);
         _applySession(userJson, token);
       }
       await _api.cacheUserJson(userJson);

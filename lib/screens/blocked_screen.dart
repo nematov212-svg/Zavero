@@ -25,7 +25,7 @@ class _BlockedScreenState extends State<BlockedScreen> {
   void initState() {
     super.initState();
     final cafeId = widget.user.workspaceId;
-    if (cafeId.isNotEmpty) {
+    if (cafeId.isNotEmpty && cafeId != 'local_default' && ApiClient().isAuthenticated) {
       SocketService().connect(cafeId: cafeId);
       _subExtSub = SocketService().on(CafeSocketEvent.subscriptionExtended).listen((data) {
         if (mounted) {
