@@ -1467,6 +1467,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       left: tooltipLeft,
       top: 15,
       child: Container(
+        constraints: BoxConstraints(
+          maxWidth: (totalWidth - 32).clamp(140.0, 300.0),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF0F172A) : Colors.white,
@@ -1494,41 +1497,37 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 fontWeight: FontWeight.w800,
                 color: isDark ? Colors.white : const Color(0xFF0F172A),
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    'Daromad: ${_formatMoney(revenues[safeIdx])} so\'m',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                Text(
+                  'Daromad: ${_formatMoney(revenues[safeIdx])} so\'m',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 2),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    'Buyurtmalar: ${orders[safeIdx]} ta',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                Text(
+                  'Buyurtmalar: ${orders[safeIdx]} ta',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
                   ),
                 ),
               ],
