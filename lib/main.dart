@@ -48,10 +48,20 @@ import 'widgets/cafe_executive_dashboard.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. Production Global Crash & Error Boundary Handlers
+  // 1. Production Global Crash & Error Boundary Handlers with deduplication
+  DateTime? lastErrorTime;
+  String? lastErrorMessage;
+
   FlutterError.onError = (FlutterErrorDetails details) {
+    final msg = details.exceptionAsString();
+    final now = DateTime.now();
+    if (lastErrorMessage == msg && lastErrorTime != null && now.difference(lastErrorTime!).inMilliseconds < 1000) {
+      return; // Deduplicate repeating errors within 1 second
+    }
+    lastErrorMessage = msg;
+    lastErrorTime = now;
     FlutterError.presentError(details);
-    debugPrint('🛡️ [Global FlutterError] ${details.exceptionAsString()}');
+    debugPrint('🛡️ [Global FlutterError] $msg');
   };
 
   WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
@@ -579,14 +589,55 @@ class AppState extends ChangeNotifier {
     final totalOrders = baseOrders + extraOrders;
     final avg = totalOrders > 0 ? (totalRev / totalOrders).round() : 0;
 
+    // Top mahsulotlarni pending kvitansiyalar bilan birlashtiramiz (Donut va hisobot nomutanosibligini yo'qotadi)
+    final productMap = <String, ({int qty, int rev})>{};
+    for (final p in (base?.topProducts ?? const <TodayProductMetric>[])) {
+      productMap[p.name] = (qty: p.quantity, rev: p.totalRevenue);
+    }
+    for (final r in pending) {
+      for (final item in r.items) {
+        final name = item.product.name.trim();
+        if (name.isEmpty) continue;
+        final current = productMap[name] ?? (qty: 0, rev: 0);
+        productMap[name] = (
+          qty: current.qty + item.qty,
+          rev: current.rev + (item.product.price * item.qty).round(),
+        );
+      }
+    }
+    final mergedTopProducts = productMap.entries.map((e) => TodayProductMetric(
+      name: e.key,
+      quantity: e.value.qty,
+      totalRevenue: e.value.rev,
+    )).toList()..sort((a, b) => b.quantity.compareTo(a.quantity));
+
+    // Ofitsiantlar statistikasini pending kvitansiyalar bilan birlashtiramiz
+    final waiterMap = <String, ({int count, int rev})>{};
+    for (final w in (base?.waiters ?? const <TodayWaiterMetric>[])) {
+      waiterMap[w.name] = (count: w.orderCount, rev: w.totalRevenue);
+    }
+    for (final r in pending) {
+      final name = r.cashierName.trim().isNotEmpty ? r.cashierName.trim() : 'Kassa';
+      final current = waiterMap[name] ?? (count: 0, rev: 0);
+      waiterMap[name] = (
+        count: current.count + 1,
+        rev: current.rev + r.total.round(),
+      );
+    }
+    final mergedWaiters = waiterMap.entries.map((e) => TodayWaiterMetric(
+      name: e.key,
+      orderCount: e.value.count,
+      totalRevenue: e.value.rev,
+    )).toList()..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+
     return TodayReportSummary(
       totalRevenue: totalRev,
       orderCount: totalOrders,
       cashTotal: baseCash + extraCash,
       cardTotal: baseCard + extraCard,
       averageCheck: avg,
-      waiters: base?.waiters ?? const [],
-      topProducts: base?.topProducts ?? const [],
+      waiters: mergedWaiters,
+      topProducts: mergedTopProducts,
       updatedAt: DateTime.now(),
     );
   }
@@ -4970,7 +5021,8 @@ ThemeData buildDarkTheme() {
 /// floating qilib ekranni to'sib qo'ymasligini ta'minlaydi va bir marta bosishda yo'qotadi.
 void showZaveroSnackBar({
   required String message,
-  Color backgroundColor = const Color(0xFF1E293B),
+  bool isError = false,
+  Color? backgroundColor,
   Duration duration = const Duration(milliseconds: 3200),
   SnackBarAction? action,
   String? actionLabel,
@@ -4978,20 +5030,23 @@ void showZaveroSnackBar({
   IconData? prefixIcon,
   BuildContext? context,
 }) {
-  // Har doim global root messengerKey ishlatiladi — bu deactivated context xatolarini 100% to'sadi
-  final messenger = appMessengerKey.currentState;
+  final messenger = rootMessengerKey.currentState ?? appMessengerKey.currentState;
   if (messenger == null) return;
 
-  // Oldingi xabarni darhol yashiramiz (bir-birining ustiga tushib xalaqit qilmasligi uchun)
-  messenger.hideCurrentSnackBar();
+  // Xabarlarni animatsiyasiz darhol tozalash (Ticker loop va ziddiyatlarning oldini oladi)
+  messenger.clearSnackBars();
+
+  final effectiveBgColor = backgroundColor ??
+      (isError ? const Color(0xFFEF4444) : const Color(0xFF1E293B));
+  final effectiveIcon = prefixIcon ?? (isError ? Icons.error_outline : null);
 
   messenger.showSnackBar(
     SnackBar(
       content: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (prefixIcon != null) ...[
-            Icon(prefixIcon, color: Colors.white, size: 19),
+          if (effectiveIcon != null) ...[
+            Icon(effectiveIcon, color: Colors.white, size: 19),
             const SizedBox(width: 10),
           ],
           Expanded(
@@ -5011,7 +5066,7 @@ void showZaveroSnackBar({
             const SizedBox(width: 8),
             InkWell(
               onTap: () {
-                messenger.hideCurrentSnackBar();
+                messenger.clearSnackBars();
                 action.onPressed();
               },
               borderRadius: BorderRadius.circular(6),
@@ -5035,7 +5090,7 @@ void showZaveroSnackBar({
             const SizedBox(width: 8),
             InkWell(
               onTap: () {
-                messenger.hideCurrentSnackBar();
+                messenger.clearSnackBars();
                 onAction();
               },
               borderRadius: BorderRadius.circular(6),
@@ -5059,7 +5114,7 @@ void showZaveroSnackBar({
           const SizedBox(width: 10),
           // Bitta bosishda xabarni yo'qotuvchi [X] tugmasi (barcha yashil, qizil, ma'lumot xabarlari uchun)
           InkWell(
-            onTap: () => messenger.hideCurrentSnackBar(),
+            onTap: () => messenger.clearSnackBars(),
             borderRadius: BorderRadius.circular(16),
             child: Container(
               padding: const EdgeInsets.all(4),
@@ -5072,7 +5127,7 @@ void showZaveroSnackBar({
           ),
         ],
       ),
-      backgroundColor: backgroundColor,
+      backgroundColor: effectiveBgColor,
       duration: duration,
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -8097,10 +8152,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     if (_selectedDateRange != null) {
       final s = _selectedDateRange!.start;
       final e = _selectedDateRange!.end;
-      return '${s.day.toString().padLeft(2, '0')}.${s.month.toString().padLeft(2, '0')}.${s.year} - ${e.day.toString().padLeft(2, '0')}.${e.month.toString().padLeft(2, '0')}.${e.year}';
+      final sStr = '${s.day.toString().padLeft(2, '0')}.${s.month.toString().padLeft(2, '0')}.${s.year}';
+      final eStr = '${e.day.toString().padLeft(2, '0')}.${e.month.toString().padLeft(2, '0')}.${e.year}';
+      return sStr == eStr ? sStr : '$sStr - $eStr';
     }
-    final todayStr = '${nowT.day.toString().padLeft(2, '0')}.${nowT.month.toString().padLeft(2, '0')}.${nowT.year}';
-    return '$todayStr - $todayStr';
+    return '${nowT.day.toString().padLeft(2, '0')}.${nowT.month.toString().padLeft(2, '0')}.${nowT.year}';
   }
 
   // ── Network ping state ──────────────────────────────────────────
@@ -12998,6 +13054,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     // ── TRY 3: UI NAVIGATSIYA VA XABARNOMA (Alohida xavfsiz blok) ──
     try {
+      rootMessengerKey.currentState?.clearSnackBars();
+      final rootNav = appNavigatorKey.currentState ?? nav;
+      if (rootNav.canPop()) {
+        rootNav.popUntil((route) => route.isFirst);
+      }
+
       if (!isPrinterReady) {
         showZaveroSnackBar(
           message: "To'lov qabul qilindi. Printer oflayn bo'lgani sababli chek Cheklar tarixiga saqlandi.",
@@ -13008,7 +13070,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             label: "Cheklar tarixi",
             textColor: Colors.white,
             onPressed: () {
-              appMessengerKey.currentState?.hideCurrentSnackBar();
+              rootMessengerKey.currentState?.clearSnackBars();
               appNavigatorKey.currentState?.push(
                 MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
               );
@@ -13022,11 +13084,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
           duration: const Duration(milliseconds: 2200),
           prefixIcon: Icons.check_circle_outline,
         );
-      }
-
-      final rootNav = appNavigatorKey.currentState ?? nav;
-      if (rootNav.canPop()) {
-        rootNav.popUntil((route) => route.isFirst);
       }
     } catch (uiError) {
       debugPrint('UI navigation notice: $uiError');

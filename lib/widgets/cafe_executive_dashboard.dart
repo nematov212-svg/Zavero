@@ -85,7 +85,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     final double prevAvgCheck = prevOrders > 0 ? (prevRevenue / prevOrders) : 0.0;
     _cachedAvgCheckGrowth = _calcGrowthString(_cachedAvgCheck, prevAvgCheck);
 
-    _cachedUniqueCustomers = _cachedTotalOrders > 0 ? (_cachedTotalOrders * 0.78).round().clamp(1, 999999) : 0;
     _cachedOpenOrdersCount = appState.tables.where((t) => t.status == TableStatus.occupied).length;
 
     // Bugungi statistika — Server SQL yagona haqiqat manbai + lokal oflayn to'lovlar
@@ -120,6 +119,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       _cachedCashPct = _cachedTotalRevenue > 0 ? ((_cachedCashTotal / _cachedTotalRevenue) * 100).round() : 0;
       _cachedCardPct = _cachedTotalRevenue > 0 ? ((_cachedCardTotal / _cachedTotalRevenue) * 100).round() : 0;
     }
+
+    _cachedUniqueCustomers = _cachedTotalOrders > 0 ? (_cachedTotalOrders * 0.78).round().clamp(1, 999999) : 0;
 
     // Ofitsiantlar bo'yicha savdo
     final Map<String, _WaiterSales> waiterMap = {};

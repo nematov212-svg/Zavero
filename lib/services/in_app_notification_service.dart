@@ -5,6 +5,7 @@ import 'sound_service.dart';
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 final GlobalKey<ScaffoldMessengerState> appMessengerKey = GlobalKey<ScaffoldMessengerState>();
+final GlobalKey<ScaffoldMessengerState> rootMessengerKey = appMessengerKey;
 
 class InAppNotificationService {
   static final InAppNotificationService _instance = InAppNotificationService._internal();
