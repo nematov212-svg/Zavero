@@ -8986,9 +8986,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                   radius: 16,
                                   backgroundColor: const Color(0xFF2563EB),
                                   child: Text(
-                                    (user?.name != null && user!.name.isNotEmpty)
-                                        ? user!.name.substring(0, 1).toUpperCase()
-                                        : 'I',
+                                    ((user?.name != null && user!.name.isNotEmpty)
+                                        ? user.name.substring(0, 1).toUpperCase()
+                                        : 'I'),
                                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                                   ),
                                 ),

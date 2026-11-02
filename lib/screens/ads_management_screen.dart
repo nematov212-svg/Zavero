@@ -444,7 +444,7 @@ class _AdsManagementScreenState extends State<AdsManagementScreen> {
                                   if (dialogCtx.mounted) {
                                     Navigator.pop(dialogCtx);
                                   }
-                                  if (mounted) {
+                                  if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text('Reklama muvaffaqiyatli saqlandi! QR Menyu darhol yangilandi.'),

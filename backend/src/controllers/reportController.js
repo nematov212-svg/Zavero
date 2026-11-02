@@ -17,7 +17,7 @@ const getTodayReportData = async (cafeId) => {
       queryParams.push(new Date(settingsData.reports_reset_at));
       resetCondition = ' AND (created_at >= $2 OR date >= $2)';
     }
-  } catch (_) { }
+  } catch (_) {}
 
   const summaryRes = await db.query(
     `SELECT 
