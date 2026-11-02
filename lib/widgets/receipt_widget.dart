@@ -269,9 +269,12 @@ class ReceiptWidget extends StatelessWidget {
                         cashier: cashier,
                       ),
                       const SizedBox(height: 6),
-                      const CustomPaint(
-                        size: Size(double.infinity, 4),
-                        painter: DashedLinePainter(),
+                      const SizedBox(
+                        width: double.infinity,
+                        height: 4,
+                        child: CustomPaint(
+                          painter: DashedLinePainter(),
+                        ),
                       ),
                       const SizedBox(height: 6),
 
@@ -288,9 +291,12 @@ class ReceiptWidget extends StatelessWidget {
                         grandTotalVal: finalTotal,
                       ),
                       const SizedBox(height: 6),
-                      const CustomPaint(
-                        size: Size(double.infinity, 4),
-                        painter: DashedLinePainter(),
+                      const SizedBox(
+                        width: double.infinity,
+                        height: 4,
+                        child: CustomPaint(
+                          painter: DashedLinePainter(),
+                        ),
                       ),
                       const SizedBox(height: 12),
 

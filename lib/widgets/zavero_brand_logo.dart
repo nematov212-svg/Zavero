@@ -16,6 +16,7 @@ class ZaveroBrandLogo extends StatefulWidget {
     this.isWhite = false,
     this.animatedSparks = true,
   });
+  
 
   @override
   State<ZaveroBrandLogo> createState() => _ZaveroBrandLogoState();
