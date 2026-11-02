@@ -6,6 +6,8 @@ const db = require('../config/db');
 const {
   getIo,
   getPrinterStationCount,
+  getActiveStationInfo,
+  notifyCafe,
   isJobDuplicate,
   printerRoom,
 } = require('../socket/socketHandler');
@@ -26,7 +28,7 @@ router.get('/pending-jobs', async (req, res) => {
         const jwt = require('jsonwebtoken');
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
         cafeId = decoded.cafeId;
-      } catch (_) {}
+      } catch (_) { }
     }
 
     if (!cafeId) {
@@ -51,10 +53,14 @@ router.get('/pending-jobs', async (req, res) => {
 router.post('/print-jobs/:id/complete', async (req, res) => {
   try {
     const { id } = req.params;
-    await db.query(
-      `UPDATE print_jobs SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = $1`,
+    const upd = await db.query(
+      `UPDATE print_jobs SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING cafe_id, type`,
       [id]
     );
+    const cafeId = upd.rows[0]?.cafe_id;
+    if (cafeId) {
+      notifyCafe(cafeId, 'PRINT_JOB_COMPLETED', { id, success: true });
+    }
     return res.json({ success: true, id, status: 'completed' });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -66,10 +72,14 @@ router.post('/print-jobs/:id/fail', async (req, res) => {
   try {
     const { id } = req.params;
     const { error } = req.body || {};
-    await db.query(
-      `UPDATE print_jobs SET status = 'failed', error_message = $2 WHERE id = $1`,
+    const upd = await db.query(
+      `UPDATE print_jobs SET status = 'failed', error_message = $2 WHERE id = $1 RETURNING cafe_id, type`,
       [id, error || 'Chop etishda xatolik']
     );
+    const cafeId = upd.rows[0]?.cafe_id;
+    if (cafeId) {
+      notifyCafe(cafeId, 'PRINT_JOB_FAILED', { id, success: false, error: error || 'Chop etishda xatolik' });
+    }
     return res.json({ success: true, id, status: 'failed' });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -85,9 +95,15 @@ router.post('/checkout', c.checkout);
 
 // GET /api/receipts/printer-status — Check if any printer station is currently active for this cafe
 router.get('/printer-status', (req, res) => {
-  const cafeId = req.user?.cafeId;
-  const count = getPrinterStationCount(cafeId);
-  res.json({ success: true, hasStation: count > 0, stationCount: count });
+  const cafeId = req.user?.cafeId || req.query?.cafeId;
+  const info = getActiveStationInfo(cafeId);
+  res.json({
+    success: true,
+    hasStation: info.hasStation,
+    stationCount: info.stationCount,
+    stationName: info.stationName,
+    isPrinterReady: info.isPrinterReady,
+  });
 });
 
 // POST /api/receipts/print-job — Remote Cloud/Station print dispatch & Database persistence
@@ -98,7 +114,8 @@ router.post('/print-job', async (req, res) => {
   }
 
   const cafeStr = String(cafeId);
-  const count = getPrinterStationCount(cafeStr);
+  const info = getActiveStationInfo(cafeStr);
+  const hasActive = info.hasStation && info.isPrinterReady;
   const job = req.body || {};
   const jobId = job.id || `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -106,13 +123,14 @@ router.post('/print-job', async (req, res) => {
   if (isJobDuplicate(cafeStr, jobId)) {
     return res.json({
       success: true,
-      routedToStation: true,
+      routedToStation: hasActive,
       duplicate: true,
+      hasActiveStation: hasActive,
       message: 'Chek allaqachon yuborilgan (takroriy bosish oldi olindi)',
     });
   }
 
-  // 2. Bazaga navbatga (print_jobs) saqlaymiz (agar agent/kassa offline bo'lsa ham yo'qolmaydi)
+  // 2. Bazaga navbatga (print_jobs) saqlaymiz (agar kassa offline bo'lsa ham yo'qolmaydi)
   try {
     await db.query(
       `INSERT INTO print_jobs (
@@ -143,27 +161,35 @@ router.post('/print-job', async (req, res) => {
   }
 
   // 3. Agar ulangan kassa printer stansiyalari bo'lsa, real-time Socket.IO orqali darhol uzatamiz
-  const io = getIo();
-  if (io && count > 0) {
-    io.to(printerRoom(cafeStr)).emit('EXECUTE_PRINT_JOB', {
-      ...job,
-      id: jobId,
-      cafeId: cafeStr,
-      timestamp: new Date().toISOString(),
+  if (hasActive) {
+    const io = getIo();
+    if (io) {
+      io.to(printerRoom(cafeStr)).emit('EXECUTE_PRINT_JOB', {
+        ...job,
+        id: jobId,
+        cafeId: cafeStr,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      routedToStation: true,
+      hasActiveStation: true,
+      stationName: info.stationName,
+      jobId,
+      message: 'Chek kassa printeriga yuborildi',
+    });
+  } else {
+    // Stansiya yo'q yoki oflayn
+    return res.json({
+      success: true,
+      routedToStation: false,
+      hasActiveStation: false,
+      jobId,
+      message: 'Kassa printeri oflayn. Chek kassa navbatiga saqlandi, kassa ulanganda avtomatik chop etiladi',
     });
   }
-
-  const message = count > 0
-    ? 'Chek kassa printeriga yuborildi va chop etilmoqda'
-    : 'Chek navbatda, printer ulanganda chiqadi';
-
-  return res.json({
-    success: true,
-    routedToStation: true,
-    jobId,
-    message,
-    hasActiveStation: count > 0,
-  });
 });
 
 module.exports = router;

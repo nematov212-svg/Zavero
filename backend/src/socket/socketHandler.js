@@ -6,15 +6,42 @@ let ioInstance = null;
 const cafeRoom = (cafeId) => `cafe_${cafeId}`;
 const printerRoom = (cafeId) => `printer_${cafeId}`;
 
-// Real-time Printer Stations Tracking (Cafe ID -> Set of socket.id)
-const printerStationsByCafe = new Map();
+// Real-time Printer Stations Tracking (Cafe ID -> Map of socket.id -> station details)
+const printerStationDetailsByCafe = new Map();
 // Deduplication cache: `${cafeId}_${jobId}` -> timestamp (5 second debounce)
 const recentPrintJobs = new Map();
 
+const getActiveStationInfo = (cafeId) => {
+  if (!cafeId) return { hasStation: false, stationCount: 0, stationName: null, isPrinterReady: false };
+  const cafeStr = String(cafeId);
+  const map = printerStationDetailsByCafe.get(cafeStr);
+  if (!map || map.size === 0) {
+    return { hasStation: false, stationCount: 0, stationName: null, isPrinterReady: false };
+  }
+  const now = Date.now();
+  let validCount = 0;
+  let activeName = null;
+  let anyReady = false;
+  for (const [sId, info] of map.entries()) {
+    // If heartbeat received within last 12 seconds
+    if (now - info.lastHeartbeat < 12000) {
+      validCount++;
+      activeName = info.stationName || activeName || 'Kassa stansiyasi';
+      if (info.isPrinterReady) anyReady = true;
+    } else {
+      map.delete(sId);
+    }
+  }
+  return {
+    hasStation: validCount > 0,
+    stationCount: validCount,
+    stationName: activeName,
+    isPrinterReady: anyReady,
+  };
+};
+
 const getPrinterStationCount = (cafeId) => {
-  if (!cafeId) return 0;
-  const set = printerStationsByCafe.get(String(cafeId));
-  return set ? set.size : 0;
+  return getActiveStationInfo(cafeId).stationCount;
 };
 
 const isJobDuplicate = (cafeId, jobId) => {
@@ -167,15 +194,46 @@ const initSocket = (io) => {
       if (!cafeId) return;
       const cafeStr = String(cafeId);
       socket.join(printerRoom(cafeStr));
-      if (!printerStationsByCafe.has(cafeStr)) {
-        printerStationsByCafe.set(cafeStr, new Set());
+      if (!printerStationDetailsByCafe.has(cafeStr)) {
+        printerStationDetailsByCafe.set(cafeStr, new Map());
       }
-      printerStationsByCafe.get(cafeStr).add(socket.id);
+      const stationName = data.stationName || 'Kassa stansiyasi';
+      const isPrinterReady = data.isPrinterReady !== false;
+      printerStationDetailsByCafe.get(cafeStr).set(socket.id, {
+        socketId: socket.id,
+        stationName,
+        isPrinterReady,
+        lastHeartbeat: Date.now(),
+      });
       socket.isPrinterStation = true;
       socket.printerCafeId = cafeStr;
-      const count = printerStationsByCafe.get(cafeStr).size;
-      console.log(`🖨️ [Socket.IO] Printer station registered for cafe ${cafeStr}: ${socket.id} (total: ${count})`);
-      socket.emit('PRINTER_STATION_STATUS', { registered: true, cafeId: cafeStr, count });
+      socket.stationName = stationName;
+      const info = getActiveStationInfo(cafeStr);
+      console.log(`🖨️ [Socket.IO] Printer station registered for cafe ${cafeStr}: ${socket.id} (${stationName}, ready: ${isPrinterReady})`);
+      socket.emit('PRINTER_STATION_STATUS', { registered: true, cafeId: cafeStr, ...info });
+      // Broadcast station status to all waiter/mobile devices in cafe
+      notifyCafe(cafeStr, 'PRINTER_STATION_STATUS_CHANGED', info);
+    });
+
+    socket.on('PRINTER_STATION_HEARTBEAT', (data = {}) => {
+      const cafeId = socket.user?.cafeId || data.cafeId || socket.printerCafeId;
+      if (!cafeId) return;
+      const cafeStr = String(cafeId);
+      if (!printerStationDetailsByCafe.has(cafeStr)) {
+        printerStationDetailsByCafe.set(cafeStr, new Map());
+      }
+      const stationName = data.stationName || socket.stationName || 'Kassa stansiyasi';
+      const isPrinterReady = data.isPrinterReady !== false;
+      const prevInfo = getActiveStationInfo(cafeStr);
+      printerStationDetailsByCafe.get(cafeStr).set(socket.id, {
+        socketId: socket.id,
+        stationName,
+        isPrinterReady,
+        lastHeartbeat: Date.now(),
+      });
+      if (prevInfo.isPrinterReady !== isPrinterReady) {
+        notifyCafe(cafeStr, 'PRINTER_STATION_STATUS_CHANGED', getActiveStationInfo(cafeStr));
+      }
     });
 
     socket.on('UNREGISTER_PRINTER_STATION', (data = {}) => {
@@ -183,13 +241,14 @@ const initSocket = (io) => {
       if (!cafeId) return;
       const cafeStr = String(cafeId);
       socket.leave(printerRoom(cafeStr));
-      if (printerStationsByCafe.has(cafeStr)) {
-        printerStationsByCafe.get(cafeStr).delete(socket.id);
+      if (printerStationDetailsByCafe.has(cafeStr)) {
+        printerStationDetailsByCafe.get(cafeStr).delete(socket.id);
       }
       socket.isPrinterStation = false;
-      const count = printerStationsByCafe.get(cafeStr)?.size || 0;
-      console.log(`🖨️ [Socket.IO] Printer station unregistered for cafe ${cafeStr}: ${socket.id} (remaining: ${count})`);
-      socket.emit('PRINTER_STATION_STATUS', { registered: false, cafeId: cafeStr, count });
+      const info = getActiveStationInfo(cafeStr);
+      console.log(`🖨️ [Socket.IO] Printer station unregistered for cafe ${cafeStr}: ${socket.id} (remaining: ${info.stationCount})`);
+      socket.emit('PRINTER_STATION_STATUS', { registered: false, cafeId: cafeStr, ...info });
+      notifyCafe(cafeStr, 'PRINTER_STATION_STATUS_CHANGED', info);
     });
 
     socket.on('REQUEST_PRINT_JOB', (job = {}, callback) => {
@@ -200,9 +259,14 @@ const initSocket = (io) => {
         return socket.emit('PRINT_JOB_RESULT', { id: job.id, ...res });
       }
       const cafeStr = String(cafeId);
-      const count = getPrinterStationCount(cafeStr);
-      if (count === 0) {
-        const res = { success: false, routedToStation: false, message: 'Printer qurilmasi ulanmagan' };
+      const stationInfo = getActiveStationInfo(cafeStr);
+      if (!stationInfo.hasStation || !stationInfo.isPrinterReady) {
+        const res = {
+          success: false,
+          routedToStation: false,
+          hasActiveStation: false,
+          message: 'Kassa printeri oflayn yoki ulanmagan',
+        };
         if (typeof callback === 'function') callback(res);
         return socket.emit('PRINT_JOB_RESULT', { id: job.id, ...res });
       }
@@ -221,18 +285,19 @@ const initSocket = (io) => {
         cafeId: cafeStr,
         timestamp: new Date().toISOString(),
       });
-      console.log(`🖨️ [Socket.IO] Print job ${job.id || 'unknown'} (${job.type || 'receipt'}) forwarded to ${printerRoom(cafeStr)} (${count} stations)`);
+      console.log(`🖨️ [Socket.IO] Print job ${job.id || 'unknown'} (${job.type || 'receipt'}) forwarded to ${printerRoom(cafeStr)} (${stationInfo.stationName})`);
 
-      const res = { success: true, routedToStation: true, message: 'Chek kassa printeriga yuborildi va chop etilmoqda' };
+      const res = { success: true, routedToStation: true, hasActiveStation: true, message: 'Chek kassa printeriga yuborildi' };
       if (typeof callback === 'function') callback(res);
       socket.emit('PRINT_JOB_RESULT', { id: job.id, ...res });
     });
 
     socket.on('disconnect', (reason) => {
-      if (socket.printerCafeId && printerStationsByCafe.has(socket.printerCafeId)) {
-        printerStationsByCafe.get(socket.printerCafeId).delete(socket.id);
-        const rem = printerStationsByCafe.get(socket.printerCafeId).size;
-        console.log(`🖨️ [Socket.IO] Printer station disconnected: ${socket.id} (remaining: ${rem})`);
+      if (socket.printerCafeId && printerStationDetailsByCafe.has(socket.printerCafeId)) {
+        printerStationDetailsByCafe.get(socket.printerCafeId).delete(socket.id);
+        const info = getActiveStationInfo(socket.printerCafeId);
+        console.log(`🖨️ [Socket.IO] Printer station disconnected: ${socket.id} (remaining: ${info.stationCount})`);
+        notifyCafe(socket.printerCafeId, 'PRINTER_STATION_STATUS_CHANGED', info);
       }
       console.log(`❌ [Socket.IO] Disconnected: ${socket.id} (${reason})`);
     });
@@ -289,6 +354,7 @@ module.exports = {
   notifyDirector,
   getIo,
   getPrinterStationCount,
+  getActiveStationInfo,
   isJobDuplicate,
   printerRoom,
 };

@@ -26,6 +26,9 @@ enum CafeSocketEvent {
   subscriptionExtended,
   bannersUpdated,
   executePrintJob,
+  printerStationStatusChanged,
+  printJobCompleted,
+  printJobFailed,
 }
 
 const Map<CafeSocketEvent, String> _eventNames = {
@@ -50,6 +53,9 @@ const Map<CafeSocketEvent, String> _eventNames = {
   CafeSocketEvent.subscriptionExtended: 'SUBSCRIPTION_EXTENDED',
   CafeSocketEvent.bannersUpdated: 'BANNERS_UPDATED',
   CafeSocketEvent.executePrintJob: 'EXECUTE_PRINT_JOB',
+  CafeSocketEvent.printerStationStatusChanged: 'PRINTER_STATION_STATUS_CHANGED',
+  CafeSocketEvent.printJobCompleted: 'PRINT_JOB_COMPLETED',
+  CafeSocketEvent.printJobFailed: 'PRINT_JOB_FAILED',
 };
 
 /// socket_io_client ustidan qatlam: JWT bilan ulanish, JOIN_CAFE,
@@ -212,12 +218,27 @@ class SocketService {
   }
 
   /// Kassa qurilmasini printer stansiyasi sifatida ro'yxatga olish
-  void registerPrinterStation(String cafeId) {
+  void registerPrinterStation(String cafeId, {String? stationName, bool isPrinterReady = true}) {
     _isPrinterStationRegistered = true;
     _printerStationCafeId = cafeId;
     if (_socket != null && _socket!.connected) {
-      _socket!.emit('REGISTER_PRINTER_STATION', {'cafeId': cafeId});
-      debugPrint('🖨️ SocketService: REGISTER_PRINTER_STATION yuborildi ($cafeId)');
+      _socket!.emit('REGISTER_PRINTER_STATION', {
+        'cafeId': cafeId,
+        'stationName': stationName,
+        'isPrinterReady': isPrinterReady,
+      });
+      debugPrint('🖨️ SocketService: REGISTER_PRINTER_STATION yuborildi ($cafeId, $stationName, ready: $isPrinterReady)');
+    }
+  }
+
+  /// Kassa stansiyasi har 4 soniyada heartbeat yuboradi
+  void emitPrinterStationHeartbeat(String cafeId, {String? stationName, bool isPrinterReady = true}) {
+    if (_socket != null && _socket!.connected) {
+      _socket!.emit('PRINTER_STATION_HEARTBEAT', {
+        'cafeId': cafeId,
+        'stationName': stationName,
+        'isPrinterReady': isPrinterReady,
+      });
     }
   }
 

@@ -88,11 +88,12 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     _cachedUniqueCustomers = _cachedTotalOrders > 0 ? (_cachedTotalOrders * 0.78).round().clamp(1, 999999) : 0;
     _cachedOpenOrdersCount = appState.tables.where((t) => t.status == TableStatus.occupied).length;
 
-    // Bugungi statistika — Server SQL yagona haqiqat manbai (Single Source of Truth)
-    if (appState.liveTodayReport != null) {
-      _cachedTodayRevenue = appState.liveTodayReport!.totalRevenue.toDouble();
-      _cachedTodayOrders = appState.liveTodayReport!.orderCount;
-      _cachedTodayAvgCheck = appState.liveTodayReport!.averageCheck.toDouble();
+    // Bugungi statistika — Server SQL yagona haqiqat manbai + lokal oflayn to'lovlar
+    final effectiveRep = appState.effectiveTodayReport;
+    if (effectiveRep != null) {
+      _cachedTodayRevenue = effectiveRep.totalRevenue.toDouble();
+      _cachedTodayOrders = effectiveRep.orderCount;
+      _cachedTodayAvgCheck = effectiveRep.averageCheck.toDouble();
     } else {
       final todayReceipts = allReceipts.where((r) => _isSameDay(r.date, now)).toList();
       _cachedTodayRevenue = todayReceipts.fold(0.0, (sum, r) => sum + r.total);
@@ -101,12 +102,12 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     }
 
     // Naqd vs Karta taqsimoti
-    if (_selectedPeriod == _DashboardPeriod.bugun && appState.liveTodayReport != null) {
-      _cachedTotalRevenue = appState.liveTodayReport!.totalRevenue.toDouble();
-      _cachedTotalOrders = appState.liveTodayReport!.orderCount;
-      _cachedAvgCheck = appState.liveTodayReport!.averageCheck.toDouble();
-      _cachedCashTotal = appState.liveTodayReport!.cashTotal.toDouble();
-      _cachedCardTotal = appState.liveTodayReport!.cardTotal.toDouble();
+    if (_selectedPeriod == _DashboardPeriod.bugun && effectiveRep != null) {
+      _cachedTotalRevenue = effectiveRep.totalRevenue.toDouble();
+      _cachedTotalOrders = effectiveRep.orderCount;
+      _cachedAvgCheck = effectiveRep.averageCheck.toDouble();
+      _cachedCashTotal = effectiveRep.cashTotal.toDouble();
+      _cachedCardTotal = effectiveRep.cardTotal.toDouble();
       _cachedCashPct = _cachedTotalRevenue > 0 ? ((_cachedCashTotal / _cachedTotalRevenue) * 100).round() : 0;
       _cachedCardPct = _cachedTotalRevenue > 0 ? ((_cachedCardTotal / _cachedTotalRevenue) * 100).round() : 0;
     } else {
@@ -273,8 +274,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
 
         // Faqat cheklar, server live hisoboti yoki davr o'zgargandagina qayta hisoblaymiz
         final receiptsHash = Object.hash(
-          appState.liveTodayReport?.totalRevenue,
-          appState.liveTodayReport?.orderCount,
+          appState.effectiveTodayReport?.totalRevenue,
+          appState.effectiveTodayReport?.orderCount,
           allReceipts.length,
           allReceipts.isNotEmpty ? allReceipts.first.id : 0,
           allReceipts.isNotEmpty ? allReceipts.last.id : 0,
@@ -1580,12 +1581,15 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 child: const Icon(Icons.pie_chart_outline_rounded, color: Color(0xFF10B981), size: 19),
               ),
               const SizedBox(width: 10),
-              Text(
-                "Mahsulotlar Bo'yicha Savdo",
-                style: TextStyle(
-                  fontSize: 16.5,
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+              Expanded(
+                child: Text(
+                  "Mahsulotlar Bo'yicha Savdo",
+                  style: TextStyle(
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],

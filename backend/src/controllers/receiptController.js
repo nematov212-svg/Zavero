@@ -100,17 +100,22 @@ const checkout = async (req, res) => {
       const printStatus = receipt.printStatus || req.body.printStatus || 'unprinted';
       const isPrinted = printStatus === 'printed';
 
+      const waiterId = req.user?.id || receipt.waiterId || req.body.waiterId || null;
+      const deviceType = req.body.deviceType || receipt.deviceType || req.headers['x-device-type'] || 'web';
+
       const receiptResult = await client.query(
         `INSERT INTO receipts (
            cafe_id, date, items, total, method, cashier_name, table_number,
-           hall_name, cash_paid, card_paid, idempotency_key, print_status, printed_at
+           hall_name, cash_paid, card_paid, idempotency_key, print_status, printed_at,
+           waiter_id, device_type
          )
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
         [
           cafeId, date, JSON.stringify(items), receipt.total || 0, receipt.method || 'cash',
           receipt.cashierName || '', receipt.tableNumber ?? null, receipt.hallName ?? null,
           receipt.cashPaid || 0, receipt.cardPaid || 0, effectiveIdempotencyKey || null,
           printStatus, isPrinted ? date : null,
+          waiterId, deviceType,
         ]
       );
       const receiptRow = receiptResult.rows[0];

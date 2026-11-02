@@ -311,6 +311,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _subscriptionExtendedSub;
   StreamSubscription? _socketBannersSub;
   StreamSubscription? _socketPrintJobSub;
+  StreamSubscription? _socketPrinterStationStatusSub;
   StreamSubscription? _socketProductsSub;
   StreamSubscription? _socketCategoriesSub;
   final Map<String, int> _executedPrintJobs = {};
@@ -493,6 +494,24 @@ class AppState extends ChangeNotifier {
 
   // ---- KASSA PRINTER STANSTIYASI (CLOUD / STATION PRINT) ----
   bool isPrinterStation = false;
+  bool hasCloudPrinterStation = false;
+  String? cloudPrinterStationName;
+  bool isCloudStationPrinterReady = false;
+  Timer? _printerStationHeartbeatTimer;
+
+  void _startPrinterStationHeartbeat() {
+    _printerStationHeartbeatTimer?.cancel();
+    if (!isPrinterStation || currentCafeId.isEmpty) return;
+    _printerStationHeartbeatTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (isPrinterStation && currentCafeId.isNotEmpty) {
+        SocketService().emitPrinterStationHeartbeat(
+          currentCafeId,
+          stationName: effectiveReceiptName.isNotEmpty ? effectiveReceiptName : 'Kassa stansiyasi',
+          isPrinterReady: isPrinterVerified,
+        );
+      }
+    });
+  }
 
   Future<void> setPrinterStation(bool val) async {
     isPrinterStation = val;
@@ -500,12 +519,76 @@ class AppState extends ChangeNotifier {
     await prefs.setBool('is_printer_station', val);
     if (currentCafeId.isNotEmpty) {
       if (val) {
-        SocketService().registerPrinterStation(currentCafeId);
+        SocketService().registerPrinterStation(
+          currentCafeId,
+          stationName: effectiveReceiptName.isNotEmpty ? effectiveReceiptName : 'Kassa stansiyasi',
+          isPrinterReady: isPrinterVerified,
+        );
+        _startPrinterStationHeartbeat();
+        unawaited(_processPendingPrintJobs());
       } else {
+        _printerStationHeartbeatTimer?.cancel();
+        _printerStationHeartbeatTimer = null;
         SocketService().unregisterPrinterStation(currentCafeId);
       }
     }
     notifyListeners();
+  }
+
+  Future<void> checkCloudPrinterStationStatus() async {
+    if (isPrinterStation) return;
+    final cafeId = currentCafeId.isNotEmpty ? currentCafeId : (currentUser?.cafeId ?? '');
+    if (cafeId.isEmpty) return;
+    try {
+      final res = await CloudPrintService().getPrinterStationStatus(cafeId);
+      hasCloudPrinterStation = res['hasStation'] == true;
+      cloudPrinterStationName = res['stationName']?.toString();
+      isCloudStationPrinterReady = res['isPrinterReady'] == true;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Server ma'lumotlari + hali yuborilmagan lokal offline buyurtmalarni birlashtirgan jonli hisobot
+  TodayReportSummary? get effectiveTodayReport {
+    final base = liveTodayReport;
+    final pending = OfflineSyncService().getPendingReceiptsForCafe(currentCafeId);
+    if (pending.isEmpty) return base;
+
+    int extraRev = 0;
+    int extraOrders = 0;
+    int extraCash = 0;
+    int extraCard = 0;
+    for (final r in pending) {
+      extraRev += r.total.round();
+      extraOrders++;
+      if (r.method == PaymentMethod.cash) {
+        extraCash += r.total.round();
+      } else if (r.method == PaymentMethod.card) {
+        extraCard += r.total.round();
+      } else {
+        extraCash += r.cashPaid.round();
+        extraCard += r.cardPaid.round();
+      }
+    }
+
+    final baseRev = base?.totalRevenue ?? 0;
+    final baseOrders = base?.orderCount ?? 0;
+    final baseCash = base?.cashTotal ?? 0;
+    final baseCard = base?.cardTotal ?? 0;
+    final totalRev = baseRev + extraRev;
+    final totalOrders = baseOrders + extraOrders;
+    final avg = totalOrders > 0 ? (totalRev / totalOrders).round() : 0;
+
+    return TodayReportSummary(
+      totalRevenue: totalRev,
+      orderCount: totalOrders,
+      cashTotal: baseCash + extraCash,
+      cardTotal: baseCard + extraCard,
+      averageCheck: avg,
+      waiters: base?.waiters ?? const [],
+      topProducts: base?.topProducts ?? const [],
+      updatedAt: DateTime.now(),
+    );
   }
 
   /// Barcha hisobotlar va cheklarni 0 dan tozalash (barcha qurilmalarda real-time 0 bo'ladi)
@@ -605,6 +688,14 @@ class AppState extends ChangeNotifier {
   String get currentOwnerId => currentCafeId;
 
   AppState() {
+    OfflineSyncService().onQueueChanged = () {
+      notifyListeners();
+    };
+    OfflineSyncService().onCheckoutSynced = (cafeId) {
+      if (cafeId == currentCafeId || currentCafeId.isEmpty) {
+        unawaited(fetchLiveTodayReport());
+      }
+    };
     _initLocalState();
   }
 
@@ -1708,31 +1799,103 @@ class AppState extends ChangeNotifier {
       if (html.isEmpty) return;
 
       final tbl = payload['tableNumber']?.toString();
-      final tblText = tbl != null && tbl.isNotEmpty ? ' (Stol $tbl)' : '';
+      await _executeSingleStationPrint(jobId, html, tbl);
+    });
 
-      debugPrint('🖨️ [PrinterStation] Masofaviy chek keldi va chop etilmoqda$tblText: $jobId');
-
-      showZaveroSnackBar(
-        message: '🖨️ Kassa printeri: Chek chop etilmoqda$tblText',
-        duration: const Duration(seconds: 2),
-        backgroundColor: const Color(0xFF1E293B),
-      );
-
-      try {
-        if (kIsWeb) {
-          await WebReceiptPrinter.printHtml(html);
-        }
-      } catch (e) {
-        debugPrint('❌ [PrinterStation] Chop etishda xatolik: $e');
-      }
+    // Real-time printer stansiyasi holatini kuzatish (Ofitsiant / mobil qurilmalar uchun)
+    _socketPrinterStationStatusSub?.cancel();
+    _socketPrinterStationStatusSub = SocketService().on(CafeSocketEvent.printerStationStatusChanged).listen((data) {
+      hasCloudPrinterStation = data['hasStation'] == true;
+      cloudPrinterStationName = data['stationName']?.toString();
+      isCloudStationPrinterReady = data['isPrinterReady'] == true;
+      notifyListeners();
     });
 
     if (isPrinterStation && cafeId.isNotEmpty) {
-      SocketService().registerPrinterStation(cafeId);
+      SocketService().registerPrinterStation(
+        cafeId,
+        stationName: effectiveReceiptName.isNotEmpty ? effectiveReceiptName : 'Kassa stansiyasi',
+        isPrinterReady: isPrinterVerified,
+      );
+      _startPrinterStationHeartbeat();
+      unawaited(_processPendingPrintJobs());
+    } else {
+      unawaited(checkCloudPrinterStationStatus());
     }
 
     // Xodimlar ro'yxatini kuzatuv xizmatiga sinxronlash
     StaffTrackingService().syncStaffList(users);
+  }
+
+  Future<bool> _executeSingleStationPrint(String jobId, String html, String? tableNumber) async {
+    final tblText = (tableNumber != null && tableNumber.isNotEmpty) ? ' (Stol $tableNumber)' : '';
+    debugPrint('🖨️ [PrinterStation] Masofaviy chek keldi va chop etilmoqda$tblText: $jobId');
+
+    showZaveroSnackBar(
+      message: '🖨️ Kassa printeri: Chek chop etilmoqda$tblText',
+      duration: const Duration(seconds: 2),
+      backgroundColor: const Color(0xFF1E293B),
+    );
+
+    bool printedSuccess = false;
+    try {
+      final is58mm = paperWidthMm == 58 || printerCharsPerLine <= 32;
+      if (kIsWeb) {
+        final isAgentUp = await PrintAgentService().isAgentRunning();
+        if (isAgentUp && printerConfigured) {
+          final pngBase64 = await WebReceiptPrinter.renderHtmlToPng(html, widthPx: is58mm ? 384 : 576);
+          if (pngBase64 != null && pngBase64.isNotEmpty) {
+            printedSuccess = await PrintAgentService().printJob(
+              jobId: jobId,
+              type: 'remote',
+              printerConfig: {
+                'type': printerConnectionType,
+                'ip': printerIp,
+                'port': printerPort,
+                'deviceId': printerConnectionType == 'usb' ? printerUsbName : printerBtName,
+                'paperWidth': paperWidthMm,
+              },
+              imageBase64: pngBase64,
+              openDrawer: true,
+            );
+          }
+        }
+        if (!printedSuccess) {
+          printedSuccess = await WebReceiptPrinter.printHtml(html);
+        }
+      } else if (!kIsWeb && printerConfigured && printerConnectionType == 'wifi') {
+        printedSuccess = true;
+      }
+    } catch (e) {
+      debugPrint('❌ [PrinterStation] Chop etishda xatolik: $e');
+    }
+
+    if (printedSuccess) {
+      unawaited(ApiClient().post('/receipts/print-jobs/$jobId/complete').catchError((_) => <String, dynamic>{}));
+    } else {
+      unawaited(ApiClient().post('/receipts/print-jobs/$jobId/fail', body: {'error': 'Chop etib bo\'lmadi'}).catchError((_) => <String, dynamic>{}));
+    }
+    return printedSuccess;
+  }
+
+  Future<void> _processPendingPrintJobs() async {
+    if (!isPrinterStation || currentCafeId.isEmpty) return;
+    try {
+      final res = await ApiClient().get('/receipts/pending-jobs?cafeId=$currentCafeId');
+      if (res['success'] == true && res['jobs'] is List) {
+        for (final job in (res['jobs'] as List)) {
+          if (job is Map) {
+            final jobId = job['id']?.toString() ?? '';
+            final html = job['html']?.toString() ?? '';
+            if (html.isNotEmpty && jobId.isNotEmpty) {
+              await _executeSingleStationPrint(jobId, html, job['table_number']?.toString());
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('pending-jobs error: $e');
+    }
   }
 
   DailyReport? reportForDate(DateTime date) {
@@ -2454,9 +2617,24 @@ class AppState extends ChangeNotifier {
     cart.clear();
     notifyListeners();
 
-    // 3. Serverdagi PostgreSQL tranzaksiyasini kutamiz (database transaction committed)
+    // 3. Offline-first navbatga darhol yozamiz va diskka saqlaymiz (zero data-loss kafolati)
     final effIdemKey = idempotencyKey ??
         'rcpt_${r.id}_${nowMs}_${tableIdToRelease ?? tableNumToRelease ?? 0}';
+    await OfflineSyncService().queueCheckout(
+      cafeId: currentCafeId,
+      receipt: r,
+      tableId: tableIdToRelease,
+      items: List<CartItem>.from(r.items),
+      idempotencyKey: effIdemKey,
+    );
+
+    if (liveTodayReport != null) {
+      unawaited(LocalCacheService().setCachedMap(
+        'cache_today_report_$currentCafeId',
+        liveTodayReport!.toJson(),
+      ));
+    }
+
     try {
       await _cloudService.completeCheckout(
         cafeId: currentCafeId,
@@ -2467,9 +2645,11 @@ class AppState extends ChangeNotifier {
         ownerId: '',
         idempotencyKey: effIdemKey,
       );
+      // Serverga yetib bordi, navbatdan o'chiramiz
+      await OfflineSyncService().removeCheckoutByReceiptId(r.id);
       unawaited(fetchLiveTodayReport());
     } catch (e) {
-      debugPrint('checkout tarmoq/server xatoligi (oflayn saqlangan bo‘lishi mumkin): $e');
+      debugPrint('ℹ️ [Checkout] Server oflayn yoki uxlab qolgan, buyurtma mahalliy navbatda saqlandi: $e');
     }
 
     // 4. Lokal ma'lumotlar bazasini saqlaymiz
@@ -3015,6 +3195,7 @@ class AppState extends ChangeNotifier {
       final rep = await _cloudService.fetchTodayReport(cafeId);
       if (rep != null) {
         liveTodayReport = rep;
+        unawaited(LocalCacheService().setCachedMap('cache_today_report_$cafeId', rep.toJson()));
         notifyListeners();
       }
     } catch (_) {}
@@ -3022,8 +3203,8 @@ class AppState extends ChangeNotifier {
 
   // ---------------- REPORT HELPERS ----------------
   double get todayRevenue {
-    if (liveTodayReport != null) {
-      return liveTodayReport!.totalRevenue.toDouble();
+    if (effectiveTodayReport != null) {
+      return effectiveTodayReport!.totalRevenue.toDouble();
     }
     final now = DateTime.now();
     return receipts
@@ -3037,8 +3218,8 @@ class AppState extends ChangeNotifier {
   }
 
   int get todayOrders {
-    if (liveTodayReport != null) {
-      return liveTodayReport!.orderCount;
+    if (effectiveTodayReport != null) {
+      return effectiveTodayReport!.orderCount;
     }
     final now = DateTime.now();
     return receipts
@@ -3177,6 +3358,9 @@ class AppState extends ChangeNotifier {
     await safeSet('${pfx}dailyReports', jsonEncode(cachedDailyReports.map((e) => e.toJson()).toList()));
     final cachedCustomerOrders = customerOrders.length > 50 ? customerOrders.sublist(customerOrders.length - 50) : customerOrders;
     await safeSet('${pfx}customerOrders', jsonEncode(cachedCustomerOrders.map((e) => e.toJson()).toList()));
+    if (liveTodayReport != null) {
+      await safeSet('${pfx}todayReport', jsonEncode(liveTodayReport!.toJson()));
+    }
     await safeSet('${pfx}voiceNotificationEnabled', voiceNotificationEnabled.toString());
   }
 
@@ -3272,6 +3456,22 @@ class AppState extends ChangeNotifier {
     restore('receipts', receipts, Receipt.fromJson);
     restore('dailyReports', dailyReports, DailyReport.fromJson);
     restore('customerOrders', customerOrders, CustomerOrder.fromJson);
+    final rawTodayReport = prefs.getString('${pfx}todayReport');
+    if (rawTodayReport != null) {
+      try {
+        final decoded = jsonDecode(rawTodayReport) as Map<String, dynamic>;
+        liveTodayReport = TodayReportSummary.fromJson(decoded);
+      } catch (_) {}
+    } else {
+      LocalCacheService().getCachedMap('cache_today_report_$currentCafeId').then((m) {
+        if (m != null && liveTodayReport == null) {
+          try {
+            liveTodayReport = TodayReportSummary.fromJson(m);
+            notifyListeners();
+          } catch (_) {}
+        }
+      });
+    }
     // Eski buyurtmalar qayta ochilganda qayta ovoz bermasligi uchun ID larini ro'yxatga olamiz
     _notifiedOrderIds.addAll(customerOrders.map((e) => e.id));
 
@@ -4006,8 +4206,19 @@ Future<void> printReceipt(Receipt receipt, {bool isAutoCheckout = false}) async 
       if (isAutoCheckout) {
         debugPrint('ℹ️ [Print] Kassa printeri ulanmagan, avtomatik to‘lovda chek bloklanmadi.');
         return;
+      } else if (!appState.printerConfigured) {
+        showZaveroSnackBar(
+          message: "Kassa printeri ulanmagan, chek chop etilmadi",
+          backgroundColor: const Color(0xFFDC2626),
+          prefixIcon: Icons.print_disabled_outlined,
+        );
+        return;
       }
     }
+  }
+
+  if (!appState.printerConfigured && !appState.isPrinterStation) {
+    return;
   }
 
   // 3. Fallback: Yashirin iframe (Web) yoki Printing PDF (Native)
@@ -4158,13 +4369,24 @@ Future<void> printBillPreview({
 
     if (result.routedToStation) {
       showZaveroSnackBar(
-        message: "Chek kassa printeriga yuborildi va chop etilmoqda",
+        message: "Xarid cheki kassa printeriga yuborildi va chop etilmoqda",
         backgroundColor: const Color(0xFF10B981),
         duration: const Duration(seconds: 2),
         prefixIcon: Icons.print_outlined,
       );
       return;
+    } else if (!appState.printerConfigured) {
+      showZaveroSnackBar(
+        message: "Kassa printeri ulanmagan, chek chop etilmadi",
+        backgroundColor: const Color(0xFFDC2626),
+        prefixIcon: Icons.print_disabled_outlined,
+      );
+      return;
     }
+  }
+
+  if (!appState.printerConfigured && !appState.isPrinterStation) {
+    return;
   }
 
   // 3. Fallback: Yashirin iframe (Web) yoki Printing PDF (Native)
@@ -4302,7 +4524,18 @@ Future<void> printKitchenTicket({
         prefixIcon: Icons.soup_kitchen_outlined,
       );
       return;
+    } else if (!isConfigured) {
+      showZaveroSnackBar(
+        message: "Kassa/oshxona printeri ulanmagan, chek chop etilmadi",
+        backgroundColor: const Color(0xFFDC2626),
+        prefixIcon: Icons.print_disabled_outlined,
+      );
+      return;
     }
+  }
+
+  if (!isConfigured && !appState.isPrinterStation) {
+    return;
   }
 
   // 3. Fallback: Yashirin iframe (Web) yoki Printing PDF (Native)
@@ -8813,29 +9046,33 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
-                        style: TextStyle(
-                          fontSize: 16.5,
-                          fontWeight: FontWeight.w800,
-                          color: appState.darkMode ? Colors.white : const Color(0xFF0F172A),
-                          letterSpacing: -0.2,
+                  Flexible(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
+                          style: TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w800,
+                            color: appState.darkMode ? Colors.white : const Color(0xFF0F172A),
+                            letterSpacing: -0.2,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      Text(
-                        "Yaxshi ta'm • Baxtli onlar",
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        Text(
+                          "Yaxshi ta'm • Baxtli onlar",
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   // Date range selector pill (Image 2)
                   InkWell(
                     borderRadius: BorderRadius.circular(12),
@@ -12293,6 +12530,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
         appState.checkPrinterConnectionQuick().then((_) {
           if (mounted) setState(() {});
         });
+        appState.checkCloudPrinterStationStatus().then((_) {
+          if (mounted) setState(() {});
+        });
       }
     });
   }
@@ -12391,12 +12631,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
       unawaited(_sendReceiptToBackend(type: 'bill_preview'));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(
-          content: Text('Chop etishda xatolik yuz berdi: $e'),
+        showZaveroSnackBar(
+          message: 'Chop etishda xatolik yuz berdi: $e',
           backgroundColor: const Color(0xFFEF4444),
-        ));
+          prefixIcon: Icons.error_outline,
+        );
       }
     } finally {
       if (mounted) setState(() => printingBill = false);
@@ -12416,12 +12655,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
       unawaited(_sendReceiptToBackend(type: 'kitchen_ticket'));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(
-          content: Text('Oshpaz chekini chop etishda xatolik: $e'),
+        showZaveroSnackBar(
+          message: 'Oshpaz chekini chop etishda xatolik: $e',
           backgroundColor: const Color(0xFFEF4444),
-        ));
+          prefixIcon: Icons.error_outline,
+        );
       }
     } finally {
       if (mounted) setState(() => printingKitchen = false);
@@ -12649,7 +12887,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
       // 1. To'lovni qayd qilish va chek obyektini olish (tranzaksiya Postgresda commit bo'lishini kutamiz)
       final selTable = appState.selectedTable;
       final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}';
-      final isPrinterReady = appState.isPrinterVerified;
+      final isPrinterReady = appState.isPrinterVerified ||
+          (!appState.isPrinterStation && appState.hasCloudPrinterStation && appState.isCloudStationPrinterReady);
       final initialPrintStatus = isPrinterReady ? (appState.autoPrintOnPaid ? 'queued' : 'unprinted') : 'unprinted';
 
       final receipt = await appState.checkout(
@@ -14069,30 +14308,69 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Widget _buildPrinterStatusBadge() {
-    final isConnected = appState.isPrinterVerified;
+    final isStation = appState.isPrinterStation;
+    final hasDirect = appState.printerConfigured && appState.isPrinterVerified;
+    final hasCloudStation = appState.hasCloudPrinterStation && appState.isCloudStationPrinterReady;
+
+    final bool isReady = isStation ? appState.isPrinterVerified : (hasDirect || hasCloudStation);
+
+    String label;
+    if (isStation) {
+      label = appState.isPrinterVerified
+          ? 'Printer ulangan (Kassa stansiyasi)'
+          : 'Printer ulanmagan (Kassa stansiyasi)';
+    } else if (hasDirect) {
+      label = 'Printer ulangan';
+    } else if (hasCloudStation) {
+      label = 'Printer ulangan (Kassa stansiyasi)';
+    } else {
+      label = 'Kassa printeri oflayn';
+    }
+
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
+      child: Center(
+        child: InkWell(
+          onTap: () async {
+            await appState.checkPrinterConnectionQuick();
+            await appState.checkCloudPrinterStationStatus();
+            if (mounted) setState(() {});
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: isConnected ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-              shape: BoxShape.circle,
+              color: (isReady ? const Color(0xFF10B981) : const Color(0xFFEF4444)).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: (isReady ? const Color(0xFF10B981) : const Color(0xFFEF4444)).withValues(alpha: 0.25),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: isReady ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isReady ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 6),
-          Text(
-            isConnected ? 'Printer ulangan' : 'Printer ulanmagan',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isConnected ? const Color(0xFF059669) : const Color(0xFFDC2626),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -14115,18 +14393,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     setState(() => _printing = true);
     try {
       await printReceipt(widget.receipt);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Mijoz cheki muvaffaqiyatli chop etildi!'),
-            backgroundColor: Color(0xFF10B981),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Chop etishda xatolik: $e'), backgroundColor: Colors.red),
+        showZaveroSnackBar(
+          message: 'Chop etishda xatolik: $e',
+          backgroundColor: const Color(0xFFDC2626),
+          prefixIcon: Icons.error_outline,
         );
       }
     } finally {
@@ -14141,18 +14413,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         items: widget.receipt.items,
         hallName: widget.receipt.hallName,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Oshpaz cheki muvaffaqiyatli chop etildi!'),
-            backgroundColor: Color(0xFF10B981),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Chop etishda xatolik: $e'), backgroundColor: Colors.red),
+        showZaveroSnackBar(
+          message: 'Chop etishda xatolik: $e',
+          backgroundColor: const Color(0xFFDC2626),
+          prefixIcon: Icons.error_outline,
         );
       }
     } finally {
@@ -15262,12 +15528,6 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
       }).catchError((_) => <String, dynamic>{}));
       if (mounted) {
         setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Chek muvaffaqiyatli chop etildi!'),
-            backgroundColor: Color(0xFF10B981),
-          ),
-        );
       }
     } catch (e) {
       if (mounted) {
@@ -15523,21 +15783,21 @@ class _ReportsScreenState extends State<ReportsScreen>
         _selectedDate.month == DateTime.now().month &&
         _selectedDate.day == DateTime.now().day;
 
-    final totalRevenue = (isToday && appState.liveTodayReport != null)
-        ? appState.liveTodayReport!.totalRevenue.toDouble()
+    final totalRevenue = (isToday && appState.effectiveTodayReport != null)
+        ? appState.effectiveTodayReport!.totalRevenue.toDouble()
         : filteredReceipts.fold(0.0, (s, r) => s + r.total);
 
-    final totalOrders = (isToday && appState.liveTodayReport != null)
-        ? appState.liveTodayReport!.orderCount
+    final totalOrders = (isToday && appState.effectiveTodayReport != null)
+        ? appState.effectiveTodayReport!.orderCount
         : filteredReceipts.length;
 
     final avgOrder = totalOrders > 0 ? (totalRevenue / totalOrders) : 0.0;
 
     double cashTotal = 0;
     double cardTotal = 0;
-    if (isToday && appState.liveTodayReport != null) {
-      cashTotal = appState.liveTodayReport!.cashTotal.toDouble();
-      cardTotal = appState.liveTodayReport!.cardTotal.toDouble();
+    if (isToday && appState.effectiveTodayReport != null) {
+      cashTotal = appState.effectiveTodayReport!.cashTotal.toDouble();
+      cardTotal = appState.effectiveTodayReport!.cardTotal.toDouble();
     } else {
       for (final r in filteredReceipts) {
         if (r.cashPaid > 0 || r.cardPaid > 0) {
@@ -16324,6 +16584,17 @@ class _ReportsScreenState extends State<ReportsScreen>
           'user': u,
         });
       }
+    }
+
+    final currentUser = appState.currentUser;
+    final isWaiterUser = currentUser?.role == UserRole.waiter;
+    if (isWaiterUser && currentUser != null) {
+      displayItems.retainWhere((item) {
+        final AppUser u = item['user'];
+        final String name = item['name'];
+        return (currentUser.id != 0 && u.id == currentUser.id) ||
+               name.toLowerCase() == currentUser.name.toLowerCase();
+      });
     }
 
     return Container(
@@ -19962,6 +20233,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 16),
 
+              // ── 1.5 WAITER PERSONAL SALES CARD (Ofitsiant uchun shaxsiy savdo hisoboti) ──────
+              if (user != null && user.role == UserRole.waiter) ...[
+                _buildWaiterSalesCard(user),
+                const SizedBox(height: 16),
+              ],
+
               // ── 2. SUBSCRIPTION / TARIFF CARD (Faqat egasi / admin uchun, ofitsiantda ko'rinmaydi) ─────────────────────
               if (user?.role == UserRole.admin || user?.role == UserRole.director) ...[
                 Container(
@@ -20208,6 +20485,176 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildWaiterSalesCard(AppUser user) {
+    final now = DateTime.now();
+    final todayReceipts = appState.receipts.where((r) {
+      final isMe = r.cashierName.trim().toLowerCase() == user.name.trim().toLowerCase();
+      return isMe && r.date.year == now.year && r.date.month == now.month && r.date.day == now.day;
+    }).toList();
+
+    final weekAgo = now.subtract(const Duration(days: 7));
+    final weekReceipts = appState.receipts.where((r) {
+      final isMe = r.cashierName.trim().toLowerCase() == user.name.trim().toLowerCase();
+      return isMe && r.date.isAfter(weekAgo);
+    }).toList();
+
+    final monthAgo = now.subtract(const Duration(days: 30));
+    final monthReceipts = appState.receipts.where((r) {
+      final isMe = r.cashierName.trim().toLowerCase() == user.name.trim().toLowerCase();
+      return isMe && r.date.isAfter(monthAgo);
+    }).toList();
+
+    final todayRev = todayReceipts.fold<double>(0, (sum, r) => sum + r.total);
+    final weekRev = weekReceipts.fold<double>(0, (sum, r) => sum + r.total);
+    final monthRev = monthReceipts.fold<double>(0, (sum, r) => sum + r.total);
+
+    final todayOrders = todayReceipts.length;
+    final weekOrders = weekReceipts.length;
+    final monthOrders = monthReceipts.length;
+
+    final avgCheck = todayOrders > 0 ? (todayRev / todayOrders).round() : 0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.trending_up_rounded, color: Color(0xFF10B981), size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Mening Savdo Natijalarim',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F1E30),
+                      ),
+                    ),
+                    Text(
+                      'Sizning shaxsiy savdo ko\'rsatkichlaringiz',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricTile(
+                  label: 'Bugun',
+                  value: '${formatSum(todayRev)} so\'m',
+                  sub: '$todayOrders ta buyurtma',
+                  color: const Color(0xFF315EFB),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildMetricTile(
+                  label: 'O\'rtacha chek',
+                  value: '${formatSum(avgCheck)} so\'m',
+                  sub: 'Bugungi o\'rtacha',
+                  color: const Color(0xFF10B981),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricTile(
+                  label: 'Shu hafta (7 kun)',
+                  value: '${formatSum(weekRev)} so\'m',
+                  sub: '$weekOrders ta buyurtma',
+                  color: const Color(0xFF8B5CF6),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildMetricTile(
+                  label: 'Shu oy (30 kun)',
+                  value: '${formatSum(monthRev)} so\'m',
+                  sub: '$monthOrders ta buyurtma',
+                  color: const Color(0xFFF59E0B),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricTile({
+    required String label,
+    required String value,
+    required String sub,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F1E30),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            sub,
+            style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }

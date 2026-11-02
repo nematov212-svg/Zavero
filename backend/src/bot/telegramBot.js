@@ -512,7 +512,7 @@ const sendAdminDashboard = async (ctx) => {
     } catch (_) { }
   }
   return await ctx.replyWithHTML(text, keyboard);
-};
+}
 
 // Helper: Anti-Spam, Anti-Reklama and Anti-Flood detector
 
@@ -740,6 +740,7 @@ const renderBotReport = async (ctx, cafeId, period = 'day') => {
     let stats = { count: 0, total: 0, cash: 0, card: 0 };
     let avgCheck = 0;
     let topDishes = [];
+    let waitersList = [];
     let title = "BUGUNGI MOLIYAVIY HISOBOT";
 
     if (period === 'day') {
@@ -757,12 +758,72 @@ const renderBotReport = async (ctx, cafeId, period = 'day') => {
         qty: p.quantity,
         total: p.totalRevenue,
       }));
+      waitersList = todayData.waiters || [];
+    } else if (period === 'yesterday') {
+      title = "KECHAGI MOLIYAVIY HISOBOT";
+      const dateFilter = "(date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date - 1";
+      const receiptsRes = await db.query(
+        `SELECT 
+           COUNT(*) as count,
+           COALESCE(SUM(total), 0) as total,
+           COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0) as cash,
+           COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0) as card
+         FROM receipts
+         WHERE cafe_id = $1 AND ${dateFilter}`,
+        [cafeId]
+      );
+      stats = receiptsRes.rows[0] || { count: 0, total: 0, cash: 0, card: 0 };
+      avgCheck = Number(stats.count) > 0 ? Math.round(Number(stats.total) / Number(stats.count)) : 0;
+
+      const topDishesRes = await db.query(
+        `SELECT 
+           COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum') as name,
+           SUM(COALESCE((item->>'qty')::numeric, 1))::int as qty,
+           SUM(COALESCE((item->'product'->>'price')::numeric, (item->>'price')::numeric, 0) * COALESCE((item->>'qty')::numeric, 1))::bigint as total
+         FROM receipts r,
+         LATERAL jsonb_array_elements(r.items) as item
+         WHERE r.cafe_id = $1 AND ${dateFilter}
+         GROUP BY COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum')
+         ORDER BY qty DESC
+         LIMIT 5`,
+        [cafeId]
+      );
+      topDishes = topDishesRes.rows;
+    } else if (period === 'staff') {
+      title = "XODIMLAR (OFITSIANTLAR) HISOBOTI";
+      const waiterRes = await db.query(
+        `SELECT 
+           COALESCE(NULLIF(TRIM(cashier_name), ''), 'Kassa') as waiter,
+           COUNT(*)::int as order_count,
+           COALESCE(SUM(total), 0)::bigint as total_revenue,
+           COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0)::bigint as cash_total,
+           COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0)::bigint as card_total
+         FROM receipts
+         WHERE cafe_id = $1 
+           AND (
+             (date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+             OR (created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+           )
+         GROUP BY COALESCE(NULLIF(TRIM(cashier_name), ''), 'Kassa')
+         ORDER BY total_revenue DESC`,
+        [cafeId]
+      );
+      waitersList = waiterRes.rows.map(w => ({
+        name: w.waiter,
+        orderCount: parseInt(w.order_count, 10) || 0,
+        totalRevenue: parseInt(w.total_revenue, 10) || 0,
+        cashTotal: parseInt(w.cash_total, 10) || 0,
+        cardTotal: parseInt(w.card_total, 10) || 0,
+      }));
     } else {
       let dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '7 days')";
       title = "OXIRGI 7 KUNLIK HISOBOT";
       if (period === 'month') {
         dateFilter = "created_at >= (CURRENT_DATE - INTERVAL '30 days')";
         title = "OXIRGI 30 KUNLIK HISOBOT";
+      } else if (period === 'all') {
+        dateFilter = "1=1";
+        title = "BARCHA VAQT BO‘YICHA HISOBOT";
       }
 
       const receiptsRes = await db.query(
@@ -798,29 +859,62 @@ const renderBotReport = async (ctx, cafeId, period = 'day') => {
     let text = `📊 <b>${title}</b>\n`;
     text += `🏢 <b>Kafe ID:</b> <code>${cafeId}</code>\n`;
     text += `━━━━━━━━━━━━━━━━━━━\n`;
-    text += `💰 <b>Umumiy tushum:</b> ${formatSum(stats.total)} so‘m\n`;
-    text += `💵 <b>Naqd:</b> ${formatSum(stats.cash)} so‘m\n`;
-    text += `💳 <b>Karta / O‘tkazma:</b> ${formatSum(stats.card)} so‘m\n`;
-    text += `🧾 <b>Yopilgan cheklar:</b> ${stats.count} ta\n`;
-    text += `📈 <b>O‘rtacha chek:</b> ${formatSum(avgCheck)} so‘m\n`;
-    text += `━━━━━━━━━━━━━━━━━━━\n`;
 
-    if (topDishes.length > 0) {
-      text += `🔥 <b>TOP-5 TAOMLAR VA MAHSULOTLAR:</b>\n`;
-      topDishes.forEach((d, i) => {
-        text += `${i + 1}. <b>${d.name}</b>: ${d.qty} ta (${formatSum(d.total)} so‘m)\n`;
-      });
+    if (period === 'staff') {
+      if (waitersList.length === 0) {
+        text += `<i>Bugun xodimlar bo‘yicha to‘langan savdo yo‘q.</i>\n`;
+      } else {
+        let totalStaffRev = 0;
+        let totalStaffOrders = 0;
+        waitersList.forEach((w, i) => {
+          const avg = w.orderCount > 0 ? Math.round(w.totalRevenue / w.orderCount) : 0;
+          totalStaffRev += w.totalRevenue;
+          totalStaffOrders += w.orderCount;
+          text += `${i + 1}. 👤 <b>${w.name}</b>\n`;
+          text += `   • Buyurtmalar: <b>${w.orderCount} ta</b>\n`;
+          text += `   • Savdo: <b>${formatSum(w.totalRevenue)} so‘m</b>\n`;
+          text += `   • O‘rtacha chek: ${formatSum(avg)} so‘m\n`;
+          if (w.cashTotal || w.cardTotal) {
+            text += `   • Naqd: ${formatSum(w.cashTotal)} | Karta: ${formatSum(w.cardTotal)}\n`;
+          }
+          text += `\n`;
+        });
+        text += `━━━━━━━━━━━━━━━━━━━\n`;
+        text += `💰 <b>Jami xodimlar savdosi:</b> ${formatSum(totalStaffRev)} so‘m (${totalStaffOrders} ta)\n`;
+      }
+    } else {
+      text += `💰 <b>Umumiy tushum:</b> ${formatSum(stats.total)} so‘m\n`;
+      text += `💵 <b>Naqd:</b> ${formatSum(stats.cash)} so‘m\n`;
+      text += `💳 <b>Karta / O‘tkazma:</b> ${formatSum(stats.card)} so‘m\n`;
+      text += `🧾 <b>Yopilgan cheklar:</b> ${stats.count} ta\n`;
+      text += `📈 <b>O‘rtacha chek:</b> ${formatSum(avgCheck)} so‘m\n`;
       text += `━━━━━━━━━━━━━━━━━━━\n`;
+
+      if (topDishes.length > 0) {
+        text += `🔥 <b>TOP-5 TAOMLAR VA MAHSULOTLAR:</b>\n`;
+        topDishes.forEach((d, i) => {
+          text += `${i + 1}. <b>${d.name}</b>: ${d.qty} ta (${formatSum(d.total)} so‘m)\n`;
+        });
+        text += `━━━━━━━━━━━━━━━━━━━\n`;
+      }
     }
 
     const buttons = [
       [
         Markup.button.callback('📅 Bugun', 'bot_report_day'),
+        Markup.button.callback('⏮ Kecha', 'bot_report_yesterday'),
         Markup.button.callback('📆 7 kun', 'bot_report_week'),
-        Markup.button.callback('🗓 30 kun', 'bot_report_month'),
       ],
       [
+        Markup.button.callback('🗓 30 kun', 'bot_report_month'),
+        Markup.button.callback('♾ Barchasi', 'bot_report_all'),
+        Markup.button.callback('👥 Xodimlar', 'bot_report_staff'),
+      ],
+      [
+        Markup.button.callback('📥 Excel/CSV yuklash', 'bot_report_export'),
         Markup.button.callback('🔄 Yangilash', `bot_report_${period}`),
+      ],
+      [
         Markup.button.callback('⬅️ Orqaga', 'back_to_start'),
       ],
     ];
@@ -1773,6 +1867,8 @@ const initTelegramBot = () => {
 
     bot.command('hisobot', (ctx) => handleReportCommand(ctx, 'day'));
     bot.command('report', (ctx) => handleReportCommand(ctx, 'day'));
+    bot.command('xodimlar', (ctx) => handleReportCommand(ctx, 'staff'));
+    bot.command('staff', (ctx) => handleReportCommand(ctx, 'staff'));
 
     bot.action('bot_report', async (ctx) => {
       try {
@@ -1783,7 +1879,7 @@ const initTelegramBot = () => {
       }
     });
 
-    bot.action(/^bot_report_(day|week|month)$/, async (ctx) => {
+    bot.action(/^bot_report_(day|yesterday|week|month|all|staff)$/, async (ctx) => {
       try {
         await ctx.answerCbQuery('📊 Hisobot yangilandi');
         const period = ctx.match[1];
@@ -1792,6 +1888,111 @@ const initTelegramBot = () => {
         console.error('bot_report_period error:', e);
       }
     });
+
+    bot.action('bot_report_export', async (ctx) => {
+      try {
+        await ctx.answerCbQuery('📥 Hisobot fayli tayyorlanmoqda...');
+        const cafeId = await getCafeIdForTelegramUser(ctx.from);
+        if (!cafeId) return ctx.replyWithHTML('❌ Kafe topilmadi');
+
+        const receiptsRes = await db.query(
+          `SELECT id, table_number, cashier_name, total, method, created_at
+           FROM receipts
+           WHERE cafe_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1000`,
+          [cafeId]
+        );
+
+        let csv = 'Chek ID,Sana va Vaqt,Stol,Xodim,To‘lov turi,Jami Summa\n';
+        receiptsRes.rows.forEach(r => {
+          const d = new Date(r.created_at).toISOString();
+          const method = r.method === 'cash' ? 'Naqd' : 'Karta';
+          csv += `${r.id},"${d}",${r.table_number || 'Kassa'},"${r.cashier_name || ''}",${method},${r.total}\n`;
+        });
+
+        const todayStr = new Date().toISOString().slice(0, 10);
+        await ctx.replyWithDocument(
+          { source: Buffer.from(csv, 'utf-8'), filename: `Zavero_${cafeId}_Hisobot_${todayStr}.csv` },
+          { caption: `📊 <b>${cafeId}</b> kafesining savdo hisoboti (Excel/CSV formatda)\nJami cheklar: <b>${receiptsRes.rows.length} ta</b>`, parse_mode: 'HTML' }
+        );
+      } catch (e) {
+        console.error('bot_report_export error:', e);
+        ctx.replyWithHTML(`❌ Eksportda xatolik: ${e.message}`);
+      }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // AVTOMATIK KUNLIK HISOBOT (Har kuni 23:00 da kafe egalariga)
+    // ─────────────────────────────────────────────────────────────
+    let lastDailyReportDay = '';
+    setInterval(async () => {
+      try {
+        const nowTashkent = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Tashkent',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).formatToParts(new Date());
+
+        const hourPart = nowTashkent.find(p => p.type === 'hour')?.value;
+        const minutePart = nowTashkent.find(p => p.type === 'minute')?.value;
+        const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date());
+
+        if (hourPart === '23' && minutePart === '00' && lastDailyReportDay !== todayStr) {
+          lastDailyReportDay = todayStr;
+          console.log(`⏰ [DailyReport Cron] Kunlik yakuniy hisobot yuborilmoqda: ${todayStr} 23:00`);
+
+          const cafesRes = await db.query('SELECT cafe_id, cafe_name FROM cafes');
+          const { getTodayReportData } = require('../controllers/reportController');
+
+          for (const cafe of cafesRes.rows) {
+            const cId = cafe.cafe_id;
+            try {
+              const data = await getTodayReportData(cId);
+              if (!data || data.orderCount === 0) continue;
+
+              let reportMsg = `🌙 <b>KUNLIK YAKUNIY HISOBOT (23:00)</b>\n`;
+              reportMsg += `🏢 <b>Kafe:</b> ${cafe.cafe_name || cId}\n`;
+              reportMsg += `📅 <b>Sana:</b> ${todayStr}\n`;
+              reportMsg += `━━━━━━━━━━━━━━━━━━━\n`;
+              reportMsg += `💰 <b>Jami daromad:</b> ${formatSum(data.totalRevenue)} so'm\n`;
+              reportMsg += `💵 <b>Naqd:</b> ${formatSum(data.cashTotal)} so'm\n`;
+              reportMsg += `💳 <b>Karta:</b> ${formatSum(data.cardTotal)} so'm\n`;
+              reportMsg += `🧾 <b>Jami buyurtmalar:</b> ${data.orderCount} ta\n`;
+              reportMsg += `📈 <b>O'rtacha chek:</b> ${formatSum(data.averageCheck)} so'm\n`;
+              reportMsg += `━━━━━━━━━━━━━━━━━━━\n`;
+
+              if (data.waiters && data.waiters.length > 0) {
+                reportMsg += `👥 <b>XODIMLAR SAVDOSI:</b>\n`;
+                data.waiters.forEach((w, i) => {
+                  reportMsg += `${i + 1}. <b>${w.name}</b>: ${w.orderCount} ta (${formatSum(w.totalRevenue)} so'm)\n`;
+                });
+                reportMsg += `━━━━━━━━━━━━━━━━━━━\n`;
+              }
+
+              if (data.topProducts && data.topProducts.length > 0) {
+                reportMsg += `🔥 <b>TOP MAHSULOTLAR:</b>\n`;
+                data.topProducts.slice(0, 5).forEach((p, i) => {
+                  reportMsg += `${i + 1}. ${p.name}: ${p.quantity} ta (${formatSum(p.totalRevenue)} so'm)\n`;
+                });
+                reportMsg += `━━━━━━━━━━━━━━━━━━━\n`;
+              }
+
+              await sendGeneralTelegramNotification({
+                cafeId: cId,
+                title: `🌙 KUNLIK YAKUNIY HISOBOT (${todayStr})`,
+                message: reportMsg,
+              });
+            } catch (cafeErr) {
+              console.error(`[DailyReport] Cafe ${cId} xatolik:`, cafeErr.message);
+            }
+          }
+        }
+      } catch (cronErr) {
+        console.warn('⚠️ [DailyReport Cron] Xatolik:', cronErr.message);
+      }
+    }, 45000);
 
     // Command: /link_cafe <cafe_id> (Kafega biriktirish)
     bot.command('link_cafe', async (ctx) => {
