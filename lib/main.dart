@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pdf/pdf.dart';
@@ -48,6 +48,11 @@ import 'widgets/cafe_executive_dashboard.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Release rejimda (APK va Web production) brauzer/terminal konsolini 100% toza saqlash
+  if (!kDebugMode) {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  }
+
   // 1. Production Global Crash & Error Boundary Handlers with deduplication
   DateTime? lastErrorTime;
   String? lastErrorMessage;
@@ -60,12 +65,16 @@ void main() async {
     }
     lastErrorMessage = msg;
     lastErrorTime = now;
-    FlutterError.presentError(details);
-    debugPrint('🛡️ [Global FlutterError] $msg');
+    if (kDebugMode) {
+      FlutterError.presentError(details);
+      debugPrint('🛡️ [Global FlutterError] $msg');
+    }
   };
 
   WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
-    debugPrint('🛡️ [Global Platform Error] $error');
+    if (kDebugMode) {
+      debugPrint('🛡️ [Global Platform Error] $error');
+    }
     return true; // Handled, prevent app crash
   };
 

@@ -14,7 +14,6 @@ class PresetFoodItem {
   final String? volume;
 
 
-
   const PresetFoodItem({
     required this.title,
     required this.url,
@@ -2484,11 +2483,15 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                       children: [
                         Row(
                           children: [
-                            const Text(
-                              'Tayyor taom va ichimlik rasmlari',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
+                            const Expanded(
+                              child: Text(
+                                'Tayyor taom va ichimlik rasmlari',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -2512,6 +2515,8 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                         const SizedBox(height: 2),
                         Text(
                           'Rasmni tanlang yoki qidiring (ikki marta bosib darhol tanlash mumkin)',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 12,
                             color: isDark ? Colors.white60 : Colors.grey.shade600,
@@ -2661,12 +2666,16 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                     children: [
                       Icon(Icons.filter_list_rounded, size: 16, color: kDarkYellow),
                       const SizedBox(width: 6),
-                      Text(
-                        'Qidiruv natijalari: ${displayedItems.length} ta mahsulot topildi',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white70 : Colors.black87,
+                      Expanded(
+                        child: Text(
+                          'Qidiruv natijalari: ${displayedItems.length} ta mahsulot topildi',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
                         ),
                       ),
                     ],
