@@ -1120,6 +1120,11 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         labels.add('${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}');
         fullDateLabels.add('${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}');
       }
+      // Bugungi kun ko'rsatkichi yagona haqiqat manbai (effectiveTodayReport) bilan 100% tenglashtiriladi
+      if (revenuePoints.isNotEmpty && appState.effectiveTodayReport != null) {
+        revenuePoints[revenuePoints.length - 1] = appState.effectiveTodayReport!.totalRevenue.toDouble();
+        ordersPoints[ordersPoints.length - 1] = appState.effectiveTodayReport!.orderCount;
+      }
     } else if (_selectedChartPeriod == _SalesChartPeriod.hafta) {
       // So'nggi 8 hafta
       final todayMidnight = DateTime(nowT.year, nowT.month, nowT.day);
@@ -1495,16 +1500,27 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     bool isDark,
     List<Receipt> periodReceipts,
   ) {
-    // 1. To'langan cheklardagi barcha mahsulotlarni nomi bo'yicha guruhlaymiz
+    // 1. To'langan cheklardagi barcha mahsulotlarni nomi bo'yicha guruhlaymiz (Single Source of Truth)
     final Map<String, int> productQty = {};
     final Map<String, double> productRev = {};
 
-    for (final r in periodReceipts) {
-      for (final item in r.items) {
-        final name = item.product.name.trim();
+    if (_selectedPeriod == _DashboardPeriod.bugun &&
+        appState.effectiveTodayReport != null &&
+        appState.effectiveTodayReport!.topProducts.isNotEmpty) {
+      for (final p in appState.effectiveTodayReport!.topProducts) {
+        final name = p.name.trim();
         if (name.isEmpty) continue;
-        productQty[name] = (productQty[name] ?? 0) + item.qty;
-        productRev[name] = (productRev[name] ?? 0.0) + (item.product.price * item.qty);
+        productQty[name] = p.quantity;
+        productRev[name] = p.totalRevenue.toDouble();
+      }
+    } else {
+      for (final r in periodReceipts) {
+        for (final item in r.items) {
+          final name = item.product.name.trim();
+          if (name.isEmpty) continue;
+          productQty[name] = (productQty[name] ?? 0) + item.qty;
+          productRev[name] = (productRev[name] ?? 0.0) + (item.product.price * item.qty);
+        }
       }
     }
 
@@ -1875,6 +1891,14 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   onTap: widget.onManageAds,
                   isDark: isDark,
                 ),
+              _quickActionTile(
+                icon: Icons.cleaning_services_rounded,
+                iconBg: const Color(0xFFFEF2F2),
+                iconColor: const Color(0xFFDC2626),
+                title: "Hisobotlarni tozalash",
+                onTap: () => _confirmResetReports(context),
+                isDark: isDark,
+              ),
             ],
           ),
         ),
@@ -1993,6 +2017,49 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         ),
       ],
     );
+  }
+
+  Future<void> _confirmResetReports(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+            SizedBox(width: 8),
+            Text("Hisobotlarni tozalash"),
+          ],
+        ),
+        content: const Text(
+          "Hisobotlar 0 ga tushadi. Davom etasizmi?\n(Cheklar tarixi arxivda saqlanadi, yangi to'lovlar 0 dan qo'shiladi)",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Bekor qilish'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Ha, tozalash'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      final ok = await appState.clearAllReports();
+      if (ok) {
+        showZaveroSnackBar(
+          message: "Hisobotlar muvaffaqiyatli 0 dan boshlandi",
+          backgroundColor: const Color(0xFF10B981),
+          prefixIcon: Icons.check_circle_outline,
+        );
+      }
+    }
   }
 
   Widget _quickActionTile({

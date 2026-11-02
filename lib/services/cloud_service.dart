@@ -19,6 +19,7 @@ class TableBusyException implements Exception {
 /// real-time sinxronizatsiya. Har bir metod tegishli `/api/...` endpointiga
 /// murojaat qiladi, real-time oqimlar esa Supabase Realtime PostgreSQL o'zgarishlari
 /// orqali barcha ochiq qurilmalarda darhol yangilanadi.
+
 class CloudService {
   static final CloudService _instance = CloudService._internal();
   factory CloudService() => _instance;

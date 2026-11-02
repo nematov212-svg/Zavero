@@ -591,14 +591,23 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  /// Barcha hisobotlar va cheklarni 0 dan tozalash (barcha qurilmalarda real-time 0 bo'ladi)
+  /// Barcha hisobotlarni 0 dan tozalash (cheklar arxivda saqlanadi, barcha qurilmalarda real-time 0 bo'ladi)
   Future<bool> clearAllReports() async {
     final cafeId = currentCafeId.isNotEmpty ? currentCafeId : (currentUser?.cafeId ?? '');
     if (cafeId.isEmpty) return false;
     final ok = await _cloudService.clearAllReports(cafeId);
     if (ok) {
       dailyReports.clear();
-      receipts.clear();
+      liveTodayReport = TodayReportSummary(
+        totalRevenue: 0,
+        orderCount: 0,
+        cashTotal: 0,
+        cardTotal: 0,
+        averageCheck: 0,
+        waiters: const [],
+        topProducts: const [],
+        updatedAt: DateTime.now(),
+      );
       await saveData();
       notifyListeners();
     }
@@ -1650,15 +1659,14 @@ class AppState extends ChangeNotifier {
     _socketReportClearedSub = SocketService().on(CafeSocketEvent.reportCleared).listen((data) {
       if (data['all'] == true) {
         dailyReports.clear();
-        receipts.clear();
         liveTodayReport = TodayReportSummary(
           totalRevenue: 0,
           orderCount: 0,
           cashTotal: 0,
           cardTotal: 0,
           averageCheck: 0,
-          waiters: [],
-          topProducts: [],
+          waiters: const [],
+          topProducts: const [],
           updatedAt: DateTime.now(),
         );
       } else if (data['dateId'] != null) {
@@ -4970,9 +4978,8 @@ void showZaveroSnackBar({
   IconData? prefixIcon,
   BuildContext? context,
 }) {
-  final messenger = context != null
-      ? ScaffoldMessenger.maybeOf(context) ?? appMessengerKey.currentState
-      : appMessengerKey.currentState;
+  // Har doim global root messengerKey ishlatiladi — bu deactivated context xatolarini 100% to'sadi
+  final messenger = appMessengerKey.currentState;
   if (messenger == null) return;
 
   // Oldingi xabarni darhol yashiramiz (bir-birining ustiga tushib xalaqit qilmasligi uchun)
@@ -4981,6 +4988,7 @@ void showZaveroSnackBar({
   messenger.showSnackBar(
     SnackBar(
       content: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (prefixIcon != null) ...[
             Icon(prefixIcon, color: Colors.white, size: 19),
@@ -4989,10 +4997,13 @@ void showZaveroSnackBar({
           Expanded(
             child: Text(
               message,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
                 fontSize: 13,
+                height: 1.25,
               ),
             ),
           ),
@@ -7624,7 +7635,7 @@ class _HallDropdownState extends State<_HallDropdown> {
 
   @override
   void dispose() {
-    _closeDropdown();
+    _removeOverlay();
     super.dispose();
   }
 
@@ -7639,13 +7650,20 @@ class _HallDropdownState extends State<_HallDropdown> {
   void _openDropdown() {
     _overlayEntry = _createOverlayEntry();
     Overlay.of(context).insert(_overlayEntry!);
-    setState(() => _isOpen = true);
+    if (mounted) setState(() => _isOpen = true);
+  }
+
+  void _removeOverlay() {
+    try {
+      _overlayEntry?.remove();
+    } catch (_) {}
+    _overlayEntry = null;
+    _isOpen = false;
   }
 
   void _closeDropdown() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-    if (mounted) setState(() => _isOpen = false);
+    _removeOverlay();
+    if (mounted) setState(() {});
   }
 
   OverlayEntry _createOverlayEntry() {
@@ -8071,6 +8089,19 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   bool _sidebarCollapsed = false;
   bool _reportsExpanded = true;
   int _mobileNavIndex = 0;
+  DateTimeRange? _selectedDateRange;
+
+  String _formattedHeaderDate() {
+    final now = DateTime.now();
+    final nowT = now.toUtc().add(const Duration(hours: 5));
+    if (_selectedDateRange != null) {
+      final s = _selectedDateRange!.start;
+      final e = _selectedDateRange!.end;
+      return '${s.day.toString().padLeft(2, '0')}.${s.month.toString().padLeft(2, '0')}.${s.year} - ${e.day.toString().padLeft(2, '0')}.${e.month.toString().padLeft(2, '0')}.${e.year}';
+    }
+    final todayStr = '${nowT.day.toString().padLeft(2, '0')}.${nowT.month.toString().padLeft(2, '0')}.${nowT.year}';
+    return '$todayStr - $todayStr';
+  }
 
   // ── Network ping state ──────────────────────────────────────────
   int _pingMs = 0;
@@ -9031,163 +9062,180 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   color: appState.darkMode ? const Color(0xFF131F30) : Colors.white,
                   border: Border(bottom: BorderSide(color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFE7EBF2))),
                 ),
-                child: Row(children: [
-                  // Coffee logo circle badge
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF1F5F9),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
-                    ),
-                    child: Center(
-                      child: Icon(Icons.coffee_rounded, color: appState.darkMode ? Colors.white : const Color(0xFF0F172A), size: 20),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Flexible(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
-                          style: TextStyle(
-                            fontSize: 16.5,
-                            fontWeight: FontWeight.w800,
-                            color: appState.darkMode ? Colors.white : const Color(0xFF0F172A),
-                            letterSpacing: -0.2,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          "Yaxshi ta'm • Baxtli onlar",
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Date range selector pill (Image 2)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () async {
-                      final now = DateTime.now();
-                      await showDateRangePicker(
-                        context: context,
-                        firstDate: DateTime(2024),
-                        lastDate: DateTime(2030),
-                        initialDateRange: DateTimeRange(
-                          start: now.subtract(const Duration(days: 1)),
-                          end: now,
-                        ),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
-                      ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // ── Chap guruh: Kafe nomi va Sana tanlagich (orasida 16px) ───
+                    Flexible(
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.calendar_today_rounded, size: 14, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
-                          const SizedBox(width: 8),
-                          Text(
-                            '31.10.2026 - 01.11.2026',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: appState.darkMode ? Colors.white : const Color(0xFF334155),
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF1F5F9),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
+                            ),
+                            child: Center(
+                              child: Icon(Icons.coffee_rounded, color: appState.darkMode ? Colors.white : const Color(0xFF0F172A), size: 20),
                             ),
                           ),
-                          const SizedBox(width: 4),
-                          Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
+                                  style: TextStyle(
+                                    fontSize: 16.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: appState.darkMode ? Colors.white : const Color(0xFF0F172A),
+                                    letterSpacing: -0.2,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  "Yaxshi ta'm • Baxtli onlar",
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          // Date range selector pill (Image 2)
+                          InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () async {
+                              final now = DateTime.now();
+                              final picked = await showDateRangePicker(
+                                context: context,
+                                firstDate: DateTime(2024),
+                                lastDate: DateTime(2030),
+                                initialDateRange: _selectedDateRange ?? DateTimeRange(
+                                  start: now.subtract(const Duration(days: 1)),
+                                  end: now,
+                                ),
+                              );
+                              if (picked != null && mounted) {
+                                setState(() => _selectedDateRange = picked);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.calendar_today_rounded, size: 14, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _formattedHeaderDate(),
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: appState.darkMode ? Colors.white : const Color(0xFF334155),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Search button
-                  IconButton(
-                    icon: Icon(Icons.search_rounded, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 21),
-                    tooltip: 'Qidirish',
-                    onPressed: () {},
-                  ),
-                  const SizedBox(width: 4),
-                  // Live network status badge
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.35),
-                      ),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
-                      const SizedBox(width: 5),
-                      Text(
-                        _isOnline
-                            ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
-                            : 'Offline',
-                        style: TextStyle(
-                          color: _getPingColor(_pingMs, _isOnline),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11.5,
+
+                    // ── O'ng guruh: Qidiruv, ping, bildirishnoma, tungi rejim, foydalanuvchi (orasida 12px) ───
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.search_rounded, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 21),
+                          tooltip: 'Qidirish',
+                          onPressed: () {},
                         ),
-                      ),
-                    ]),
-                  ),
-                  const SizedBox(width: 4),
-                  // Bell with badge
-                  
-                  Stack(children: [
-                    IconButton(
-                      icon: Icon(Icons.notifications_outlined, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 22),
-                      tooltip: 'Bildirishnomalar',
-                      onPressed: () => _showNotificationsModal(context),
-                    ),
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        width: 16,
-                        height: 16,
-                        decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
-                        child: const Center(
-                          child: Text(
-                            '3',
-                            style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                        const SizedBox(width: 12),
+                        // Live network status badge
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.35),
+                            ),
                           ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
+                            const SizedBox(width: 5),
+                            Text(
+                              _isOnline
+                                  ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
+                                  : 'Offline',
+                              style: TextStyle(
+                                color: _getPingColor(_pingMs, _isOnline),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ]),
                         ),
-                      ),
+                        const SizedBox(width: 12),
+                        // Bell with badge
+                        Stack(children: [
+                          IconButton(
+                            icon: Icon(Icons.notifications_outlined, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 22),
+                            tooltip: 'Bildirishnomalar',
+                            onPressed: () => _showNotificationsModal(context),
+                          ),
+                          Positioned(
+                            right: 8,
+                            top: 8,
+                            child: Container(
+                              width: 16,
+                              height: 16,
+                              decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
+                              child: const Center(
+                                child: Text(
+                                  '3',
+                                  style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ]),
+                        const SizedBox(width: 12),
+                        // Dark Mode switch
+                        IconButton(
+                          icon: Icon(
+                            appState.darkMode ? Icons.light_mode_rounded : Icons.dark_mode_outlined,
+                            color: appState.darkMode ? const Color(0xFFFBBF24) : const Color(0xFF334155),
+                            size: 21,
+                          ),
+                          tooltip: appState.darkMode ? 'Yorug\' rejim' : 'Qorong\'u rejim',
+                          onPressed: () => appState.toggleDarkMode(!appState.darkMode),
+                        ),
+                        const SizedBox(width: 12),
+                        // User dropdown button
+                        _UserDropdownButton(user: user),
+                      ],
                     ),
-                  ]),
-                  const SizedBox(width: 4),
-                  // Dark Mode switch
-                  IconButton(
-                    icon: Icon(
-                      appState.darkMode ? Icons.light_mode_rounded : Icons.dark_mode_outlined,
-                      color: appState.darkMode ? const Color(0xFFFBBF24) : const Color(0xFF334155),
-                      size: 21,
-                    ),
-                    tooltip: appState.darkMode ? 'Yorug\' rejim' : 'Qorong\'u rejim',
-                    onPressed: () => appState.toggleDarkMode(!appState.darkMode),
-                  ),
-                  const SizedBox(width: 6),
-                  // User dropdown button
-                  _UserDropdownButton(user: user),
-                ]),
+                  ],
+                ),
               ),
 
             // ── Main Section: Admin bo'lsa Executive Dashboard (yoki Stollar tab), Ofitsiant bo'lsa Stollar gridi ──
@@ -12818,17 +12866,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   void _backToTableSelection() {
+    if (confirming || _isCompleting || _isPaid) return;
     appState.leaveOrderSession();
     if (!mounted) return;
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          settings: const RouteSettings(name: 'dashboard'),
-          builder: (_) => const DashboardScreen(),
-        ),
-      );
+    final nav = appNavigatorKey.currentState;
+    if (nav != null && nav.canPop()) {
+      nav.popUntil((route) => route.isFirst);
     }
   }
 
@@ -12849,100 +12892,116 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _isCompleting = true;
     setState(() => confirming = true);
 
+    final nav = Navigator.of(context);
+
+    // Agar to'lov turi belgilanmagan bo'lsa, standart Naqd pul sifatida qabul qilamiz
+    if (!payByCash && !payByCard) {
+      payByCash = true;
+    }
+    final method = payByCash && payByCard
+        ? PaymentMethod.split
+        : (payByCash ? PaymentMethod.cash : PaymentMethod.card);
+    double cash = 0, card = 0;
+    if (method == PaymentMethod.split) {
+      cash = _payingAmount;
+      card = (_grandTotal - cash).clamp(0, double.infinity).toDouble();
+    } else if (method == PaymentMethod.cash) {
+      cash = _payingAmount < _grandTotal ? _grandTotal : _payingAmount;
+    } else {
+      card = _grandTotal;
+    }
+
+    Hall? hallBeforeCheckout = appState.selectedHall;
+    if (hallBeforeCheckout == null && appState.selectedTable != null) {
+      for (final h in appState.halls) {
+        if (h.id == appState.selectedTable!.hallId) {
+          hallBeforeCheckout = h;
+          break;
+        }
+      }
+    }
+
+    if (isTakeaway) {
+      final existingNote = appState.selectedTableNote;
+      if (!existingNote.contains('[Olib ketish]')) {
+        appState.setTableNote('[Olib ketish] $existingNote'.trim());
+      }
+    }
+
+    final selTable = appState.selectedTable;
+    final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}_$now';
+    final isPrinterReady = appState.isPrinterVerified ||
+        (!appState.isPrinterStation && appState.hasCloudPrinterStation && appState.isCloudStationPrinterReady);
+    final initialPrintStatus = isPrinterReady ? (appState.autoPrintOnPaid ? 'queued' : 'unprinted') : 'unprinted';
+
+    // ── TRY 1: Haqiqiy to'lovni qayd qilish (Postgres commit & OfflineSync outbox) ──
+    Receipt receipt;
     try {
-      // Agar to'lov turi belgilanmagan bo'lsa, standart Naqd pul sifatida qabul qilamiz
-      if (!payByCash && !payByCard) {
-        payByCash = true;
-      }
-      final method = payByCash && payByCard
-          ? PaymentMethod.split
-          : (payByCash ? PaymentMethod.cash : PaymentMethod.card);
-      double cash = 0, card = 0;
-      if (method == PaymentMethod.split) {
-        cash = _payingAmount;
-        card = (_grandTotal - cash).clamp(0, double.infinity).toDouble();
-      } else if (method == PaymentMethod.cash) {
-        cash = _payingAmount < _grandTotal ? _grandTotal : _payingAmount;
-      } else {
-        card = _grandTotal;
-      }
-
-      Hall? hallBeforeCheckout = appState.selectedHall;
-      if (hallBeforeCheckout == null && appState.selectedTable != null) {
-        for (final h in appState.halls) {
-          if (h.id == appState.selectedTable!.hallId) {
-            hallBeforeCheckout = h;
-            break;
-          }
-        }
-      }
-
-      if (isTakeaway) {
-        final existingNote = appState.selectedTableNote;
-        if (!existingNote.contains('[Olib ketish]')) {
-          appState.setTableNote('[Olib ketish] $existingNote'.trim());
-        }
-      }
-
-      // 1. To'lovni qayd qilish va chek obyektini olish (tranzaksiya Postgresda commit bo'lishini kutamiz)
-      final selTable = appState.selectedTable;
-      final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}';
-      final isPrinterReady = appState.isPrinterVerified ||
-          (!appState.isPrinterStation && appState.hasCloudPrinterStation && appState.isCloudStationPrinterReady);
-      final initialPrintStatus = isPrinterReady ? (appState.autoPrintOnPaid ? 'queued' : 'unprinted') : 'unprinted';
-
-      final receipt = await appState.checkout(
+      receipt = await appState.checkout(
         method: method,
         cashPaid: cash,
         cardPaid: card,
         idempotencyKey: ik,
         printStatus: initialPrintStatus,
       );
+    } catch (e) {
+      debugPrint('To‘lovni amalga oshirishda xatolik: $e');
+      _globalCheckoutInProgress = false;
+      _isCompleting = false;
+      _isPaid = false;
+      if (mounted) setState(() => confirming = false);
+      showZaveroSnackBar(
+        message: 'To‘lovda xatolik yuz berdi: $e',
+        backgroundColor: const Color(0xFFDC2626),
+        duration: const Duration(seconds: 3),
+        prefixIcon: Icons.error_outline,
+      );
+      return;
+    }
 
-      // Stolni xotirada 100% bo'shatilishini kafolatlaymiz (Band qolib ketmasligi uchun)
-      if (selTable != null) {
-        appState.tableOrders.remove(selTable.id);
-        appState.tableNotes.remove(selTable.id);
-        for (final t in appState.tables) {
-          if (t.id == selTable.id || (t.number == selTable.number && t.hallId == selTable.hallId)) {
-            t.status = TableStatus.free;
-            appState.tableOrders.remove(t.id);
-            appState.tableNotes.remove(t.id);
-          }
+    // To'lov muvaffaqiyatli saqlandi — endi hech qanday holatda to'lov bekor qilinmaydi!
+    _isPaid = true;
+
+    // Stolni xotirada 100% bo'shatilishini kafolatlaymiz (Band qolib ketmasligi uchun)
+    if (selTable != null) {
+      appState.tableOrders.remove(selTable.id);
+      appState.tableNotes.remove(selTable.id);
+      for (final t in appState.tables) {
+        if (t.id == selTable.id || (t.number == selTable.number && t.hallId == selTable.hallId)) {
+          t.status = TableStatus.free;
+          appState.tableOrders.remove(t.id);
+          appState.tableNotes.remove(t.id);
         }
-        appState.notifyChanges();
       }
+      appState.notifyChanges();
+    }
 
-      _isPaid = true;
+    // ── TRY 2: PRINTER YO'LI (Fire-and-forget, to'lovni aslo to'xtatmaydi) ──
+    final orderAlreadyPrinted = appState.isReceiptPrintedForOrder(selTable?.id, selTable?.number);
+    if (isPrinterReady && appState.autoPrintOnPaid && !orderAlreadyPrinted) {
+      unawaited(() async {
+        try {
+          await printReceipt(receipt, isAutoCheckout: true);
+          receipt.printStatus = 'printed';
+          receipt.printedAt = DateTime.now();
+          await ApiClient().patch('/receipts/${receipt.id}/print-status', body: {
+            'printStatus': 'printed',
+            'printedAt': receipt.printedAt?.toIso8601String(),
+          });
+          appState.notifyChanges();
+        } catch (e) {
+          debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+        }
+      }());
+    }
+    appState.clearReceiptPrintedForOrder(selTable?.id, selTable?.number);
 
-      // 2. AVTOMATIK CHEK CHIQARISH VA BILDIRISHNOMA:
-      final orderAlreadyPrinted = appState.isReceiptPrintedForOrder(selTable?.id, selTable?.number);
-      if (isPrinterReady && appState.autoPrintOnPaid && !orderAlreadyPrinted) {
-        unawaited(() async {
-          try {
-            await printReceipt(receipt, isAutoCheckout: true);
-            receipt.printStatus = 'printed';
-            receipt.printedAt = DateTime.now();
-            await ApiClient().patch('/receipts/${receipt.id}/print-status', body: {
-              'printStatus': 'printed',
-              'printedAt': receipt.printedAt?.toIso8601String(),
-            });
-            appState.notifyChanges();
-          } catch (e) {
-            debugPrint('Avtomatik chek chiqarishda xatolik: $e');
-          }
-        }());
+    // ── TRY 3: UI NAVIGATSIYA VA XABARNOMA (Alohida xavfsiz blok) ──
+    try {
+      if (!isPrinterReady) {
         showZaveroSnackBar(
-          message: "To'lov muvaffaqiyatli qabul qilindi",
-          backgroundColor: const Color(0xFF10B981),
-          duration: const Duration(milliseconds: 2200),
-          prefixIcon: Icons.check_circle_outline,
-        );
-      } else if (!isPrinterReady) {
-        // Printer ulanmagan: qizil, ixcham, [X] yopish tugmali va 3.5 soniyada o'zi yo'qoladigan
-        showZaveroSnackBar(
-          message: "Printer ulanmagan. Chek Cheklar tarixiga saqlandi, keyinroq chiqarishingiz mumkin.",
-          backgroundColor: const Color(0xFFDC2626),
+          message: "To'lov qabul qilindi. Printer oflayn bo'lgani sababli chek Cheklar tarixiga saqlandi.",
+          backgroundColor: const Color(0xFFD97706),
           duration: const Duration(milliseconds: 3500),
           prefixIcon: Icons.print_disabled_outlined,
           action: SnackBarAction(
@@ -12964,39 +13023,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
           prefixIcon: Icons.check_circle_outline,
         );
       }
-      appState.clearReceiptPrintedForOrder(selTable?.id, selTable?.number);
 
-      // 3. TO'G'RI VA ANIQ 1 MARTA NAVIGATSIYA
-      // Mavjud Dashboard ga silliq qaytish — bu dublikat sidebar va qotishlarni 100% yo'qotadi
-      if (mounted) {
-        if (Navigator.of(context).canPop()) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        } else {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              settings: const RouteSettings(name: 'dashboard'),
-              builder: (_) => const DashboardScreen(),
-            ),
-          );
-        }
+      final rootNav = appNavigatorKey.currentState ?? nav;
+      if (rootNav.canPop()) {
+        rootNav.popUntil((route) => route.isFirst);
       }
-    } catch (e) {
-      debugPrint('To‘lovni amalga oshirishda xatolik: $e');
-      _globalCheckoutInProgress = false;
-      _isCompleting = false;
-      _isPaid = false;
-      if (mounted) setState(() => confirming = false);
-      showZaveroSnackBar(
-        message: 'To‘lovda xatolik yuz berdi: $e',
-        backgroundColor: const Color(0xFFDC2626),
-        duration: const Duration(seconds: 3),
-        prefixIcon: Icons.error_outline,
-      );
+    } catch (uiError) {
+      debugPrint('UI navigation notice: $uiError');
     } finally {
       _globalCheckoutInProgress = false;
-      if (!_isPaid && mounted) {
-        setState(() => confirming = false);
-      }
     }
   }
 
@@ -13047,7 +13082,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
         if (appState.cart.isEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _backToTableSelection();
+            if (mounted && !confirming && !_isCompleting && !_isPaid) {
+              _backToTableSelection();
+            }
           });
           return const Scaffold(
             backgroundColor: Color(0xFFF8F9FA),

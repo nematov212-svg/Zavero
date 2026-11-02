@@ -142,26 +142,39 @@
           var tg = window.Telegram.WebApp;
           tg.ready();
           tg.expand();
-          if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
-          if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
-          if (tg.setHeaderColor) tg.setHeaderColor('#0F172A');
-          if (tg.setBackgroundColor) tg.setBackgroundColor('#0F172A');
+
+          var canCall = function (version) {
+            return tg.isVersionAtLeast ? tg.isVersionAtLeast(version) : false;
+          };
+
+          if (canCall('7.7') && tg.disableVerticalSwipes) {
+            try { tg.disableVerticalSwipes(); } catch (_) {}
+          }
+          if (canCall('6.2') && tg.enableClosingConfirmation) {
+            try { tg.enableClosingConfirmation(); } catch (_) {}
+          }
+          if (canCall('6.1') && tg.setHeaderColor) {
+            try { tg.setHeaderColor('#0F172A'); } catch (_) {}
+          }
+          if (canCall('6.1') && tg.setBackgroundColor) {
+            try { tg.setBackgroundColor('#0F172A'); } catch (_) {}
+          }
 
           // Telegram BackButton support: ofitsiant yoki foydalanuvchi sahifalarida to'g'ri ishlashi
-          if (tg.BackButton) {
+          if (canCall('6.1') && tg.BackButton) {
             var updateBackButton = function () {
               var h = window.location.hash || '';
               if (h && h !== '#/' && h !== '#dashboard' && h !== '') {
-                tg.BackButton.show();
+                try { tg.BackButton.show(); } catch (_) {}
               } else {
-                tg.BackButton.hide();
+                try { tg.BackButton.hide(); } catch (_) {}
               }
             };
             tg.BackButton.onClick(function () {
               if (window.location.hash && window.location.hash !== '#/' && window.location.hash !== '#dashboard') {
                 window.history.back();
               } else {
-                tg.BackButton.hide();
+                try { tg.BackButton.hide(); } catch (_) {}
               }
             });
             window.addEventListener('hashchange', updateBackButton);

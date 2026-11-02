@@ -7,6 +7,18 @@ const { notifyCafe } = require('../socket/socketHandler');
  * Calculated live via PostgreSQL (SUM/COUNT/GROUP BY) with Tashkent timezone (UTC+5).
  */
 const getTodayReportData = async (cafeId) => {
+  let resetCondition = '';
+  const queryParams = [cafeId];
+
+  try {
+    const settingsRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+    const settingsData = settingsRes.rows[0]?.data || {};
+    if (settingsData.reports_reset_at) {
+      queryParams.push(new Date(settingsData.reports_reset_at));
+      resetCondition = ' AND (created_at >= $2 OR date >= $2)';
+    }
+  } catch (_) { }
+
   const summaryRes = await db.query(
     `SELECT 
        COALESCE(SUM(total), 0)::bigint as total_revenue,
@@ -19,8 +31,8 @@ const getTodayReportData = async (cafeId) => {
        AND (
          (date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
          OR (created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
-       )`,
-    [cafeId]
+       )${resetCondition}`,
+    queryParams
   );
   const summary = summaryRes.rows[0] || {};
 
@@ -34,10 +46,10 @@ const getTodayReportData = async (cafeId) => {
        AND (
          (date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
          OR (created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
-       )
+       )${resetCondition}
      GROUP BY COALESCE(NULLIF(TRIM(cashier_name), ''), 'Kassa')
      ORDER BY total_revenue DESC`,
-    [cafeId]
+    queryParams
   );
 
   const itemsRes = await db.query(
@@ -51,11 +63,11 @@ const getTodayReportData = async (cafeId) => {
        AND (
          (r.date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
          OR (r.created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
-       )
+       )${resetCondition}
      GROUP BY COALESCE(item->'product'->>'name', item->>'name', 'Noma''lum')
      ORDER BY qty DESC
      LIMIT 20`,
-    [cafeId]
+    queryParams
   );
 
   return {
@@ -151,17 +163,30 @@ const clearMonth = async (req, res) => {
   }
 };
 
-// DELETE /api/reports / /api/reports/all — clear ALL reports and receipts for this cafe (0 dan tozalash)
+// DELETE /api/reports / /api/reports/all — clear ALL reports for this cafe (0 dan tozalash, cheklar arxivda qoladi)
 const clearAll = async (req, res) => {
   try {
     const cafeId = req.user.cafeId;
+    const nowIso = new Date().toISOString();
+
+    // 1. Saqlangan sozlamalar ichiga reports_reset_at timestamp yozamiz
+    const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]);
+    const currentSettings = sRes.rows[0]?.data || {};
+    currentSettings.reports_reset_at = nowIso;
+    await db.query(
+      `INSERT INTO settings (cafe_id, data, updated_at) 
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (cafe_id) DO UPDATE SET data = $2, updated_at = CURRENT_TIMESTAMP`,
+      [cafeId, JSON.stringify(currentSettings)]
+    );
+
+    // 2. Kunlik hisobotlar jadvalini tozalaymiz (cheklar esa cheklar tarixida arxivda saqlanadi!)
     await db.query('DELETE FROM reports WHERE cafe_id = $1', [cafeId]);
-    await db.query('DELETE FROM receipts WHERE cafe_id = $1', [cafeId]);
+
     const zeroReport = await getTodayReportData(cafeId);
-    notifyCafe(cafeId, 'REPORT_CLEARED', { all: true, todayReport: zeroReport });
-    notifyCafe(cafeId, 'RECEIPTS_CLEARED', { all: true });
-    notifyCafe(cafeId, 'REPORT_UPDATED', { todayReport: zeroReport });
-    res.json({ success: true, message: 'Barcha hisobotlar va cheklar muvaffaqiyatli 0 dan tozalandi', todayReport: zeroReport });
+    notifyCafe(cafeId, 'REPORT_CLEARED', { all: true, todayReport: zeroReport, resetAt: nowIso });
+    notifyCafe(cafeId, 'REPORT_UPDATED', { todayReport: zeroReport, resetAt: nowIso });
+    res.json({ success: true, message: 'Barcha hisobotlar muvaffaqiyatli 0 dan tozalandi (cheklar arxivda saqlandi)', todayReport: zeroReport });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -47,8 +47,7 @@ class SupabaseRealtimeService {
   Future<void> init() async {
     await SupabaseConfig.loadSavedConfig();
     if (!SupabaseConfig.isConfigured) {
-      debugPrint(
-          'ℹ️ [SupabaseRealtime] SupabaseConfig hali kiritilmagan. Realtime kutilmoqda.');
+      // Supabase belgilanmagan — tizim 100% Railway SocketService (WebSocket) orqali ishlaydi
       return;
     }
 
