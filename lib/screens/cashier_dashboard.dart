@@ -166,7 +166,7 @@ class _CashierDashboardState extends State<CashierDashboard> {
                       }
                       return LayoutBuilder(
                         builder: (context, constraints) {
-                          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                          if (constraints.maxWidth <= 60 || constraints.maxHeight <= 0) return const SizedBox.shrink();
                           final crossCount = (constraints.maxWidth / 160).floor().clamp(1, 6);
                           return GridView.builder(
                             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(

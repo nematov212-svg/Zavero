@@ -3286,7 +3286,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             else
               LayoutBuilder(
                 builder: (context, constraints) {
-                  if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                  if (constraints.maxWidth <= 60 || constraints.maxHeight <= 0) return const SizedBox.shrink();
                   final crossCount = (constraints.maxWidth > 1150
                       ? 2
                       : (constraints.maxWidth > 800 ? 2 : 1)).clamp(1, 4);
@@ -3510,7 +3510,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       // 2x2 grid for mobile
       return LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+          if (constraints.maxWidth <= 50 || constraints.maxHeight <= 0) return const SizedBox.shrink();
           return GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -3527,7 +3527,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     if (isTablet) {
       return LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+          if (constraints.maxWidth <= 50 || constraints.maxHeight <= 0) return const SizedBox.shrink();
           return GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -809,15 +810,20 @@ class _TablesManagementScreenState extends State<TablesManagementScreen> {
                     : LayoutBuilder(
                         builder: (context, constraints) {
                           if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                          final availableWidth = constraints.maxWidth - 32.0;
+                          if (availableWidth <= 0 || constraints.maxWidth <= 64 || constraints.maxHeight <= 0) {
+                            return const SizedBox.shrink();
+                          }
+                          final cols = math.max(1, (availableWidth / 200.0).floor());
                           return GridView.builder(
                             padding: const EdgeInsets.all(16),
-                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 220,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
-                          childAspectRatio: 1.15,
-                        ),
-                        itemCount: currentHallTables.length,
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: cols,
+                              crossAxisSpacing: 14,
+                              mainAxisSpacing: 14,
+                              childAspectRatio: 1.15,
+                            ),
+                            itemCount: currentHallTables.length,
                         itemBuilder: (context, i) {
                           final table = currentHallTables[i];
                           final isOccupied = table.status == TableStatus.occupied;

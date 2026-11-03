@@ -79,8 +79,11 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                 }
                 return LayoutBuilder(
                   builder: (context, constraints) {
-                    if (constraints.maxWidth <= 0) return const SizedBox.shrink();
-                    final crossCount = (constraints.maxWidth / 160).floor().clamp(1, 6);
+                    final availableWidth = constraints.maxWidth - 16.0;
+                    if (availableWidth <= 0 || constraints.maxWidth <= 50 || constraints.maxHeight <= 0) {
+                      return const SizedBox.shrink();
+                    }
+                    final crossCount = (availableWidth / 160).floor().clamp(1, 6);
                     return GridView.builder(
                       padding: const EdgeInsets.all(8),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(

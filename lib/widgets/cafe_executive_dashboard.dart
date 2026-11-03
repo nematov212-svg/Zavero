@@ -868,6 +868,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                     children: [
                       Text(
                         'Naqd: $cashPct% (${_formatMoney(cashTotal)} so\'m)',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,
@@ -876,6 +878,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                       ),
                       Text(
                         '• Karta: $cardPct% (${_formatMoney(cardTotal)} so\'m)',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,

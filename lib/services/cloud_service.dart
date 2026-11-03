@@ -173,8 +173,11 @@ class CloudService {
   }) {
     late StreamController<T> controller;
     final subs = <StreamSubscription>[];
+    bool isPermissionDenied = false;
 
     void instantRefresh() async {
+      if (isPermissionDenied) return;
+
       dynamic cachedObj;
       // 1. Keshdagi ma'lumotni DARHOL emit qilamiz (0-ms)
       if (cacheRestore != null) {
@@ -210,6 +213,19 @@ class CloudService {
             }
           }
         } catch (e) {
+          final isForbidden = (e is ApiException && e.statusCode == 403) ||
+              e.toString().contains('403') ||
+              e.toString().contains('yetarli ruxsat yo\'q');
+          if (isForbidden) {
+            // 403 Forbidden: joriy foydalanuvchi roli bu endpointga ruxsatsiz
+            // Qayta urinishni to'xtatamiz, konsolga xato bosmaymiz
+            isPermissionDenied = true;
+            for (final s in subs) {
+              try { s.cancel(); } catch (_) {}
+            }
+            subs.clear();
+            return;
+          }
           debugPrint('CloudService stream yangilash xatoligi: $e');
         }
       }

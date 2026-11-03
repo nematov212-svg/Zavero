@@ -120,6 +120,9 @@ class AuthService {
       }
 
       if (e is ApiException) {
+        if (e.statusCode == 401) {
+          throw Exception('Login yoki parol noto\'g\'ri. Iltimos, qaytadan tekshiring.');
+        }
         throw Exception(e.message);
       }
       throw Exception(e.toString());
@@ -188,7 +191,12 @@ class AuthService {
       _applySession(userJson, _api.token!);
       return AppUser.fromJson(userJson);
     } catch (e) {
-      debugPrint('getCurrentUserDetails xatoligi: $e');
+      if (e is ApiException && e.statusCode == 401) {
+        debugPrint('ℹ️ [Auth] Eski/yaroqsiz token (401). Sessiya tozalanmoqda...');
+        await logout();
+      } else {
+        debugPrint('getCurrentUserDetails xatoligi: $e');
+      }
       return null;
     }
   }

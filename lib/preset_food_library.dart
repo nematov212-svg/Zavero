@@ -2784,7 +2784,7 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                         )
                       : LayoutBuilder(
                           builder: (context, constraints) {
-                            if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                            if (constraints.maxWidth <= 50 || constraints.maxHeight <= 0) return const SizedBox.shrink();
                             final count = (constraints.maxWidth / 120).floor().clamp(1, 4);
                             return GridView.builder(
                               itemCount: displayedItems.length,

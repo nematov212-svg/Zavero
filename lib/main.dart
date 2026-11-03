@@ -1463,14 +1463,18 @@ class AppState extends ChangeNotifier {
     });
 
     _employeesSub?.cancel();
-    _employeesSub = _cloudService.streamEmployees(cafeId).listen((newEmployees) {
-      if (newEmployees.isNotEmpty) {
-        users
-          ..clear()
-          ..addAll(newEmployees);
-        notifyListeners();
-      }
-    });
+    final canAccessEmployees = currentUser?.role == UserRole.admin ||
+        currentUser?.role == UserRole.director;
+    if (canAccessEmployees) {
+      _employeesSub = _cloudService.streamEmployees(cafeId).listen((newEmployees) {
+        if (newEmployees.isNotEmpty) {
+          users
+            ..clear()
+            ..addAll(newEmployees);
+          notifyListeners();
+        }
+      });
+    }
 
     _ordersSub?.cancel();
     _ordersSub = _cloudService.streamCustomerOrders(cafeId).listen((newOrders) {
@@ -1537,12 +1541,16 @@ class AppState extends ChangeNotifier {
     });
 
     _reportsSub?.cancel();
-    _reportsSub = _cloudService.streamReports(cafeId).listen((newReports) {
-      dailyReports
-        ..clear()
-        ..addAll(newReports);
-      notifyListeners();
-    });
+    final canAccessReports = currentUser?.role == UserRole.admin ||
+        currentUser?.role == UserRole.director;
+    if (canAccessReports) {
+      _reportsSub = _cloudService.streamReports(cafeId).listen((newReports) {
+        dailyReports
+          ..clear()
+          ..addAll(newReports);
+        notifyListeners();
+      });
+    }
 
     // ============================================================
     // REAL-TIME STOLLAR VA OFITSIANT/KAFE SINXRONIZATSIYASI (0-MS)
@@ -5274,6 +5282,7 @@ void showZaveroSnackBar({
             ],
             const SizedBox(width: 10),
             // Bitta bosishda xabarni yo'qotuvchi [X] tugmasi (barcha yashil, qizil, ma'lumot xabarlari uchun)
+            
             InkWell(
               onTap: () {
                 try { messenger.clearSnackBars(); } catch (_) {}
@@ -5293,7 +5302,7 @@ void showZaveroSnackBar({
         backgroundColor: effectiveBgColor,
         duration: duration,
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         dismissDirection: DismissDirection.horizontal,
       ),
@@ -6295,12 +6304,15 @@ class _CustomerMenuScreenState extends State<CustomerMenuScreen> {
                       )
                     : LayoutBuilder(
                         builder: (context, constraints) {
-                          if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                          final availableWidth = constraints.maxWidth - 24.0;
+                          if (availableWidth <= 0 || constraints.maxWidth <= 50 || constraints.maxHeight <= 0) {
+                            return const SizedBox.shrink();
+                          }
+                          final cols = math.max(1, (availableWidth / 180.0).floor());
                           return GridView.builder(
                             padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-                            gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 200,
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: cols,
                               childAspectRatio: 0.85,
                               crossAxisSpacing: 12,
                               mainAxisSpacing: 12,
@@ -8864,237 +8876,261 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
             curve: Curves.easeInOut,
             width: collapsed ? 64 : 220,
             color: const Color(0xFF0F1E30),
-            child: Column(
-              children: [
-                // ── Logo + Cafe header ─────────────────────────
-                Container(
-                  padding: EdgeInsets.fromLTRB(collapsed ? 10 : 16, 20, collapsed ? 10 : 16, 16),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0xFF1A2E45), width: 1)),
-                  ),
-                  child: collapsed
-                      ? Center(
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(8),
-                            onTap: () => setState(() => _sidebarCollapsed = false),
-                            child: Container(
-                              width: 40, height: 40,
-                              decoration: BoxDecoration(color: const Color(0xFF1A2E45), borderRadius: BorderRadius.circular(10)),
-                              child: const _AnimatedHeaderLogoBadge(size: 40),
-                            ),
-                          ),
-                        )
-                      : Row(
-                          children: [
-                            Container(
-                              width: 40, height: 40,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1A2E45),
-                                borderRadius: BorderRadius.circular(10),
+            child: LayoutBuilder(
+              builder: (context, sbConstraints) {
+                if (sbConstraints.maxWidth <= 24) return const SizedBox.shrink();
+                final isSbNarrow = collapsed || sbConstraints.maxWidth < 110;
+
+                return Column(
+                  children: [
+                    // ── Logo + Cafe header ─────────────────────────
+                    Container(
+                      padding: EdgeInsets.fromLTRB(isSbNarrow ? 10 : 16, 20, isSbNarrow ? 10 : 16, 16),
+                      decoration: const BoxDecoration(
+                        border: Border(bottom: BorderSide(color: Color(0xFF1A2E45), width: 1)),
+                      ),
+                      child: isSbNarrow
+                          ? Center(
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () => setState(() => _sidebarCollapsed = false),
+                                child: Container(
+                                  width: math.min(sbConstraints.maxWidth, 40.0),
+                                  height: 40,
+                                  decoration: BoxDecoration(color: const Color(0xFF1A2E45), borderRadius: BorderRadius.circular(10)),
+                                  child: const _AnimatedHeaderLogoBadge(size: 40),
+                                ),
                               ),
-                              child: const _AnimatedHeaderLogoBadge(size: 40),
+                            )
+                          : Row(
+                              children: [
+                                Container(
+                                  width: 40, height: 40,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1A2E45),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const _AnimatedHeaderLogoBadge(size: 40),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: const [
+                                      Text('ZAVERO', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1.2), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                      Text('POS', style: TextStyle(color: Color(0xFFFFB300), fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ],
+                                  ),
+                                ),
+                                // ← Collapse toggle
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () => setState(() => _sidebarCollapsed = true),
+                                  child: const Icon(Icons.keyboard_arrow_left_rounded, color: Colors.white54, size: 22),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Text('ZAVERO', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1.2)),
-                                  Text('POS', style: TextStyle(color: Color(0xFFFFB300), fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0)),
+                    ),
+
+                    // ── Cafe name sub-header (faqat kengaytilganda) ─
+                    if (!isSbNarrow) ...[  
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        child: Row(children: [
+                          Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1A2E45),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.storefront_rounded, color: Color(0xFFFFB300), size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                              ),
+                              const Text('Kafe boshqaruvi osonroq', style: TextStyle(color: Color(0xFF6B8BA4), fontSize: 10.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ],
+                          )),
+                        ]),
+                      ),
+                    ],
+
+                    const Divider(color: Color(0xFF1A2E45), height: 1),
+                    const SizedBox(height: 8),
+
+                    // ── Nav items (Image 2 ga 100% mos) ───────────
+                    if (isAdmin) ...[
+                      Expanded(
+                        child: ListView(
+                          padding: EdgeInsets.symmetric(horizontal: isSbNarrow ? 8 : 10, vertical: 4),
+                          children: [
+                            // 1. Boshqaruv paneli (Active - Image 2)
+                            _buildSidebarItem(
+                              icon: Icons.home_rounded,
+                              title: 'Boshqaruv paneli',
+                              isActive: _mobileNavIndex == 0,
+                              collapsed: isSbNarrow,
+                              onTap: () => setState(() => _mobileNavIndex = 0),
+                            ),
+                            const SizedBox(height: 3),
+                            // 2. Stollar (Jonli stollar gridi)
+                            _buildSidebarItem(
+                              icon: Icons.table_restaurant_rounded,
+                              title: 'Stollar',
+                              isActive: _mobileNavIndex == 1,
+                              collapsed: isSbNarrow,
+                              onTap: () => setState(() => _mobileNavIndex = 1),
+                            ),
+                            const SizedBox(height: 3),
+                            // 2. Hisobotlar (Collapsible Submenu - Image 2)
+                            if (isSbNarrow)
+                              _buildSidebarItem(
+                                icon: Icons.bar_chart_rounded,
+                                title: 'Hisobotlar',
+                                isActive: false,
+                                collapsed: true,
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen())),
+                              )
+                            else ...[
+                              _buildExpandableSidebarItem(
+                                icon: Icons.bar_chart_rounded,
+                                title: 'Hisobotlar',
+                                isExpanded: _reportsExpanded,
+                                onToggle: () => setState(() => _reportsExpanded = !_reportsExpanded),
+                                children: [
+                                  _buildSubmenuItem(
+                                    title: 'Umumiy hisobot',
+                                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
+                                  ),
+                                  _buildSubmenuItem(
+                                    title: 'Savdo hisobotlari',
+                                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
+                                  ),
+                                  _buildSubmenuItem(
+                                    title: 'Xarajatlar hisoboti',
+                                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
+                                  ),
+                                  _buildSubmenuItem(
+                                    title: 'Xodimlar hisoboti',
+                                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 2))),
+                                  ),
                                 ],
                               ),
+                            ],
+                            const SizedBox(height: 3),
+                            // 3. Cheklar tarixi
+                            _buildSidebarItem(
+                              icon: Icons.receipt_long_rounded,
+                              title: 'Cheklar tarixi',
+                              isActive: false,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen())),
                             ),
-                            // ← Collapse toggle
-                            InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () => setState(() => _sidebarCollapsed = true),
-                              child: const Icon(Icons.keyboard_arrow_left_rounded, color: Colors.white54, size: 22),
+                            const SizedBox(height: 3),
+                            // 4. Buyurtmalar
+                            _buildSidebarItem(
+                              icon: Icons.shopping_bag_outlined,
+                              title: 'Buyurtmalar',
+                              isActive: false,
+                              badge: appState.pendingOrdersCount,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerOrdersScreen())),
+                            ),
+                            const SizedBox(height: 3),
+                            // 5. Mahsulotlar
+                            _buildSidebarItem(
+                              icon: Icons.restaurant_rounded,
+                              title: 'Mahsulotlar',
+                              isActive: false,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen())),
+                            ),
+                            const SizedBox(height: 3),
+                            // 6. Kategoriyalar
+                            _buildSidebarItem(
+                              icon: Icons.grid_view_rounded,
+                              title: 'Kategoriyalar',
+                              isActive: false,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CategoriesScreen())),
+                            ),
+                            const SizedBox(height: 3),
+                            // 7. Xodimlar
+                            _buildSidebarItem(
+                              icon: Icons.people_outline_rounded,
+                              title: 'Xodimlar',
+                              isActive: false,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeesScreen())),
+                            ),
+                            const SizedBox(height: 3),
+                            // 8. Stollar boshqaruvi
+                            _buildSidebarItem(
+                              icon: Icons.table_restaurant_rounded,
+                              title: 'Stollar boshqaruvi',
+                              isActive: false,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TablesManagementScreen())),
+                            ),
+                            const SizedBox(height: 3),
+                            // 9. Reklama qo'yish (QR Menyu bannerlari)
+                            _buildSidebarItem(
+                              icon: Icons.campaign_rounded,
+                              title: 'Reklama qo\'yish',
+                              isActive: false,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdsManagementScreen())),
+                            ),
+                            const SizedBox(height: 3),
+                            // 10. Sozlamalar
+                            _buildSidebarItem(
+                              icon: Icons.settings_outlined,
+                              title: 'Sozlamalar',
+                              isActive: false,
+                              collapsed: isSbNarrow,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
                             ),
                           ],
                         ),
-                ),
-
-                // ── Cafe name sub-header (faqat kengaytilganda) ─
-                if (!_sidebarCollapsed) ...[  
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                    child: Row(children: [
-                      Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1A2E45),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.storefront_rounded, color: Color(0xFFFFB300), size: 18),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                          ),
-                          const Text('Kafe boshqaruvi osonroq', style: TextStyle(color: Color(0xFF6B8BA4), fontSize: 10.5)),
-                        ],
-                      )),
-                    ]),
-                  ),
-                ],
-
-                const Divider(color: Color(0xFF1A2E45), height: 1),
-                const SizedBox(height: 8),
-
-                // ── Nav items (Image 2 ga 100% mos) ───────────
-                if (isAdmin) ...[
-                  Expanded(
-                    child: ListView(
-                      padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 10, vertical: 4),
-                      children: [
-                        // 1. Boshqaruv paneli (Active - Image 2)
-                        _buildSidebarItem(
-                          icon: Icons.home_rounded,
-                          title: 'Boshqaruv paneli',
-                          isActive: _mobileNavIndex == 0,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => setState(() => _mobileNavIndex = 0),
-                        ),
-                        const SizedBox(height: 3),
-                        // 2. Stollar (Jonli stollar gridi)
-                        _buildSidebarItem(
-                          icon: Icons.table_restaurant_rounded,
-                          title: 'Stollar',
-                          isActive: _mobileNavIndex == 1,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => setState(() => _mobileNavIndex = 1),
-                        ),
-                        const SizedBox(height: 3),
-                        // 2. Hisobotlar (Collapsible Submenu - Image 2)
-                        if (_sidebarCollapsed)
-                          _buildSidebarItem(
-                            icon: Icons.bar_chart_rounded,
-                            title: 'Hisobotlar',
-                            isActive: false,
-                            collapsed: true,
-                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen())),
-                          )
-                        else ...[
-                          _buildExpandableSidebarItem(
-                            icon: Icons.bar_chart_rounded,
-                            title: 'Hisobotlar',
-                            isExpanded: _reportsExpanded,
-                            onToggle: () => setState(() => _reportsExpanded = !_reportsExpanded),
-                            children: [
-                              _buildSubmenuItem(
-                                title: 'Umumiy hisobot',
-                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
-                              ),
-                              _buildSubmenuItem(
-                                title: 'Savdo hisobotlari',
-                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
-                              ),
-                              _buildSubmenuItem(
-                                title: 'Xarajatlar hisoboti',
-                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 0))),
-                              ),
-                              _buildSubmenuItem(
-                                title: 'Xodimlar hisoboti',
-                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen(initialTabIndex: 2))),
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 3),
-                        // 3. Cheklar tarixi
-                        _buildSidebarItem(
-                          icon: Icons.receipt_long_rounded,
-                          title: 'Cheklar tarixi',
-                          isActive: false,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen())),
-                        ),
-                        const SizedBox(height: 3),
-                        // 4. Buyurtmalar
-                        _buildSidebarItem(
-                          icon: Icons.shopping_bag_outlined,
-                          title: 'Buyurtmalar',
-                          isActive: false,
-                          badge: appState.pendingOrdersCount,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerOrdersScreen())),
-                        ),
-                        const SizedBox(height: 3),
-                        // 5. Mahsulotlar
-                        _buildSidebarItem(
-                          icon: Icons.restaurant_rounded,
-                          title: 'Mahsulotlar',
-                          isActive: false,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductsScreen())),
-                        ),
-                        const SizedBox(height: 3),
-                        // 6. Kategoriyalar
-                        _buildSidebarItem(
-                          icon: Icons.grid_view_rounded,
-                          title: 'Kategoriyalar',
-                          isActive: false,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CategoriesScreen())),
-                        ),
-                        const SizedBox(height: 3),
-                        // 7. Xodimlar
-                        _buildSidebarItem(
-                          icon: Icons.people_outline_rounded,
-                          title: 'Xodimlar',
-                          isActive: false,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeesScreen())),
-                        ),
-                        const SizedBox(height: 3),
-                        // 8. Stollar boshqaruvi
-                        _buildSidebarItem(
-                          icon: Icons.table_restaurant_rounded,
-                          title: 'Stollar boshqaruvi',
-                          isActive: false,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TablesManagementScreen())),
-                        ),
-                        const SizedBox(height: 3),
-                        // 9. Reklama qo'yish (QR Menyu bannerlari)
-                        _buildSidebarItem(
-                          icon: Icons.campaign_rounded,
-                          title: 'Reklama qo\'yish',
-                          isActive: false,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdsManagementScreen())),
-                        ),
-                        const SizedBox(height: 3),
-                        // 10. Sozlamalar
-                        _buildSidebarItem(
-                          icon: Icons.settings_outlined,
-                          title: 'Sozlamalar',
-                          isActive: false,
-                          collapsed: _sidebarCollapsed,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
-                        ),
-                      ],
-                    ),
-                  ),
-                ] else ...[
-                  Expanded(
-                    child: ListView.builder(
-                      padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 10, vertical: 4),
-                      itemCount: tiles.length,
-                      itemBuilder: (context, i) {
-                        final t = tiles[i];
-                        final isFirst = i == 0;
-                        if (_sidebarCollapsed) {
-                          return Tooltip(
-                            message: t.label,
-                            preferBelow: false,
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
+                    ] else ...[
+                      Expanded(
+                        child: ListView.builder(
+                          padding: EdgeInsets.symmetric(horizontal: isSbNarrow ? 8 : 10, vertical: 4),
+                          itemCount: tiles.length,
+                          itemBuilder: (context, i) {
+                            final t = tiles[i];
+                            final isFirst = i == 0;
+                            if (isSbNarrow) {
+                              return Tooltip(
+                                message: t.label,
+                                preferBelow: false,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Material(
+                                    color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(10),
+                                      onTap: t.onTap,
+                                      child: Container(
+                                        width: math.min(sbConstraints.maxWidth, 44.0), height: 44,
+                                        alignment: Alignment.center,
+                                        child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 20),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 2),
                               child: Material(
                                 color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
                                 borderRadius: BorderRadius.circular(10),
@@ -9102,141 +9138,125 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                   borderRadius: BorderRadius.circular(10),
                                   onTap: t.onTap,
                                   child: Container(
-                                    width: 44, height: 44,
-                                    alignment: Alignment.center,
-                                    child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 20),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                                    child: Row(children: [
+                                      Container(
+                                        width: 32, height: 32,
+                                        decoration: BoxDecoration(
+                                          color: isFirst
+                                              ? const Color(0xFF1E5AFF).withValues(alpha: 0.35)
+                                              : Colors.white.withValues(alpha: 0.07),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 17),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(child: Text(t.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
+                                        color: isFirst ? Colors.white : const Color(0xFF8BA5BF),
+                                        fontSize: 13, fontWeight: isFirst ? FontWeight.w700 : FontWeight.w500,
+                                      ))),
+                                      if (t.badge > 0)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                          decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
+                                          child: Text('${t.badge}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                        ),
+                                    ]),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: Material(
-                            color: isFirst ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(10),
-                              onTap: t.onTap,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                                child: Row(children: [
-                                  Container(
-                                    width: 32, height: 32,
-                                    decoration: BoxDecoration(
-                                      color: isFirst
-                                          ? const Color(0xFF1E5AFF).withValues(alpha: 0.35)
-                                          : Colors.white.withValues(alpha: 0.07),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Icon(t.icon, color: isFirst ? Colors.white : const Color(0xFF8BA5BF), size: 17),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(child: Text(t.label, style: TextStyle(
-                                    color: isFirst ? Colors.white : const Color(0xFF8BA5BF),
-                                    fontSize: 13, fontWeight: isFirst ? FontWeight.w700 : FontWeight.w500,
-                                  ))),
-                                  if (t.badge > 0)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                      decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
-                                      child: Text('${t.badge}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                                    ),
-                                ]),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-
-                const Divider(color: Color(0xFF1A2E45), height: 1),
-
-                // ── User footer (Image 2 ga 100% mos) ──────────────
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: _sidebarCollapsed ? 8 : 12, vertical: 10),
-                  child: _sidebarCollapsed
-                    ? Center(
-                        child: _UserDropdownButton(user: user, iconOnly: true),
-                      )
-                    : Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF132238),
-                          borderRadius: BorderRadius.circular(14),
+                            );
+                          },
                         ),
-                        child: Row(
-                          children: [
-                            Stack(
+                      ),
+                    ],
+
+                    const Divider(color: Color(0xFF1A2E45), height: 1),
+
+                    // ── User footer (Image 2 ga 100% mos) ──────────────
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: isSbNarrow ? 8 : 12, vertical: 10),
+                      child: isSbNarrow
+                        ? Center(
+                            child: _UserDropdownButton(user: user, iconOnly: true),
+                          )
+                        : Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF132238),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
                               children: [
-                                CircleAvatar(
-                                  radius: 16,
-                                  backgroundColor: const Color(0xFF2563EB),
-                                  child: Text(
-                                    ((user?.name != null && user!.name.isNotEmpty)
-                                        ? user.name.substring(0, 1).toUpperCase()
-                                        : 'I'),
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                Stack(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 16,
+                                      backgroundColor: const Color(0xFF2563EB),
+                                      child: Text(
+                                        ((user?.name != null && user!.name.isNotEmpty)
+                                            ? user.name.substring(0, 1).toUpperCase()
+                                            : 'I'),
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      right: 0,
+                                      bottom: 0,
+                                      child: Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: const Color(0xFF132238), width: 1.5),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        user?.name.isNotEmpty == true ? user!.name : 'Ilyos',
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        _roleName(user?.role),
+                                        style: const TextStyle(color: Color(0xFF8BA5BF), fontSize: 10),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                Positioned(
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF10B981),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: const Color(0xFF132238), width: 1.5),
-                                    ),
-                                  ),
+                                IconButton(
+                                  icon: const Icon(Icons.logout_rounded, color: Color(0xFF8BA5BF), size: 17),
+                                  tooltip: 'Chiqish',
+                                  onPressed: () async {
+                                    await appState.logout();
+                                    if (context.mounted) {
+                                      Navigator.pushAndRemoveUntil(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => const AuthScreen()),
+                                        (r) => false,
+                                      );
+                                    }
+                                  },
                                 ),
                               ],
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    user?.name.isNotEmpty == true ? user!.name : 'Ilyos',
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    _roleName(user?.role),
-                                    style: const TextStyle(color: Color(0xFF8BA5BF), fontSize: 10),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.logout_rounded, color: Color(0xFF8BA5BF), size: 17),
-                              tooltip: 'Chiqish',
-                              onPressed: () async {
-                                await appState.logout();
-                                if (context.mounted) {
-                                  Navigator.pushAndRemoveUntil(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => const AuthScreen()),
-                                    (r) => false,
-                                  );
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                ),
-              ],
+                          ),
+                    ),
+                  ],
+                );
+              },
             ),
           );
         }
@@ -9505,10 +9525,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                       child: AnimatedBuilder(
                         animation: appState,
                         builder: (context, _) {
-                          final selectedHall = appState.selectedHall;
-                          if (selectedHall == null && appState.halls.isNotEmpty) {
-                            appState.selectedHall = appState.halls.first;
-                          }
+                          final selectedHall = appState.selectedHall ?? (appState.halls.isNotEmpty ? appState.halls.first : null);
                           final myTables = selectedHall != null
                               ? (appState.tables.where((t) {
                                   if (t.hallId == selectedHall.id) return true;
@@ -9530,11 +9547,16 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
                           return LayoutBuilder(
                             builder: (context, constraints) {
-                              if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                              final availableWidth = constraints.maxWidth - 32.0;
+                              if (availableWidth <= 0 || constraints.maxWidth <= 64 || constraints.maxHeight <= 0) {
+                                return const SizedBox.shrink();
+                              }
+                              final maxTileWidth = isMobile ? 200.0 : 220.0;
+                              final cols = math.max(1, (availableWidth / maxTileWidth).floor());
                               return GridView.builder(
                                 padding: EdgeInsets.fromLTRB(16, 8, 16, isMobile ? 32 : 24),
-                                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                                  maxCrossAxisExtent: isMobile ? 220 : 240,
+                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: cols,
                                   childAspectRatio: 0.92,
                                   crossAxisSpacing: 14,
                                   mainAxisSpacing: 14,
@@ -9935,12 +9957,37 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     required VoidCallback onTap,
     int badge = 0,
   }) {
-    if (collapsed) {
-      return Tooltip(
-        message: title,
-        preferBelow: false,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 4),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 24) return const SizedBox.shrink();
+        final isCompact = collapsed || constraints.maxWidth < 110;
+        if (isCompact) {
+          final buttonSize = math.min(constraints.maxWidth, 44.0);
+          return Tooltip(
+            message: title,
+            preferBelow: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Material(
+                color: isActive ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: onTap,
+                  child: Container(
+                    width: buttonSize,
+                    height: 44,
+                    alignment: Alignment.center,
+                    child: Icon(icon, color: isActive ? Colors.white : const Color(0xFF8BA5BF), size: 20),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 2),
           child: Material(
             color: isActive ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
@@ -9948,52 +9995,36 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               borderRadius: BorderRadius.circular(10),
               onTap: onTap,
               child: Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                child: Icon(icon, color: isActive ? Colors.white : const Color(0xFF8BA5BF), size: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                child: Row(
+                  children: [
+                    Icon(icon, color: isActive ? Colors.white : const Color(0xFF8BA5BF), size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isActive ? Colors.white : const Color(0xFF8BA5BF),
+                          fontSize: 13,
+                          fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (badge > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
+                        child: Text('$badge', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: isActive ? const Color(0xFF1E5AFF).withValues(alpha: 0.25) : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                Icon(icon, color: isActive ? Colors.white : const Color(0xFF8BA5BF), size: 18),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      color: isActive ? Colors.white : const Color(0xFF8BA5BF),
-                      fontSize: 13,
-                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ),
-                if (badge > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(color: const Color(0xFFE53935), borderRadius: BorderRadius.circular(10)),
-                    child: Text('$badge', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -10004,50 +10035,83 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     required VoidCallback onToggle,
     required List<Widget> children,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: onToggle,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  Icon(icon, color: const Color(0xFF8BA5BF), size: 18),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: Color(0xFF8BA5BF),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 24) return const SizedBox.shrink();
+        final isCompact = constraints.maxWidth < 110;
+        if (isCompact) {
+          final buttonSize = math.min(constraints.maxWidth, 44.0);
+          return Tooltip(
+            message: title,
+            preferBelow: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: onToggle,
+                  child: Container(
+                    width: buttonSize,
+                    height: 44,
+                    alignment: Alignment.center,
+                    child: Icon(icon, color: const Color(0xFF8BA5BF), size: 20),
                   ),
-                  Icon(
-                    isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                    color: const Color(0xFF8BA5BF),
-                    size: 18,
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
-        if (isExpanded)
-          Padding(
-            padding: const EdgeInsets.only(left: 32, top: 2, bottom: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: onToggle,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  child: Row(
+                    children: [
+                      Icon(icon, color: const Color(0xFF8BA5BF), size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF8BA5BF),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                        color: const Color(0xFF8BA5BF),
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ),
-      ],
+            if (isExpanded)
+              Padding(
+                padding: const EdgeInsets.only(left: 32, top: 2, bottom: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: children,
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -10859,17 +10923,13 @@ class _POSScreenState extends State<POSScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final wide = screenWidth > 900;
 
-    int gridCols;
     double gridRatio;
 
     if (screenWidth < 600) {
-      gridCols = 2;
       gridRatio = 0.82;
     } else if (screenWidth < 1100) {
-      gridCols = 3;
       gridRatio = 0.84;
     } else {
-      gridCols = 4;
       gridRatio = 0.85;
     }
 
@@ -10938,9 +10998,12 @@ class _POSScreenState extends State<POSScreen> {
                 )
               : LayoutBuilder(
                   builder: (context, constraints) {
-                    if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                    final availableWidth = constraints.maxWidth - 24.0;
+                    if (availableWidth <= 0 || constraints.maxWidth <= 50 || constraints.maxHeight <= 0) {
+                      return const SizedBox.shrink();
+                    }
                     final isNarrow = screenWidth < 600;
-                    final actualCols = math.max(1, (constraints.maxWidth / (isNarrow ? 160 : 200)).floor());
+                    final actualCols = math.max(1, (availableWidth / (isNarrow ? 160 : 200)).floor());
                     return GridView.builder(
                       padding: const EdgeInsets.all(12),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -10990,8 +11053,8 @@ class _POSScreenState extends State<POSScreen> {
             onPressed: navigateBack,
           ),
           title: Text(
-            appState.selectedTable != null
-                ? 'Stol ${appState.selectedTable!.number} · ${appState.selectedHall?.name ?? ""}'
+            appState.selectedTable?.number != null
+                ? 'Stol ${appState.selectedTable?.number} · ${appState.selectedHall?.name ?? ""}'
                 : 'Yangi buyurtma',
           ),
         ),
@@ -13114,9 +13177,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
 
     Hall? hallBeforeCheckout = appState.selectedHall;
-    if (hallBeforeCheckout == null && appState.selectedTable != null) {
+    final curTable = appState.selectedTable;
+    if (hallBeforeCheckout == null && curTable != null) {
       for (final h in appState.halls) {
-        if (h.id == appState.selectedTable!.hallId) {
+        if (h.id == curTable.hallId) {
           hallBeforeCheckout = h;
           break;
         }
@@ -13534,28 +13598,32 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
         ),
         const SizedBox(width: 14),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "To'lov",
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF64748B),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "To'lov",
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF64748B),
+                ),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              tableName,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0F172A),
-                letterSpacing: -0.3,
+              const SizedBox(height: 2),
+              Text(
+                tableName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                  letterSpacing: -0.3,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -13765,6 +13833,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       flex: 4,
                       child: Text(
                         item.product.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
@@ -13775,11 +13845,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     Expanded(
                       flex: 3,
                       child: Center(
-                        child: Text(
-                          formatSum(item.product.price),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Color(0xFF334155),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            formatSum(item.product.price),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF334155),
+                            ),
                           ),
                         ),
                       ),
@@ -13803,12 +13876,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     Expanded(
                       flex: 3,
                       child: Center(
-                        child: Text(
-                          formatSum(item.total),
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            formatSum(item.total),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0F172A),
+                            ),
                           ),
                         ),
                       ),
@@ -13872,6 +13948,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
             Expanded(
               child: Text(
                 item.product.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
