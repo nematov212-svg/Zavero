@@ -4953,9 +4953,9 @@ ThemeData buildLightTheme() {
       actionTextColor: const Color(0xFF60A5FA),
       showCloseIcon: true,
       closeIconColor: Colors.white,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      dismissDirection: DismissDirection.horizontal,
+      behavior: SnackBarBehavior.fixed,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      dismissDirection: DismissDirection.down,
     ),
   );
 }
@@ -5128,9 +5128,9 @@ ThemeData buildDarkTheme() {
       actionTextColor: kDarkAccent,
       showCloseIcon: true,
       closeIconColor: Colors.white,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      dismissDirection: DismissDirection.horizontal,
+      behavior: SnackBarBehavior.fixed,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      dismissDirection: DismissDirection.down,
     ),
     tabBarTheme: const TabBarThemeData(
       labelColor: kDarkAccent,
@@ -5202,6 +5202,7 @@ void showZaveroSnackBar({
     if (messenger == null || !messenger.mounted) return;
 
     try {
+      messenger.hideCurrentSnackBar();
       messenger.clearSnackBars();
     } catch (_) {}
 
@@ -5235,7 +5236,10 @@ void showZaveroSnackBar({
               const SizedBox(width: 8),
               InkWell(
                 onTap: () {
-                  try { messenger.clearSnackBars(); } catch (_) {}
+                  try {
+                    messenger.hideCurrentSnackBar();
+                    messenger.clearSnackBars();
+                  } catch (_) {}
                   action.onPressed();
                 },
                 borderRadius: BorderRadius.circular(6),
@@ -5259,7 +5263,10 @@ void showZaveroSnackBar({
               const SizedBox(width: 8),
               InkWell(
                 onTap: () {
-                  try { messenger.clearSnackBars(); } catch (_) {}
+                  try {
+                    messenger.hideCurrentSnackBar();
+                    messenger.clearSnackBars();
+                  } catch (_) {}
                   onAction();
                 },
                 borderRadius: BorderRadius.circular(6),
@@ -5282,10 +5289,12 @@ void showZaveroSnackBar({
             ],
             const SizedBox(width: 10),
             // Bitta bosishda xabarni yo'qotuvchi [X] tugmasi (barcha yashil, qizil, ma'lumot xabarlari uchun)
-            
             InkWell(
               onTap: () {
-                try { messenger.clearSnackBars(); } catch (_) {}
+                try {
+                  messenger.hideCurrentSnackBar();
+                  messenger.clearSnackBars();
+                } catch (_) {}
               },
               borderRadius: BorderRadius.circular(16),
               child: Container(
@@ -5301,10 +5310,11 @@ void showZaveroSnackBar({
         ),
         backgroundColor: effectiveBgColor,
         duration: duration,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        dismissDirection: DismissDirection.horizontal,
+        behavior: SnackBarBehavior.fixed,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        dismissDirection: DismissDirection.down,
       ),
     );
   } catch (e) {
@@ -9268,184 +9278,203 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
             if (!isMobile)
               Container(
                 height: 64,
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(
                   color: appState.darkMode ? const Color(0xFF131F30) : Colors.white,
                   border: Border(bottom: BorderSide(color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFE7EBF2))),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // ── Chap guruh: Kafe nomi va Sana tanlagich (orasida 16px) ───
-                    Flexible(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF1F5F9),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
-                            ),
-                            child: Center(
-                              child: Icon(Icons.coffee_rounded, color: appState.darkMode ? Colors.white : const Color(0xFF0F172A), size: 20),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Flexible(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
-                                  style: TextStyle(
-                                    fontSize: 16.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: appState.darkMode ? Colors.white : const Color(0xFF0F172A),
-                                    letterSpacing: -0.2,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
+                child: LayoutBuilder(
+                  builder: (context, headerConstraints) {
+                    final hw = headerConstraints.maxWidth;
+                    final showDateRange = hw >= 750;
+                    final showSub = hw >= 620;
+                    final showPing = hw >= 560;
+                    final showSearch = hw >= 480;
+
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // ── Chap guruh: Kafe nomi va Sana tanlagich (orasida 16px) ───
+                        Flexible(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF1F5F9),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
                                 ),
-                                Text(
-                                  "Yaxshi ta'm • Baxtli onlar",
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
+                                child: Center(
+                                  child: Icon(Icons.coffee_rounded, color: appState.darkMode ? Colors.white : const Color(0xFF0F172A), size: 20),
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          // Date range selector pill (Image 2)
-                          InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () async {
-                              final now = DateTime.now();
-                              final picked = await showDateRangePicker(
-                                context: context,
-                                firstDate: DateTime(2024),
-                                lastDate: DateTime(2030),
-                                initialDateRange: _selectedDateRange ?? DateTimeRange(
-                                  start: now.subtract(const Duration(days: 1)),
-                                  end: now,
-                                ),
-                              );
-                              if (picked != null && mounted) {
-                                setState(() => _selectedDateRange = picked);
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.calendar_today_rounded, size: 14, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _formattedHeaderDate(),
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: appState.darkMode ? Colors.white : const Color(0xFF334155),
+                              const SizedBox(width: 10),
+                              Flexible(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      appState.restaurantName.isNotEmpty ? appState.restaurantName : 'Zavero Cafe',
+                                      style: TextStyle(
+                                        fontSize: 16.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: appState.darkMode ? Colors.white : const Color(0xFF0F172A),
+                                        letterSpacing: -0.2,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (showSub)
+                                      Text(
+                                        "Yaxshi ta'm • Baxtli onlar",
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              if (showDateRange) ...[
+                                const SizedBox(width: 16),
+                                // Date range selector pill (Image 2)
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () async {
+                                    final now = DateTime.now();
+                                    final picked = await showDateRangePicker(
+                                      context: context,
+                                      firstDate: DateTime(2024),
+                                      lastDate: DateTime(2030),
+                                      initialDateRange: _selectedDateRange ?? DateTimeRange(
+                                        start: now.subtract(const Duration(days: 1)),
+                                        end: now,
+                                      ),
+                                    );
+                                    if (picked != null && mounted) {
+                                      setState(() => _selectedDateRange = picked);
+                                    }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: appState.darkMode ? const Color(0xFF1E2F45) : const Color(0xFFF8FAFC),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: appState.darkMode ? const Color(0xFF2A3F5A) : const Color(0xFFE2E8F0)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.calendar_today_rounded, size: 14, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _formattedHeaderDate(),
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: appState.darkMode ? Colors.white : const Color(0xFF334155),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(width: 4),
-                                  Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
-                                ],
-                              ),
-                            ),
+                                ),
+                              ],
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
 
-                    // ── O'ng guruh: Qidiruv, ping, bildirishnoma, tungi rejim, foydalanuvchi (orasida 12px) ───
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.search_rounded, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 21),
-                          tooltip: 'Qidirish',
-                          onPressed: () {},
-                        ),
-                        const SizedBox(width: 12),
-                        // Live network status badge
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.35),
-                            ),
-                          ),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
-                            const SizedBox(width: 5),
-                            Text(
-                              _isOnline
-                                  ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
-                                  : 'Offline',
-                              style: TextStyle(
-                                color: _getPingColor(_pingMs, _isOnline),
-                                fontWeight: FontWeight.w700,
-                                fontSize: 11.5,
+                        // ── O'ng guruh: Qidiruv, ping, bildirishnoma, tungi rejim, foydalanuvchi (orasida 12px) ───
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (showSearch) ...[
+                              IconButton(
+                                icon: Icon(Icons.search_rounded, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 21),
+                                tooltip: 'Qidirish',
+                                onPressed: () {},
                               ),
-                            ),
-                          ]),
-                        ),
-                        const SizedBox(width: 12),
-                        // Bell with badge
-                        Stack(children: [
-                          IconButton(
-                            icon: Icon(Icons.notifications_outlined, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 22),
-                            tooltip: 'Bildirishnomalar',
-                            onPressed: () => _showNotificationsModal(context),
-                          ),
-                          Positioned(
-                            right: 8,
-                            top: 8,
-                            child: Container(
-                              width: 16,
-                              height: 16,
-                              decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
-                              child: const Center(
-                                child: Text(
-                                  '3',
-                                  style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                              const SizedBox(width: 8),
+                            ],
+                            // Live network status badge
+                            if (showPing) ...[
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _isOnline
+                                        ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
+                                        : 'Offline',
+                                    style: TextStyle(
+                                      color: _getPingColor(_pingMs, _isOnline),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11.5,
+                                    ),
+                                  ),
+                                ]),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            // Bell with badge
+                            Stack(children: [
+                              IconButton(
+                                icon: Icon(Icons.notifications_outlined, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 22),
+                                tooltip: 'Bildirishnomalar',
+                                onPressed: () => _showNotificationsModal(context),
+                              ),
+                              Positioned(
+                                right: 8,
+                                top: 8,
+                                child: Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
+                                  child: const Center(
+                                    child: Text(
+                                      '3',
+                                      style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
                                 ),
                               ),
+                            ]),
+                            const SizedBox(width: 8),
+                            // Dark Mode switch
+                            IconButton(
+                              icon: Icon(
+                                appState.darkMode ? Icons.light_mode_rounded : Icons.dark_mode_outlined,
+                                color: appState.darkMode ? const Color(0xFFFBBF24) : const Color(0xFF334155),
+                                size: 21,
+                              ),
+                              tooltip: appState.darkMode ? 'Yorug\' rejim' : 'Qorong\'u rejim',
+                              onPressed: () => appState.toggleDarkMode(!appState.darkMode),
                             ),
-                          ),
-                        ]),
-                        const SizedBox(width: 12),
-                        // Dark Mode switch
-                        IconButton(
-                          icon: Icon(
-                            appState.darkMode ? Icons.light_mode_rounded : Icons.dark_mode_outlined,
-                            color: appState.darkMode ? const Color(0xFFFBBF24) : const Color(0xFF334155),
-                            size: 21,
-                          ),
-                          tooltip: appState.darkMode ? 'Yorug\' rejim' : 'Qorong\'u rejim',
-                          onPressed: () => appState.toggleDarkMode(!appState.darkMode),
+                            const SizedBox(width: 8),
+                            // User dropdown button
+                            _UserDropdownButton(user: user),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        // User dropdown button
-                        _UserDropdownButton(user: user),
                       ],
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
 
@@ -9785,65 +9814,93 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                     color: const Color(0xFF0F1E30),
                     child: SafeArea(
                       bottom: false,
-                      child: Container(
-                        height: 52,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(children: [
-                          const _AnimatedHeaderLogoBadge(size: 32),
-                          const SizedBox(width: 10),
-                          const Text('ZAVERO POS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5)),
-                          const Spacer(),
-                          // Mobile live ping badge
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 300),
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
-                            decoration: BoxDecoration(
-                              color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.45),
-                                width: 0.9,
-                              ),
-                            ),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
-                              _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
-                              const SizedBox(width: 4),
-                              Text(
-                                _isOnline
-                                    ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
-                                    : 'Offline',
-                                style: TextStyle(
-                                  color: _getPingColor(_pingMs, _isOnline),
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ]),
-                          ),
-                          const SizedBox(width: 6),
-                          // Mobile Bell:
-                          Stack(children: [
-                            IconButton(
-                              icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
-                              tooltip: 'Bildirishnomalar',
-                              onPressed: () => _showNotificationsModal(context),
-                            ),
-                            if (appState.pendingOrdersCount > 0 || appState.unreadNotificationsCount > 0)
-                              Positioned(right: 6, top: 6, child: Container(
-                                width: 16, height: 16,
-                                decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
-                                child: Center(
-                                  child: Text(
-                                    '${appState.unreadNotificationsCount > 0 ? appState.unreadNotificationsCount : appState.pendingOrdersCount}',
-                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                      child: LayoutBuilder(
+                        builder: (context, barConstraints) {
+                          final w = barConstraints.maxWidth;
+                          if (w <= 0) return const SizedBox.shrink();
+                          final isNarrow = w < 320;
+                          final isUltraNarrow = w < 240;
+
+                          return Container(
+                            height: 52,
+                            padding: EdgeInsets.symmetric(horizontal: isNarrow ? 8 : 16),
+                            child: Row(
+                              children: [
+                                _AnimatedHeaderLogoBadge(size: isNarrow ? 28 : 32),
+                                if (!isUltraNarrow) ...[
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      'ZAVERO POS',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: isNarrow ? 14 : 16,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              )),
-                          ]),
-                          const SizedBox(width: 4),
-                          // Animated Menu button
-                          Builder(builder: (ctx) => _AnimatedMenuBtn(onTap: () => Scaffold.of(ctx).openEndDrawer())),
-                        ]),
+                                ],
+                                const Spacer(),
+                                // Mobile live ping badge (only if screen has enough width)
+                                if (w >= 340) ...[
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                                    decoration: BoxDecoration(
+                                      color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.16),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.45),
+                                        width: 0.9,
+                                      ),
+                                    ),
+                                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                      _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _isOnline
+                                            ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
+                                            : 'Offline',
+                                        style: TextStyle(
+                                          color: _getPingColor(_pingMs, _isOnline),
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ]),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                // Mobile Bell:
+                                Stack(children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
+                                    tooltip: 'Bildirishnomalar',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => _showNotificationsModal(context),
+                                  ),
+                                  if (appState.pendingOrdersCount > 0 || appState.unreadNotificationsCount > 0)
+                                    Positioned(right: 6, top: 6, child: Container(
+                                      width: 16, height: 16,
+                                      decoration: const BoxDecoration(color: Color(0xFFF04452), shape: BoxShape.circle),
+                                      child: Center(
+                                        child: Text(
+                                          '${appState.unreadNotificationsCount > 0 ? appState.unreadNotificationsCount : appState.pendingOrdersCount}',
+                                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    )),
+                                ]),
+                                const SizedBox(width: 4),
+                                // Animated Menu button
+                                Builder(builder: (ctx) => _AnimatedMenuBtn(onTap: () => Scaffold.of(ctx).openEndDrawer())),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -12371,19 +12428,25 @@ class CartPanel extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.shopping_cart_outlined, color: Color(0xFF0F172A), size: 22),
-                    SizedBox(width: 8),
-                    Text(
-                      'Joriy buyurtma',
-                      style: TextStyle(
-                        fontSize: 17.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
+                Expanded(
+                  child: Row(
+                    children: const [
+                      Icon(Icons.shopping_cart_outlined, color: Color(0xFF0F172A), size: 22),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Joriy buyurtma',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 17.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 if (appState.cart.isNotEmpty)
                   TextButton(
@@ -12577,19 +12640,22 @@ class CartPanel extends StatelessWidget {
                                         ),
                                       ),
                                       if (item.note.isNotEmpty)
-                                        InkWell(
-                                          onTap: () => _editNote(context, item),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFF1F5F9),
-                                              borderRadius: BorderRadius.circular(8),
-                                            ),
-                                            child: Text(
-                                              item.note,
-                                              style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFF64748B)),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
+                                        Flexible(
+                                          child: InkWell(
+                                            onTap: () => _editNote(context, item),
+                                            child: Container(
+                                              margin: const EdgeInsets.only(left: 6),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF1F5F9),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                item.note,
+                                                style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFF64748B)),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
                                             ),
                                           ),
                                         )
@@ -12638,12 +12704,16 @@ class CartPanel extends StatelessWidget {
                         color: Color(0xFF0F172A),
                       ),
                     ),
-                    Text(
-                      formatSum(appState.cartTotal),
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFFF59E0B),
+                    Flexible(
+                      child: Text(
+                        formatSum(appState.cartTotal),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFFF59E0B),
+                        ),
                       ),
                     ),
                   ],
@@ -14281,19 +14351,28 @@ class _PaymentScreenState extends State<PaymentScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Mahsulotlar qiymati',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF64748B),
+              const Flexible(
+                child: Text(
+                  'Mahsulotlar qiymati',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF64748B),
+                  ),
                 ),
               ),
-              Text(
-                formatSum(_productsTotal),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F172A),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  formatSum(_productsTotal),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
               ),
             ],
@@ -14302,19 +14381,28 @@ class _PaymentScreenState extends State<PaymentScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Xizmat (${servicePercent.round()} %)',
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF64748B),
+              Flexible(
+                child: Text(
+                  'Xizmat (${servicePercent.round()} %)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF64748B),
+                  ),
                 ),
               ),
-              Text(
-                formatSum(_serviceTotal),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F172A),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  formatSum(_serviceTotal),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
               ),
             ],
@@ -15465,40 +15553,47 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEEF4FF),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            '#${r.id}',
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF315EFB),
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEEF4FF),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '#${r.id}',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF315EFB),
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            placeStr,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF475569),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                placeStr,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF475569),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     Wrap(
                       spacing: 6,
@@ -15599,13 +15694,17 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
-                      "${formatSum(r.total)} so'm",
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF0F1E30),
-                        letterSpacing: -0.3,
+                    Flexible(
+                      child: Text(
+                        "${formatSum(r.total)} so'm",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F1E30),
+                          letterSpacing: -0.3,
+                        ),
                       ),
                     ),
                     Container(
@@ -15642,22 +15741,33 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.person_outline_rounded, size: 13, color: Color(0xFF94A3B8)),
-                        const SizedBox(width: 4),
-                        Text(
-                          staffName,
-                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(width: 10),
-                        const Icon(Icons.access_time_rounded, size: 12, color: Color(0xFF94A3B8)),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$dateStr $timeStr',
-                          style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
-                        ),
-                      ],
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.person_outline_rounded, size: 13, color: Color(0xFF94A3B8)),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              staffName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.access_time_rounded, size: 12, color: Color(0xFF94A3B8)),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              '$dateStr $timeStr',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -20973,10 +21083,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500)),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F1E30)),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F1E30)),
+            ),
           ),
         ],
       ),
@@ -22097,16 +22220,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.table_restaurant, color: kDarkYellow),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Joylar va Stollar',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.table_restaurant, color: kDarkYellow),
+                      const SizedBox(width: 8),
+                      const Flexible(
+                        child: Text(
+                          'Joylar va Stollar',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
@@ -22268,16 +22396,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 const Text('Kafe ID:',
                     style: TextStyle(fontWeight: FontWeight.w600)),
-                Text(appState.currentCafeId,
-                    style: const TextStyle(fontFamily: 'monospace')),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    appState.currentCafeId,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Server kechikishi (ping):',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const Flexible(
+                  child: Text(
+                    'Server kechikishi (ping):',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 ConnectivityBadge(cafeId: appState.currentCafeId),
               ],
             ),
@@ -23123,42 +23265,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Ulanish turi', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        printerConnectionType.toUpperCase(),
-                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                    ],
-                                  ),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Qog‘oz formati', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        paperFormat.toUpperCase(),
-                                        style: const TextStyle(color: Color(0xFFFFB300), fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                    ],
-                                  ),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Print-Agent', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        isAgentRunning ? 'Faol (9101)' : 'Oflayn',
-                                        style: TextStyle(
-                                          color: isAgentRunning ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Ulanish turi', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          printerConnectionType.toUpperCase(),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Qog‘oz formati', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          paperFormat.toUpperCase(),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: Color(0xFFFFB300), fontWeight: FontWeight.bold, fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text('Print-Agent', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          isAgentRunning ? 'Faol (9101)' : 'Oflayn',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: isAgentRunning ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),

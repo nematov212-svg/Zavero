@@ -222,7 +222,7 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppTokens.primary,
         contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        behavior: SnackBarBehavior.floating,
+        behavior: SnackBarBehavior.fixed,
         shape: RoundedRectangleBorder(borderRadius: AppTokens.borderRadiusMD),
       ),
     );
@@ -316,7 +316,7 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppTokens.surfaceElevatedDark,
         contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        behavior: SnackBarBehavior.floating,
+        behavior: SnackBarBehavior.fixed,
         shape: RoundedRectangleBorder(borderRadius: AppTokens.borderRadiusMD),
       ),
     );

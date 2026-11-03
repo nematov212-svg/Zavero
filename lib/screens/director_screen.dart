@@ -2617,22 +2617,30 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             ),
           ),
           const SizedBox(width: 8),
-          const Text(
-            'ZAVERO',
-            style: TextStyle(
-              color: Color(0xFF0F172A),
-              fontWeight: FontWeight.w900,
-              fontSize: 17,
-              letterSpacing: 0.8,
+          const Flexible(
+            child: Text(
+              'ZAVERO',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Color(0xFF0F172A),
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+                letterSpacing: 0.8,
+              ),
             ),
           ),
           const SizedBox(width: 6),
-          Text(
-            'Director',
-            style: TextStyle(
-              color: Colors.grey.shade500,
-              fontWeight: FontWeight.w500,
-              fontSize: 14,
+          Flexible(
+            child: Text(
+              'Director',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.grey.shade500,
+                fontWeight: FontWeight.w500,
+                fontSize: 14,
+              ),
             ),
           ),
           const SizedBox(width: 12),

@@ -491,14 +491,19 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Boshqaruv Paneli',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+              Expanded(
+                child: Text(
+                  'Boshqaruv Paneli',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               statusBadge,
             ],
           ),
@@ -740,6 +745,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           const SizedBox(height: 14),
           Text(
             data.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
@@ -2080,7 +2087,13 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           children: [
             Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
             SizedBox(width: 8),
-            Text("Hisobotlarni tozalash"),
+            Flexible(
+              child: Text(
+                "Hisobotlarni tozalash",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         content: const Text(
@@ -2184,6 +2197,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             children: [
               Text(
                 label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 11,
                   color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
@@ -2191,6 +2206,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               ),
               Text(
                 value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
