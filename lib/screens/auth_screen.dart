@@ -345,7 +345,10 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             Expanded(
               flex: 5,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 48),
+                padding: EdgeInsets.symmetric(
+                  horizontal: screenSize.width < 960 ? 32 : 52,
+                  vertical: 40,
+                ),
                 child: _buildLoginForm(isMobile: false),
               ),
             ),
@@ -522,6 +525,8 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                 Expanded(
                   child: Text(
                     _loginError!,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Color(0xFFB91C1C),
                       fontSize: 12.5,
@@ -560,9 +565,12 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
         ),
         const SizedBox(height: 12),
 
-        // Remember Me & Forgot Password Row
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        // Remember Me & Forgot Password
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 6,
           children: [
             InkWell(
               borderRadius: BorderRadius.circular(8),
@@ -570,6 +578,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     SizedBox(
                       width: 18,
@@ -586,6 +595,8 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                     const SizedBox(width: 8),
                     const Text(
                       'Meni eslab qol',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: _textMuted,
                         fontSize: 12.5,
@@ -600,10 +611,14 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               style: TextButton.styleFrom(
                 foregroundColor: _textMuted,
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
               onPressed: _showForgotPasswordDialog,
               child: const Text(
                 'Forgot Password?',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w500,
@@ -669,8 +684,11 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
 
         // Footer brand mark
         Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 6,
+            runSpacing: 4,
             children: [
               Image.asset(
                 'assets/logo/logo_transparent.png',
@@ -678,9 +696,10 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                 height: 16,
                 errorBuilder: (c, e, s) => const SizedBox.shrink(),
               ),
-              const SizedBox(width: 6),
               const Text(
                 'ZAVERO • Restoran va Kafe Savdo Tizimi',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Color(0xFF9CA3AF),
                   fontSize: 11,

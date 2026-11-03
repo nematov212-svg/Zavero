@@ -5471,6 +5471,7 @@ class _SplashScreenState extends State<SplashScreen>
             builder: (_) => const PinLockScreen(),
           ),
         );
+        
         return;
       }
 
