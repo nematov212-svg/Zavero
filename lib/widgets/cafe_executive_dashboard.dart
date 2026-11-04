@@ -264,13 +264,17 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isMobile = screenWidth < 768;
-    final isTablet = screenWidth >= 768 && screenWidth < 1180;
 
-    return AnimatedBuilder(
-      animation: appState,
-      builder: (context, _) {
+    return LayoutBuilder(
+      builder: (context, panelConstraints) {
+        // Sidebar borligi uchun MediaQuery emas, haqiqiy panel kengligi.
+        final panelWidth = panelConstraints.maxWidth;
+        final isMobile = panelWidth < 768;
+        final isTablet = panelWidth >= 768 && panelWidth < 1180;
+
+        return AnimatedBuilder(
+          animation: appState,
+          builder: (context, _) {
         final allReceipts = appState.receipts;
         final now = DateTime.now();
 
@@ -425,6 +429,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               ],
             ],
           ),
+        );
+          },
         );
       },
     );
@@ -638,17 +644,19 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       ),
     ];
 
-    if (isMobile) {
-      return Column(
-        children: kpis.map((k) => Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: _buildKpiCard(k, cardBg, cardBorder, isDark),
-        )).toList(),
-      );
-    }
-
     return LayoutBuilder(builder: (context, constraints) {
-      final itemWidth = (constraints.maxWidth - (isTablet ? 12 : 36)) / (isTablet ? 2 : 4);
+      final w = constraints.maxWidth;
+      final int cols = w < 520 || isMobile ? 1 : (w < 900 || isTablet ? 2 : 4);
+      if (cols == 1) {
+        return Column(
+          children: kpis.map((k) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _buildKpiCard(k, cardBg, cardBorder, isDark),
+          )).toList(),
+        );
+      }
+      final gaps = 12.0 * (cols - 1);
+      final itemWidth = ((w - gaps) / cols).clamp(0.0, w);
       return Wrap(
         spacing: 12,
         runSpacing: 12,
@@ -728,7 +736,6 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
                 width: 42,
@@ -739,7 +746,17 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                 ),
                 child: Icon(data.icon, color: data.iconColor, size: 22),
               ),
-              _buildTrendBadge(data.trend, isDark),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: _buildTrendBadge(data.trend, isDark),
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -755,10 +772,9 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           ),
           const SizedBox(height: 4),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Flexible(
+              Expanded(
                 child: Text(
                   data.value,
                   style: TextStyle(
@@ -771,11 +787,17 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              SizedBox(
-                width: 68,
-                height: 28,
-                child: CustomPaint(
-                  painter: _SparklinePainter(data.sparkData, data.lineColor),
+              const SizedBox(width: 6),
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 68),
+                  child: SizedBox(
+                    height: 28,
+                    width: 68,
+                    child: CustomPaint(
+                      painter: _SparklinePainter(data.sparkData, data.lineColor),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1069,18 +1091,22 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                                     ),
                                   ),
                                   const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: rankColor.withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      rankTitle,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                        color: rankColor,
+                                  Flexible(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: rankColor.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        rankTitle,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                          color: rankColor,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1100,11 +1126,14 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           ),
                         ),
                         // Total & Share %
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
+                        Flexible(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
                             Text(
                               '${_formatMoney(w.totalRevenue)} so\'m',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w900,
@@ -1115,6 +1144,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                             const SizedBox(height: 2),
                             Text(
                               'Ulush: $sharePct%',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
@@ -1122,6 +1153,7 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                               ),
                             ),
                           ],
+                        ),
                         ),
                       ],
                     ),
@@ -1269,14 +1301,10 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 10,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
                     width: 34,
@@ -1288,38 +1316,51 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                     child: const Icon(Icons.bar_chart_rounded, color: Color(0xFF2563EB), size: 19),
                   ),
                   const SizedBox(width: 10),
-                  Text(
-                    'Savdo Dinamikasi',
-                    style: TextStyle(
-                      fontSize: 16.5,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  Expanded(
+                    child: Text(
+                      'Savdo Dinamikasi',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16.5,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
                     ),
                   ),
                 ],
               ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _legendItem(const Color(0xFF2563EB), 'Daromad (chap Y)', isDark),
-                  const SizedBox(width: 14),
                   _legendItem(const Color(0xFF10B981), 'Buyurtmalar (o\'ng Y)', isDark),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E2F45) : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _chartPeriodBtn('Kun', _SalesChartPeriod.kun, isDark),
-                    _chartPeriodBtn('Hafta', _SalesChartPeriod.hafta, isDark),
-                    _chartPeriodBtn('Oy', _SalesChartPeriod.oy, isDark),
-                    _chartPeriodBtn('Yil', _SalesChartPeriod.yil, isDark),
-                  ],
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E2F45) : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _chartPeriodBtn('Kun', _SalesChartPeriod.kun, isDark),
+                        _chartPeriodBtn('Hafta', _SalesChartPeriod.hafta, isDark),
+                        _chartPeriodBtn('Oy', _SalesChartPeriod.oy, isDark),
+                        _chartPeriodBtn('Yil', _SalesChartPeriod.yil, isDark),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1409,24 +1450,30 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   Widget _legendItem(Color color, String label, bool isDark) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 180),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
-        ),
-      ],
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1513,32 +1560,38 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
             ),
             const SizedBox(height: 4),
             Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
-                Text(
-                  'Daromad: ${_formatMoney(revenues[safeIdx])} so\'m',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
+                Expanded(
+                  child: Text(
+                    'Daromad: ${_formatMoney(revenues[safeIdx])} so\'m',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 2),
             Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
-                Text(
-                  'Buyurtmalar: ${orders[safeIdx]} ta',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
+                Expanded(
+                  child: Text(
+                    'Buyurtmalar: ${orders[safeIdx]} ta',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
+                    ),
                   ),
                 ),
               ],
@@ -1798,13 +1851,18 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    '${_formatMoney(seg.revenue)} so\'m',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
-                                      fontFeatures: const [FontFeature.tabularFigures()],
+                                  Flexible(
+                                    child: Text(
+                                      '${_formatMoney(seg.revenue)} so\'m',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.right,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                                        fontFeatures: const [FontFeature.tabularFigures()],
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1814,12 +1872,16 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                                 padding: const EdgeInsets.only(left: 16),
                                 child: Row(
                                   children: [
-                                    Text(
-                                      '${seg.count} dona (${seg.pct}%)',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                    Flexible(
+                                      child: Text(
+                                        '${seg.count} dona (${seg.pct}%)',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
@@ -1991,6 +2053,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   children: [
                     Text(
                       appState.effectiveReceiptName.isNotEmpty ? appState.effectiveReceiptName : 'Family Cafe',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 14.5,
@@ -2161,6 +2225,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
               Expanded(
                 child: Text(
                   title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
@@ -2448,6 +2514,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                       child: Text(
                         '${p.value} ta',
                         textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
@@ -2461,6 +2529,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                       child: Text(
                         '${_formatMoney(rev)} so\'m',
                         textAlign: TextAlign.right,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w800,
@@ -2603,12 +2673,26 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
           else ...[
             Row(
               children: [
-                SizedBox(width: 62, child: Text('Chek №', style: _headerStyle(isDark))),
-                Expanded(flex: 3, child: Text('Sana va vaqt', style: _headerStyle(isDark))),
-                SizedBox(width: 65, child: Text("To'lov", textAlign: TextAlign.center, style: _headerStyle(isDark))),
-                Expanded(flex: 3, child: Text('Summa', textAlign: TextAlign.right, style: _headerStyle(isDark))),
+                Flexible(
+                  flex: 2,
+                  child: Text('Chek №', maxLines: 1, overflow: TextOverflow.ellipsis, style: _headerStyle(isDark)),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text('Sana va vaqt', maxLines: 1, overflow: TextOverflow.ellipsis, style: _headerStyle(isDark)),
+                ),
+                Flexible(
+                  flex: 2,
+                  child: Text("To'lov", textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: _headerStyle(isDark)),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text('Summa', textAlign: TextAlign.right, maxLines: 1, overflow: TextOverflow.ellipsis, style: _headerStyle(isDark)),
+                ),
                 const SizedBox(width: 8),
-                SizedBox(width: 72, child: Text('Amal', textAlign: TextAlign.center, style: _headerStyle(isDark))),
+                Flexible(
+                  child: Text('Amal', textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: _headerStyle(isDark)),
+                ),
               ],
             ),
             const Divider(height: 16),
@@ -2633,8 +2717,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                   padding: const EdgeInsets.symmetric(vertical: 6.5, horizontal: 4),
                   child: Row(
                     children: [
-                      SizedBox(
-                        width: 62,
+                      Flexible(
+                        flex: 2,
                         child: Text(
                           '#$shortId',
                           style: const TextStyle(
@@ -2659,8 +2743,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      SizedBox(
-                        width: 65,
+                      Flexible(
+                        flex: 2,
                         child: Center(
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
@@ -2671,6 +2755,8 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                             ),
                             child: Text(
                               badgeLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 10.5,
                                 fontWeight: FontWeight.w700,
@@ -2695,25 +2781,27 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      SizedBox(
-                        width: 72,
+                      Flexible(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3.5),
                           decoration: BoxDecoration(
                             color: const Color(0xFF2563EB).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.2)),
                           ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.receipt_long_outlined, size: 12.5, color: Color(0xFF2563EB)),
-                              SizedBox(width: 3),
-                              Text(
-                                'Chek',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF2563EB)),
-                              ),
-                            ],
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.receipt_long_outlined, size: 12.5, color: Color(0xFF2563EB)),
+                                SizedBox(width: 3),
+                                Text(
+                                  'Chek',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF2563EB)),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
