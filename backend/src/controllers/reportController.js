@@ -185,8 +185,9 @@ const clearAll = async (req, res) => {
 
     const zeroReport = await getTodayReportData(cafeId);
     notifyCafe(cafeId, 'REPORT_CLEARED', { all: true, todayReport: zeroReport, resetAt: nowIso });
+    notifyCafe(cafeId, 'reports_cleared', { all: true, todayReport: zeroReport, resetAt: nowIso });
     notifyCafe(cafeId, 'REPORT_UPDATED', { todayReport: zeroReport, resetAt: nowIso });
-    res.json({ success: true, message: 'Barcha hisobotlar muvaffaqiyatli 0 dan tozalandi (cheklar arxivda saqlandi)', todayReport: zeroReport });
+    res.json({ success: true, message: 'Barcha hisobotlar muvaffaqiyatli 0 dan tozalandi (cheklar arxivda saqlandi)', todayReport: zeroReport, resetAt: nowIso });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

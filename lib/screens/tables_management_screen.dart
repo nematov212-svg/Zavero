@@ -810,18 +810,41 @@ class _TablesManagementScreenState extends State<TablesManagementScreen> {
                     : LayoutBuilder(
                         builder: (context, constraints) {
                           if (constraints.maxWidth <= 0) return const SizedBox.shrink();
-                          final availableWidth = constraints.maxWidth - 32.0;
-                          if (availableWidth <= 0 || constraints.maxWidth <= 64 || constraints.maxHeight <= 0) {
-                            return const SizedBox.shrink();
+                          final w = constraints.maxWidth;
+                          if (w <= 64 || constraints.maxHeight <= 0) return const SizedBox.shrink();
+                          final isPhone = w < 600;
+                          final int cols;
+                          final double childAspectRatio;
+                          final double spacing;
+                          if (w < 340) {
+                            cols = 2;
+                            childAspectRatio = 1.15;
+                            spacing = 8.0;
+                          } else if (w < 600) {
+                            cols = 3;
+                            childAspectRatio = 1.18;
+                            spacing = 8.0;
+                          } else if (w < 820) {
+                            cols = 4;
+                            childAspectRatio = 1.12;
+                            spacing = 12.0;
+                          } else if (w < 1024) {
+                            cols = 5;
+                            childAspectRatio = 1.10;
+                            spacing = 12.0;
+                          } else {
+                            final availableWidth = w - 32.0;
+                            cols = math.max(6, (availableWidth / 200.0).floor());
+                            childAspectRatio = 1.05;
+                            spacing = 14.0;
                           }
-                          final cols = math.max(1, (availableWidth / 200.0).floor());
                           return GridView.builder(
-                            padding: const EdgeInsets.all(16),
+                            padding: EdgeInsets.all(isPhone ? 10 : 16),
                             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                               crossAxisCount: cols,
-                              crossAxisSpacing: 14,
-                              mainAxisSpacing: 14,
-                              childAspectRatio: 1.15,
+                              crossAxisSpacing: spacing,
+                              mainAxisSpacing: spacing,
+                              childAspectRatio: childAspectRatio,
                             ),
                             itemCount: currentHallTables.length,
                         itemBuilder: (context, i) {

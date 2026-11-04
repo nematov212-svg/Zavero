@@ -624,8 +624,20 @@ class CloudService {
       final res = await _api.delete('/reports/all');
       return res['success'] == true;
     } catch (e) {
-      debugPrint('clearAllReports xatosi: $e');
-      return false;
+      debugPrint('clearAllReports DELETE /reports/all error: $e, trying POST /reports/clear');
+      try {
+        final res2 = await _api.post('/reports/clear');
+        return res2['success'] == true;
+      } catch (e2) {
+        debugPrint('clearAllReports POST /reports/clear error: $e2, trying DELETE /reports/clear');
+        try {
+          final res3 = await _api.delete('/reports/clear');
+          return res3['success'] == true;
+        } catch (e3) {
+          debugPrint('clearAllReports final fallback error: $e3');
+          return false;
+        }
+      }
     }
   }
 

@@ -14,8 +14,12 @@ router.get('/', requireAdmin, c.list);
 router.get('/analytics', requireAdmin, c.getAnalytics);
 router.get('/export/csv', requireAdmin, c.exportCsv);
 router.delete('/month/:yearMonth', requireAdmin, c.clearMonth);
+router.delete('/clear', requireAdmin, c.clearAll);
+router.post('/clear', requireAdmin, c.clearAll);
 router.delete('/all', requireAdmin, c.clearAll);
+router.post('/all', requireAdmin, c.clearAll);
 router.delete('/', requireAdmin, c.clearAll);
+router.post('/', requireAdmin, c.clearAll);
 router.get('/:dateId', requireAdmin, c.getOne);
 router.delete('/:dateId', requireAdmin, c.clearDay);
 

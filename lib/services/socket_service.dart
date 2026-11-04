@@ -191,6 +191,12 @@ class SocketService {
           _controllers[entry.key]!.add(map);
         });
       }
+
+      // Also listen to lower-case 'reports_cleared' for maximum cross-compatibility
+      _socket!.on('reports_cleared', (data) {
+        final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+        _controllers[CafeSocketEvent.reportCleared]?.add(map);
+      });
     } catch (e) {
       _isConnecting = false;
       debugPrint('SocketService init xatoligi: $e');

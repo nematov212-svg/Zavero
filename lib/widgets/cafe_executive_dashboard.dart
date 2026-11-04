@@ -275,13 +275,14 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
         return AnimatedBuilder(
           animation: appState,
           builder: (context, _) {
-        final allReceipts = appState.receipts;
+        final allReceipts = appState.activeReportReceipts;
         final now = DateTime.now();
 
         // Faqat cheklar, server live hisoboti yoki davr o'zgargandagina qayta hisoblaymiz
         final receiptsHash = Object.hash(
           appState.effectiveTodayReport?.totalRevenue,
           appState.effectiveTodayReport?.orderCount,
+          appState.reportsResetAt?.millisecondsSinceEpoch,
           allReceipts.length,
           allReceipts.isNotEmpty ? allReceipts.first.id : 0,
           allReceipts.isNotEmpty ? allReceipts.last.id : 0,
@@ -2180,12 +2181,44 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
       ),
     );
     if (confirmed == true && context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text('Hisobotlar tozalanmoqda...', style: TextStyle(fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
       final ok = await appState.clearAllReports();
-      if (ok) {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (ok && mounted) {
+        setState(() {
+          _lastReceiptsHash = -1;
+        });
         showZaveroSnackBar(
           message: "Hisobotlar muvaffaqiyatli 0 dan boshlandi",
           backgroundColor: const Color(0xFF10B981),
           prefixIcon: Icons.check_circle_outline,
+        );
+      } else if (mounted) {
+        showZaveroSnackBar(
+          message: "Hisobotlarni tozalashda xatolik yuz berdi",
+          backgroundColor: const Color(0xFFEF4444),
+          prefixIcon: Icons.error_outline,
         );
       }
     }

@@ -593,14 +593,16 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Meni eslab qol',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: _textMuted,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
+                    const Flexible(
+                      child: Text(
+                        'Meni eslab qol',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _textMuted,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],

@@ -667,6 +667,7 @@ class AppState extends ChangeNotifier {
     if (cafeId.isEmpty) return false;
     final ok = await _cloudService.clearAllReports(cafeId);
     if (ok) {
+      reportsResetAt = DateTime.now();
       dailyReports.clear();
       liveTodayReport = TodayReportSummary(
         totalRevenue: 0,
@@ -718,6 +719,13 @@ class AppState extends ChangeNotifier {
   final List<CustomerOrder> customerOrders = [];
   final List<DailyReport> dailyReports = [];
   TodayReportSummary? liveTodayReport;
+  DateTime? reportsResetAt;
+
+  /// Hisobotlar uchun cheklar (agar hisobotlar 0 ga tozalangan bo'lsa, tozalangan vaqtdan keyingi cheklar olinadi)
+  List<Receipt> get activeReportReceipts {
+    if (reportsResetAt == null) return receipts;
+    return receipts.where((r) => r.date.isAfter(reportsResetAt!) || r.date.isAtSameMomentAs(reportsResetAt!)).toList();
+  }
   final Set<int> _notifiedOrderIds = {};
   Timer? _customerOrdersPollTimer;
 
@@ -1242,6 +1250,10 @@ class AppState extends ChangeNotifier {
           final p = cloudSettings['printerPort'];
           printerPort = p is num ? p.toInt() : (int.tryParse('$p') ?? printerPort);
         }
+        if (cloudSettings.containsKey('reports_reset_at') && cloudSettings['reports_reset_at'] != null) {
+          final rAt = DateTime.tryParse(cloudSettings['reports_reset_at'].toString());
+          if (rAt != null) reportsResetAt = rAt;
+        }
         if (cloudSettings.containsKey('printerUsbName')) {
           printerUsbName = cloudSettings['printerUsbName']?.toString();
         }
@@ -1483,6 +1495,7 @@ class AppState extends ChangeNotifier {
 
     _settingsSub?.cancel();
     _settingsSub = SocketService().on(CafeSocketEvent.settingsUpdated).listen((eventData) {
+      // ignore: unnecessary_type_check
       if (eventData is Map) {
         final raw = eventData['settings'] ?? eventData;
         if (raw is Map) {
@@ -1783,6 +1796,11 @@ class AppState extends ChangeNotifier {
     _socketReportClearedSub?.cancel();
     _socketReportClearedSub = SocketService().on(CafeSocketEvent.reportCleared).listen((data) {
       if (data['all'] == true) {
+        if (data['resetAt'] != null) {
+          reportsResetAt = DateTime.tryParse(data['resetAt'].toString()) ?? DateTime.now();
+        } else {
+          reportsResetAt = DateTime.now();
+        }
         dailyReports.clear();
         liveTodayReport = TodayReportSummary(
           totalRevenue: 0,
@@ -3522,6 +3540,11 @@ class AppState extends ChangeNotifier {
     if (liveTodayReport != null) {
       await safeSet('${pfx}todayReport', jsonEncode(liveTodayReport!.toJson()));
     }
+    if (reportsResetAt != null) {
+      await safeSet('${pfx}reportsResetAt', reportsResetAt!.toIso8601String());
+    } else {
+      await prefs.remove('${pfx}reportsResetAt');
+    }
     await safeSet('${pfx}voiceNotificationEnabled', voiceNotificationEnabled.toString());
   }
 
@@ -3618,6 +3641,10 @@ class AppState extends ChangeNotifier {
     restore('receipts', receipts, Receipt.fromJson);
     restore('dailyReports', dailyReports, DailyReport.fromJson);
     restore('customerOrders', customerOrders, CustomerOrder.fromJson);
+    final rawResetAt = prefs.getString('${pfx}reportsResetAt');
+    if (rawResetAt != null) {
+      reportsResetAt = DateTime.tryParse(rawResetAt);
+    }
     final rawTodayReport = prefs.getString('${pfx}todayReport');
     if (rawTodayReport != null) {
       try {
@@ -3926,6 +3953,7 @@ class NetworkPrinterService {
 
   static List<int> _center(String text) => _t('$text\n');
 
+  // ignore: unused_element
   static List<int> _alignFor(ReceiptHeaderAlign align) {
     switch (align) {
       case ReceiptHeaderAlign.left:
@@ -3996,6 +4024,7 @@ class NetworkPrinterService {
   /// Uchta ustunli qatorni (Menyu / Soni / Summa) bitta chek qatoriga
   /// joylashtiradi — birinchi ustun chapga, ikkinchisi markazga, uchinchisi
   /// o'ngga tekislanadi (namuna chekdagi kabi).
+  // ignore: unused_element
   static List<int> _row3(String a, String b, String c, int width) {
     final colB = (width <= 36) ? 7 : 8;
     final colC = (width <= 36) ? 9 : 12;
@@ -4030,6 +4059,7 @@ class NetworkPrinterService {
   /// - `small`  -> Font B (kichikroq shrift), oddiy (1x) o'lcham
   /// - `normal` -> Font A, oddiy (1x) o'lcham — HAQIQIY standart o'lcham
   /// - `large`  -> Font A, 2x (eni va bo'yi)
+  // ignore: unused_element
   static List<int> _fontBytes(PrinterFontSize size) {
     switch (size) {
       case PrinterFontSize.small:
@@ -4043,6 +4073,7 @@ class NetworkPrinterService {
 
   /// Chekning umumiy qatorlar orasidagi bo'shlig'ini (line-height) tanlangan
   /// shrift o'lchamiga qarab ixchamlashtiradi.
+  // ignore: unused_element
   static List<int> _lineSpacingFor(PrinterFontSize size) {
     switch (size) {
       case PrinterFontSize.small:
@@ -7561,6 +7592,7 @@ class _UserDropdownButton extends StatelessWidget {
   const _UserDropdownButton({
     this.user,
     this.iconOnly = false,
+    // ignore: unused_element_parameter
     this.expanded = false,
   });
 
@@ -8101,6 +8133,7 @@ class _PremiumTableCard extends StatefulWidget {
   final double orderTotal;
   final int index;
   final VoidCallback onTap;
+  final bool isCompact;
 
   const _PremiumTableCard({
     required this.table,
@@ -8108,6 +8141,7 @@ class _PremiumTableCard extends StatefulWidget {
     required this.orderTotal,
     required this.index,
     required this.onTap,
+    this.isCompact = false,
   });
 
   @override
@@ -8124,6 +8158,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
     final t = widget.table;
     final orderTotal = widget.orderTotal;
     final seats = t.seats > 0 ? t.seats : 4;
+    final isCompact = widget.isCompact;
 
     const freeColor = Color(0xFF16B86A);
     const freeBg = Color(0xFFE8F8F0);
@@ -8150,12 +8185,12 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
               duration: const Duration(milliseconds: 180),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(isCompact ? 14 : 18),
                 border: Border.all(
                   color: free
                       ? (_isHovered ? const Color(0xFFCBD5E1) : const Color(0xFFE7EBF2))
                       : (_isHovered ? const Color(0xFFF9A8B1) : const Color(0xFFFCDADF)),
-                  width: 1.3,
+                  width: 1.2,
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -8168,7 +8203,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                 ],
               ),
               child: Padding(
-                padding: const EdgeInsets.all(14),
+                padding: EdgeInsets.all(isCompact ? 8 : 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -8177,20 +8212,23 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Container(
-                          width: 40,
-                          height: 40,
+                          width: isCompact ? 28 : 40,
+                          height: isCompact ? 28 : 40,
                           decoration: BoxDecoration(
                             color: statusBg,
-                            borderRadius: BorderRadius.circular(11),
+                            borderRadius: BorderRadius.circular(isCompact ? 8 : 11),
                           ),
                           child: Icon(
                             Icons.table_restaurant_rounded,
                             color: statusColor,
-                            size: 21,
+                            size: isCompact ? 16 : 21,
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isCompact ? 6 : 9,
+                            vertical: isCompact ? 2.5 : 4,
+                          ),
                           decoration: BoxDecoration(
                             color: statusBg,
                             borderRadius: BorderRadius.circular(20),
@@ -8199,18 +8237,18 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                width: 6.5,
-                                height: 6.5,
+                                width: isCompact ? 5 : 6.5,
+                                height: isCompact ? 5 : 6.5,
                                 decoration: BoxDecoration(
                                   color: statusColor,
                                   shape: BoxShape.circle,
                                 ),
                               ),
-                              const SizedBox(width: 5),
+                              const SizedBox(width: 4),
                               Text(
                                 statusText,
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: isCompact ? 9.5 : 11,
                                   fontWeight: FontWeight.w700,
                                   color: statusColor,
                                 ),
@@ -8224,45 +8262,58 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                     // Table Number
                     Text(
                       'Stol ${t.number}',
-                      style: const TextStyle(
-                        fontSize: 18,
+                      style: TextStyle(
+                        fontSize: isCompact ? 13.5 : 18,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF142033),
-                        letterSpacing: -0.3,
+                        color: const Color(0xFF142033),
+                        letterSpacing: -0.2,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 3),
+                    SizedBox(height: isCompact ? 1.5 : 3),
                     // Seat count
                     Row(
                       children: [
-                        const Icon(Icons.people_outline_rounded, size: 13.5, color: Color(0xFF8994A7)),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$seats o\'rin',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF8994A7),
-                            fontWeight: FontWeight.w500,
+                        Icon(
+                          Icons.people_outline_rounded,
+                          size: isCompact ? 11 : 13.5,
+                          color: const Color(0xFF8994A7),
+                        ),
+                        const SizedBox(width: 3.5),
+                        Flexible(
+                          child: Text(
+                            '$seats o\'rin',
+                            style: TextStyle(
+                              fontSize: isCompact ? 10.5 : 12,
+                              color: const Color(0xFF8994A7),
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: isCompact ? 4 : 8),
                     // Bottom: Order total or action hint
                     if (!free && orderTotal > 0)
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isCompact ? 5 : 8,
+                          vertical: isCompact ? 2.5 : 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFEECEE),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
                         ),
                         child: Text(
                           formatSum(orderTotal),
-                          style: const TextStyle(
-                            fontSize: 12,
+                          style: TextStyle(
+                            fontSize: isCompact ? 10.5 : 12,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFFF04452),
+                            color: const Color(0xFFF04452),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -8272,17 +8323,21 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            free ? 'Buyurtma berish' : 'Band',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: free ? const Color(0xFF16B86A) : const Color(0xFF8994A7),
-                              fontWeight: FontWeight.w600,
+                          Flexible(
+                            child: Text(
+                              free ? (isCompact ? "Bo'sh" : "Buyurtma berish") : "Band",
+                              style: TextStyle(
+                                fontSize: isCompact ? 10 : 11.5,
+                                color: free ? const Color(0xFF16B86A) : const Color(0xFF8994A7),
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           Icon(
                             Icons.arrow_forward_rounded,
-                            size: 13,
+                            size: isCompact ? 10.5 : 13,
                             color: free ? const Color(0xFF16B86A) : const Color(0xFF8994A7),
                           ),
                         ],
@@ -8697,6 +8752,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
     final isAdmin = user?.role == UserRole.admin;
     final isWaiter = user?.role == UserRole.waiter;
+    // ignore: unused_local_variable
     final isCourier = user?.role == UserRole.courier;
     final isCustomer = user?.role == UserRole.customer;
 
@@ -9577,19 +9633,58 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
                           return LayoutBuilder(
                             builder: (context, constraints) {
-                              final availableWidth = constraints.maxWidth - 32.0;
-                              if (availableWidth <= 0 || constraints.maxWidth <= 64 || constraints.maxHeight <= 0) {
+                              final w = constraints.maxWidth;
+                              if (w <= 64 || constraints.maxHeight <= 0) {
                                 return const SizedBox.shrink();
                               }
-                              final maxTileWidth = isMobile ? 200.0 : 220.0;
-                              final cols = math.max(1, (availableWidth / maxTileWidth).floor());
+                              final isPhone = w < 600;
+                              final availableWidth = w - (isPhone ? 20.0 : 32.0);
+                              if (availableWidth <= 0) return const SizedBox.shrink();
+
+                              // Telefon (kenglik < 600): 3 ta ustun (juda kichik ekran < 340 bo'lsa 2), childAspectRatio ~1.15-1.25
+                              // Planshet (600–1024): 4–5 ustun
+                              // Kompyuter (>1024): 6+ ustun
+                              final int cols;
+                              final double childAspectRatio;
+                              final double spacing;
+                              if (w < 340) {
+                                cols = 2;
+                                childAspectRatio = 1.15;
+                                spacing = 8.0;
+                              } else if (w < 600) {
+                                cols = 3;
+                                childAspectRatio = 1.18;
+                                spacing = 8.0;
+                              } else if (w < 820) {
+                                cols = 4;
+                                childAspectRatio = 1.10;
+                                spacing = 12.0;
+                              } else if (w < 1024) {
+                                cols = 5;
+                                childAspectRatio = 1.05;
+                                spacing = 12.0;
+                              } else if (w < 1360) {
+                                cols = 6;
+                                childAspectRatio = 0.98;
+                                spacing = 14.0;
+                              } else {
+                                cols = math.max(6, (availableWidth / 200.0).floor());
+                                childAspectRatio = 0.95;
+                                spacing = 14.0;
+                              }
+
                               return GridView.builder(
-                                padding: EdgeInsets.fromLTRB(16, 8, 16, isMobile ? 32 : 24),
+                                padding: EdgeInsets.fromLTRB(
+                                  isPhone ? 10 : 16,
+                                  8,
+                                  isPhone ? 10 : 16,
+                                  isPhone ? 32 : 24,
+                                ),
                                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: cols,
-                                  childAspectRatio: 0.92,
-                                  crossAxisSpacing: 14,
-                                  mainAxisSpacing: 14,
+                                  childAspectRatio: childAspectRatio,
+                                  crossAxisSpacing: spacing,
+                                  mainAxisSpacing: spacing,
                                 ),
                                 itemCount: myTables.length,
                                 itemBuilder: (context, i) {
@@ -9602,6 +9697,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                     isFree: free,
                                     orderTotal: orderTotal,
                                     index: i,
+                                    isCompact: isPhone,
                                     onTap: () {
                                       appState.selectTable(t);
                                       if (free) {
@@ -10197,6 +10293,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     );
   }
 
+  // ignore: unused_element
   Widget _buildBreakModeButton(BuildContext context, AppUser? user, AppState appState) {
 
     if (user == null) return const SizedBox.shrink();
@@ -10838,6 +10935,7 @@ class TableSelectionScreen extends StatelessWidget {
 }
 
 /// Stol tasvirini chizuvchi CustomPainter (Rasm 2 ga mos 3D ko'rinish)
+// ignore: unused_element
 class _TableIllustrationPainter extends CustomPainter {
   final bool isFree;
   const _TableIllustrationPainter({required this.isFree});
@@ -16126,30 +16224,29 @@ class _ReportsScreenState extends State<ReportsScreen>
 
     try {
       final ok = await appState.clearAllReports();
-      if (mounted) Navigator.pop(context); // close loading
+      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // close loading
 
       if (ok && mounted) {
         setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Barcha hisobotlar muvaffaqiyatli 0 dan boshlandi'),
-            backgroundColor: Color(0xFF10B981),
-            duration: Duration(seconds: 3),
-          ),
+        showZaveroSnackBar(
+          message: 'Barcha hisobotlar muvaffaqiyatli 0 dan boshlandi',
+          backgroundColor: const Color(0xFF10B981),
+          prefixIcon: Icons.check_circle_outline,
         );
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Hisobotlarni tozalashda xatolik yuz berdi'),
-            backgroundColor: Color(0xFFEF4444),
-          ),
+        showZaveroSnackBar(
+          message: 'Hisobotlarni tozalashda xatolik yuz berdi',
+          backgroundColor: const Color(0xFFEF4444),
+          prefixIcon: Icons.error_outline,
         );
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Xatolik: $e'), backgroundColor: const Color(0xFFEF4444)),
+        showZaveroSnackBar(
+          message: 'Xatolik: $e',
+          backgroundColor: const Color(0xFFEF4444),
+          prefixIcon: Icons.error_outline,
         );
       }
     }
@@ -16158,7 +16255,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
-    final filteredReceipts = appState.receipts.where(_isReceiptInFilter).toList();
+    final filteredReceipts = appState.activeReportReceipts.where(_isReceiptInFilter).toList();
 
     final isToday = _filterMode == ReportFilterMode.day &&
         _selectedDate.year == DateTime.now().year &&
