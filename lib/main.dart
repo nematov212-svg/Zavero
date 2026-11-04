@@ -12996,6 +12996,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool confirming = false;
   bool _isCompleting = false;
   bool _isPaid = false;
+  bool _isProcessingWithPrint = false;
+  bool _isProcessingWithoutPrint = false;
   bool _payingInitialized = false;
   double? _lastSyncedTotal;
 
@@ -13312,7 +13314,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   static bool _globalCheckoutInProgress = false;
   static int _lastCheckoutTimestamp = 0;
 
-  Future<void> _confirmPaid() async {
+  Future<void> _confirmPaid({bool shouldPrintReceipt = true}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     // 1. Zudlik bilan sinxron bloklash (double-click, triple-click va takroriy bosishlarni 100% to'sadi)
     if (_globalCheckoutInProgress || (now - _lastCheckoutTimestamp < 3000)) {
@@ -13324,7 +13326,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _globalCheckoutInProgress = true;
     _lastCheckoutTimestamp = now;
     _isCompleting = true;
-    setState(() => confirming = true);
+    setState(() {
+      confirming = true;
+      if (shouldPrintReceipt) {
+        _isProcessingWithPrint = true;
+      } else {
+        _isProcessingWithoutPrint = true;
+      }
+    });
 
     final nav = Navigator.of(context);
 
@@ -13367,7 +13376,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final ik = 'chk_tbl_${selTable?.id ?? 0}_${selTable?.number ?? 0}_${appState.cartTotal.round()}_${appState.cart.length}_$now';
     final isPrinterReady = appState.isPrinterVerified ||
         (!appState.isPrinterStation && appState.hasCloudPrinterStation && appState.isCloudStationPrinterReady);
-    final initialPrintStatus = isPrinterReady ? (appState.autoPrintOnPaid ? 'queued' : 'unprinted') : 'unprinted';
+    final initialPrintStatus = (shouldPrintReceipt && isPrinterReady)
+        ? (appState.autoPrintOnPaid ? 'queued' : 'unprinted')
+        : 'unprinted';
 
     // ── TRY 1: Haqiqiy to'lovni qayd qilish (Postgres commit & OfflineSync outbox) ──
     Receipt? receipt;
@@ -13394,7 +13405,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _globalCheckoutInProgress = false;
         _isCompleting = false;
         _isPaid = false;
-        if (mounted) setState(() => confirming = false);
+        if (mounted) {
+          setState(() {
+            confirming = false;
+            _isProcessingWithPrint = false;
+            _isProcessingWithoutPrint = false;
+          });
+        }
         showZaveroSnackBar(
           message: 'To‘lovda xatolik yuz berdi: $e',
           backgroundColor: const Color(0xFFDC2626),
@@ -13423,12 +13440,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
 
     // ── TRY 2: PRINTER YO'LI (Fire-and-forget, to'lovni aslo to'xtatmaydi) ──
-    final orderAlreadyPrinted = appState.isReceiptPrintedForOrder(selTable?.id, selTable?.number);
     final targetReceipt = receipt;
-    if (targetReceipt != null && isPrinterReady && appState.autoPrintOnPaid && !orderAlreadyPrinted) {
+    if (shouldPrintReceipt && targetReceipt != null) {
       unawaited(() async {
         try {
-          await printReceipt(targetReceipt, isAutoCheckout: true);
+          await printReceipt(targetReceipt, isAutoCheckout: false);
           targetReceipt.printStatus = 'printed';
           targetReceipt.printedAt = DateTime.now();
           await ApiClient().patch('/receipts/${targetReceipt.id}/print-status', body: {
@@ -13437,7 +13453,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           });
           appState.notifyChanges();
         } catch (e) {
-          debugPrint('Avtomatik chek chiqarishda xatolik: $e');
+          debugPrint('Chek chiqarishda xatolik: $e');
         }
       }());
     }
@@ -13453,29 +13469,48 @@ class _PaymentScreenState extends State<PaymentScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         try {
           rootMessengerKey.currentState?.clearSnackBars();
-          if (!isPrinterReady) {
-            showZaveroSnackBar(
-              message: "To'lov qabul qilindi. Printer oflayn bo'lgani sababli chek Cheklar tarixiga saqlandi.",
-              backgroundColor: const Color(0xFFD97706),
-              duration: const Duration(milliseconds: 3500),
-              prefixIcon: Icons.print_disabled_outlined,
-              action: SnackBarAction(
-                label: "Cheklar tarixi",
-                textColor: Colors.white,
-                onPressed: () {
-                  rootMessengerKey.currentState?.clearSnackBars();
-                  appNavigatorKey.currentState?.push(
-                    MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
-                  );
-                },
-              ),
-            );
+          if (shouldPrintReceipt) {
+            if (!isPrinterReady && !kIsWeb) {
+              showZaveroSnackBar(
+                message: "To'lov qabul qilindi. Printer oflayn bo'lgani sababli chek Cheklar tarixiga saqlandi.",
+                backgroundColor: const Color(0xFFD97706),
+                duration: const Duration(milliseconds: 3500),
+                prefixIcon: Icons.print_disabled_outlined,
+                action: SnackBarAction(
+                  label: "Cheklar tarixi",
+                  textColor: Colors.white,
+                  onPressed: () {
+                    rootMessengerKey.currentState?.clearSnackBars();
+                    appNavigatorKey.currentState?.push(
+                      MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()),
+                    );
+                  },
+                ),
+              );
+            } else {
+              showZaveroSnackBar(
+                message: "To'lov qabul qilindi va chek chiqarildi",
+                backgroundColor: const Color(0xFF10B981),
+                duration: const Duration(milliseconds: 2500),
+                prefixIcon: Icons.check_circle_outline,
+              );
+            }
           } else {
             showZaveroSnackBar(
-              message: "To'lov muvaffaqiyatli qabul qilindi",
+              message: "To'lov muvaffaqiyatli qabul qilindi (cheksiz)",
               backgroundColor: const Color(0xFF10B981),
-              duration: const Duration(milliseconds: 2200),
+              duration: const Duration(milliseconds: 3000),
               prefixIcon: Icons.check_circle_outline,
+              action: targetReceipt != null
+                  ? SnackBarAction(
+                      label: "Chek chiqarish",
+                      textColor: Colors.white,
+                      onPressed: () {
+                        rootMessengerKey.currentState?.clearSnackBars();
+                        printReceipt(targetReceipt);
+                      },
+                    )
+                  : null,
             );
           }
         } catch (_) {}
@@ -13484,6 +13519,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
       debugPrint('UI navigation notice: $uiError');
     } finally {
       _globalCheckoutInProgress = false;
+      if (mounted) {
+        setState(() {
+          confirming = false;
+          _isProcessingWithPrint = false;
+          _isProcessingWithoutPrint = false;
+        });
+      }
     }
   }
 
@@ -14789,42 +14831,90 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Widget _buildToLandiButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFE25C1D),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+    final isBusy = confirming || _isCompleting || _isPaid;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 1. To'lov va chek chiqarish (Asosiy / Primary)
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFE25C1D),
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: const Color(0xFFE25C1D).withValues(alpha: 0.6),
+            disabledForegroundColor: Colors.white.withValues(alpha: 0.8),
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
-        ),
-        onPressed: (confirming || _isCompleting || _isPaid) ? null : _confirmPaid,
-        icon: (confirming || _isCompleting || _isPaid)
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
+          onPressed: isBusy ? null : () => _confirmPaid(shouldPrintReceipt: true),
+          icon: _isProcessingWithPrint
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(
+                  Icons.receipt_long_rounded,
                   color: Colors.white,
+                  size: 20,
                 ),
-              )
-            : const Icon(
-                Icons.check_circle_outline,
-                color: Colors.white,
-                size: 20,
-              ),
-        label: Text(
-          (confirming || _isCompleting || _isPaid) ? "To'lanmoqda..." : "To'landi",
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+          label: Text(
+            _isProcessingWithPrint
+                ? "To'lanmoqda va chek..."
+                : "To'lov va chek chiqarish",
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
         ),
-      ),
+        const SizedBox(height: 10),
+        // 2. Cheksiz to'lov (Faqat to'lash / Secondary)
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            backgroundColor: const Color(0xFFF8FAFC),
+            foregroundColor: const Color(0xFF0F172A),
+            elevation: 0,
+            side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          onPressed: isBusy ? null : () => _confirmPaid(shouldPrintReceipt: false),
+          icon: _isProcessingWithoutPrint
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF0F172A),
+                  ),
+                )
+              : const Icon(
+                  Icons.check_circle_outline_rounded,
+                  color: Color(0xFF10B981),
+                  size: 20,
+                ),
+          label: Text(
+            _isProcessingWithoutPrint
+                ? "To'lanmoqda..."
+                : "Cheksiz to'lov (faqat to'lash)",
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1E293B),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

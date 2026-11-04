@@ -11,6 +11,7 @@ const list = async (req, res) => {
 };
 
 // POST /api/halls
+
 const save = async (req, res) => {
   try {
     const cafeId = getTenantCafeId(req);
@@ -24,6 +25,8 @@ const save = async (req, res) => {
     const safeIcon = iconCodePoint ? parseInt(iconCodePoint, 10) : 0xe318; // default home/room icon
 
     let row;
+
+
     if (id && parseInt(id, 10) > 0) {
       const existing = await db.query('SELECT id FROM halls WHERE id = $1 AND cafe_id = $2', [parseInt(id, 10), cafeId]);
       if (existing.rows.length > 0) {
@@ -62,7 +65,7 @@ const save = async (req, res) => {
     await db.query(
       'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
       [cafeId, 'HALL_SAVED', `Zal '${cleanName}' saqlandi`, req.user?.name || req.user?.username || 'Admin']
-    ).catch(() => {});
+    ).catch(() => { });
 
     return res.status(201).json({ success: true, hall: mapped });
   } catch (error) {
@@ -106,7 +109,7 @@ const remove = async (req, res) => {
     await db.query(
       'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
       [cafeId, 'HALL_DELETED', `Zal (ID: ${hallId}) o'chirildi`, req.user?.name || req.user?.username || 'Admin']
-    ).catch(() => {});
+    ).catch(() => { });
 
     return res.json({ success: true, hallId });
   } catch (error) {
