@@ -45,6 +45,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS cafe_id VARCHAR(64);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1;
 CREATE INDEX IF NOT EXISTS idx_users_cafe ON users(cafe_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);

@@ -460,9 +460,9 @@ const rotatePrintAgentToken = async (req, res) => {
 // POST /api/cafes/heartbeat — Cafe online heartbeat (har 15-30 soniyada)
 const heartbeat = async (req, res) => {
   try {
-    const cafeId = req.user?.cafeId || req.body?.cafeId || req.query?.cafeId;
+    const cafeId = getTenantCafeId(req) || req.body?.cafeId || req.query?.cafeId;
     if (!cafeId || cafeId === 'local_default' || cafeId === 'zavero') {
-      return res.status(400).json({ success: false, message: 'Yaroqli cafeId talab qilinadi' });
+      return res.status(400).json({ ok: false, success: false, message: 'Yaroqli cafeId talab qilinadi' });
     }
 
     await db.query(
@@ -477,10 +477,11 @@ const heartbeat = async (req, res) => {
       [cafeId]
     );
 
-    return res.json({ success: true, timestamp: new Date().toISOString() });
+    const nowIso = new Date().toISOString();
+    return res.json({ ok: true, success: true, server_time: nowIso, timestamp: nowIso });
   } catch (err) {
     console.error('heartbeat error:', err.message);
-    return res.status(500).json({ success: false, message: 'Server xatosi' });
+    return res.status(500).json({ ok: false, success: false, message: 'Server xatosi' });
   }
 };
 

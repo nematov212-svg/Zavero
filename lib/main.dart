@@ -333,6 +333,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _socketBannersSub;
   StreamSubscription? _socketPrintJobSub;
   StreamSubscription? _socketPrinterStationStatusSub;
+  StreamSubscription? _userForceLogoutSub;
   StreamSubscription? _socketProductsSub;
   StreamSubscription? _socketCategoriesSub;
   final Map<String, int> _executedPrintJobs = {};
@@ -1973,6 +1974,19 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
 
+    // Majburiy sessiyani tugatish (parol/login o'zgarganda yoki xodim o'chirilganda)
+    _userForceLogoutSub?.cancel();
+    _userForceLogoutSub = SocketService().on(CafeSocketEvent.userForceLogout).listen((data) {
+      final targetUserId = data['userId'];
+      final targetUsername = data['username']?.toString().toLowerCase();
+      final currentUserId = currentUser?.id;
+      final currentUsername = currentUser?.username.toLowerCase();
+      if ((targetUserId != null && targetUserId == currentUserId) ||
+          (targetUsername != null && targetUsername == currentUsername)) {
+        logout();
+      }
+    });
+
     if (isPrinterStation && cafeId.isNotEmpty && cafeId != 'local_default') {
       SocketService().registerPrinterStation(
         cafeId,
@@ -3329,21 +3343,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addOrUpdateEmployee(AppUser u) {
+  Future<void> addOrUpdateEmployee(AppUser u) async {
+    await _cloudService.saveEmployee(currentCafeId, u);
     final idx = users.indexWhere((e) => e.id == u.id);
     if (idx == -1) {
       users.add(u);
     } else {
       users[idx] = u;
     }
-    _cloudService.saveEmployee(currentCafeId, u);
     saveData();
     notifyListeners();
   }
 
-  void deleteEmployee(AppUser u) {
+  Future<void> deleteEmployee(AppUser u) async {
+    await _cloudService.deleteEmployee(currentCafeId, u.id);
     users.removeWhere((e) => e.id == u.id);
-    _cloudService.deleteEmployee(currentCafeId, u.id);
     saveData();
     notifyListeners();
   }
@@ -8350,7 +8364,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                         ),
                       ],
                     ),
-                    const Spacer(),
+                    const Flexible(fit: FlexFit.loose, child: SizedBox(height: 6)),
                     // Table Number
                     Text(
                       'Stol ${t.number}',
@@ -9686,29 +9700,36 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                 child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF315EFB), size: 20),
                               ),
                               const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Text(
-                                    'Stollar',
-                                    style: TextStyle(
-                                      fontSize: 19,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF142033),
-                                      letterSpacing: -0.3,
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Text(
+                                      'Stollar',
+                                      style: TextStyle(
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF142033),
+                                        letterSpacing: -0.3,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                  ),
-                                  Text(
-                                    'Xizmat ko\'rsatish uchun stolni tanlang',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color(0xFF8994A7),
+                                    Text(
+                                      'Xizmat ko\'rsatish uchun stolni tanlang',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF8994A7),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                              const Spacer(),
+                              const SizedBox(width: 8),
                               // 1. TELEFON (< 600 px): Dropdown tugmasi aynan shunday qoladi
                               if (screenWidth < 600 && appState.halls.isNotEmpty)
                                 _HallDropdown(
@@ -9791,11 +9812,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               if (w < 340) {
                                 cols = 2;
                                 spacing = 8.0;
-                                mainAxisExtent = 126.0;
+                                mainAxisExtent = 132.0;
                               } else if (w < 600) {
                                 cols = 3;
                                 spacing = 8.0;
-                                mainAxisExtent = 126.0;
+                                mainAxisExtent = 134.0;
                               } else if (w < 820) {
                                 cols = 4;
                                 spacing = 12.0;
@@ -18993,21 +19014,276 @@ class EmployeesScreen extends StatefulWidget {
 }
 
 class _EmployeesScreenState extends State<EmployeesScreen> {
-  final Set<int> _revealed = {};
-
-  void _edit([AppUser? user]) {
-    final nameCtrl = TextEditingController(text: user?.name ?? '');
-    final userCtrl = TextEditingController(text: user?.username ?? '');
-    final passCtrl = TextEditingController(text: user?.password ?? '');
-    final phoneCtrl = TextEditingController(text: user?.phone ?? '');
-    final salaryCtrl = TextEditingController(
-      text: user != null ? user.salary.toStringAsFixed(0) : '0',
-    );
-    UserRole role = user?.role ?? UserRole.waiter;
-    bool obscure = true;
+  void _showEmployeeDetails(AppUser u, List<Receipt> staffReceipts, double staffRevenue) {
+    final rColor = _roleColor(u.role);
+    final rIcon = _roleIcon(u.role);
 
     showDialog(
       context: context,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: 520,
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: rColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(rIcon, color: rColor, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          u.name,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: rColor.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                _roleLabel(u.role),
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: rColor),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '@${u.username}',
+                              style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.grey),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // Staff details grid
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow(Icons.phone_outlined, 'Telefon', u.phone.isNotEmpty ? u.phone : 'Kiritilmagan'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow(Icons.attach_money_rounded, 'Oylik maosh', formatSum(u.salary)),
+                    const SizedBox(height: 8),
+                    _buildDetailRow(Icons.lock_outline_rounded, 'Parol holati', '•••••••• (Xavfsiz hashda saqlangan)'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow(
+                      Icons.calendar_today_outlined,
+                      'Ro\'yxatdan o\'tgan',
+                      '${u.createdAt.day.toString().padLeft(2, '0')}.${u.createdAt.month.toString().padLeft(2, '0')}.${u.createdAt.year}',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Summary Stats
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2FF),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFC7D2FE)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Jami zakazlar', style: TextStyle(fontSize: 11.5, color: Color(0xFF4338CA), fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${staffReceipts.length} ta',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF312E81)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFA7F3D0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Jami tushum', style: TextStyle(fontSize: 11.5, color: Color(0xFF047857), fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          Text(
+                            formatSum(staffRevenue),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF065F46)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Order history header
+              Row(
+                children: [
+                  const Icon(Icons.history_rounded, size: 18, color: Color(0xFF0F172A)),
+                  const SizedBox(width: 6),
+                  const Text('Zakazlar tarixi (oxirgi cheklar)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+                  const Spacer(),
+                  Text('${staffReceipts.length} ta chek', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Order history list
+              Container(
+                constraints: const BoxConstraints(maxHeight: 200),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: staffReceipts.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 28),
+                        child: Center(
+                          child: Text(
+                            'Ushbu xodim tomonidan hozircha chek yopilmagan',
+                            style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: staffReceipts.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                        itemBuilder: (context, idx) {
+                          final r = staffReceipts[idx];
+                          final d = r.date;
+                          final dateStr = '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+                          final stolText = r.tableNumber != null ? 'Stol ${r.tableNumber}' : (r.tableId != null ? 'Stol ${r.tableId}' : 'Umumiy');
+                          return ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                            leading: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.receipt_long_rounded, size: 16, color: Color(0xFF334155)),
+                            ),
+                            title: Text('Chek #${r.id}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                            subtitle: Text('$stolText • $dateStr', style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                            trailing: Text(
+                              formatSum(r.total),
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF10B981)),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              const SizedBox(height: 16),
+
+              // Bottom buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _edit(u);
+                    },
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF3B82F6)),
+                      foregroundColor: const Color(0xFF3B82F6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.edit_rounded, size: 16),
+                    label: const Text('Tahrirlash'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0F172A),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Yopish'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF64748B)),
+        const SizedBox(width: 8),
+        Text('$label:', style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+        const Spacer(),
+        Text(value, style: const TextStyle(fontSize: 12.5, color: Color(0xFF0F172A), fontWeight: FontWeight.w700)),
+      ],
+    );
+  }
+
+  void _edit([AppUser? user]) {
+    final isEdit = user != null;
+    final nameCtrl = TextEditingController(text: user?.name ?? '');
+    final userCtrl = TextEditingController(text: user?.username ?? '');
+    final passCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController(text: user?.phone ?? '');
+    final salaryCtrl = TextEditingController(
+      text: user != null && user.salary > 0 ? user.salary.toStringAsFixed(0) : '',
+    );
+    UserRole role = user?.role ?? UserRole.waiter;
+    bool obscure = true;
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
       builder: (_) => StatefulBuilder(
         builder: (context, setStateDialog) => Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -19030,7 +19306,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
-                          user == null ? Icons.person_add_rounded : Icons.edit_note_rounded,
+                          !isEdit ? Icons.person_add_rounded : Icons.edit_note_rounded,
                           color: Colors.black87,
                           size: 22,
                         ),
@@ -19038,19 +19314,20 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          user == null ? 'Yangi Xodim Qo\'shish' : 'Xodimni Tahrirlash',
+                          !isEdit ? 'Yangi Xodim Qo\'shish' : 'Xodimni Tahrirlash',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                         ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.close_rounded, color: Colors.grey),
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: isSaving ? null : () => Navigator.pop(context),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: nameCtrl,
+                    enabled: !isSaving,
                     decoration: InputDecoration(
                       labelText: 'To\'liq Ism *',
                       hintText: 'Masalan: Ali Valiyev',
@@ -19063,6 +19340,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: userCtrl,
+                    enabled: !isSaving,
                     decoration: InputDecoration(
                       labelText: 'Login / Username *',
                       hintText: 'Masalan: ofitsiant_ali',
@@ -19076,9 +19354,10 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                   TextField(
                     controller: passCtrl,
                     obscureText: obscure,
+                    enabled: !isSaving,
                     decoration: InputDecoration(
-                      labelText: 'Parol *',
-                      hintText: 'Kamida 4 ta belgi',
+                      labelText: isEdit ? 'Yangi parol (o\'zgartirish uchun)' : 'Parol (kamida 6 ta belgi) *',
+                      hintText: isEdit ? 'O\'zgartirish uchun yangi parol kiriting' : 'Kamida 6 ta belgi',
                       prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
                       suffixIcon: IconButton(
                         icon: Icon(obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded),
@@ -19093,6 +19372,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                   TextField(
                     controller: phoneCtrl,
                     keyboardType: TextInputType.phone,
+                    enabled: !isSaving,
                     decoration: InputDecoration(
                       labelText: 'Telefon raqam',
                       hintText: '+998 90 123 45 67',
@@ -19154,12 +19434,13 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         ),
                       ),
                     ],
-                    onChanged: (v) => setStateDialog(() => role = v ?? role),
+                    onChanged: isSaving ? null : (v) => setStateDialog(() => role = v ?? role),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: salaryCtrl,
                     keyboardType: TextInputType.number,
+                    enabled: !isSaving,
                     decoration: InputDecoration(
                       labelText: 'Oylik Maosh (so\'m)',
                       hintText: '0',
@@ -19174,7 +19455,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: isSaving ? null : () => Navigator.pop(context),
                         child: const Text('Bekor qilish', style: TextStyle(color: Colors.grey)),
                       ),
                       const SizedBox(width: 8),
@@ -19185,34 +19466,95 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        onPressed: () {
-                          if (nameCtrl.text.trim().isEmpty || userCtrl.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Ism va loginni kiriting!')),
-                            );
-                            return;
-                          }
-                          final u = AppUser(
-                            id: user?.id ?? appState.nextId(),
-                            name: nameCtrl.text.trim(),
-                            username: userCtrl.text.trim(),
-                            password: passCtrl.text.trim().isNotEmpty ? passCtrl.text.trim() : '1234',
-                            phone: phoneCtrl.text.trim(),
-                            role: role,
-                            salary: double.tryParse(salaryCtrl.text) ?? 0,
-                            cafeId: appState.currentCafeId,
-                          );
-                          setState(() => appState.addOrUpdateEmployee(u));
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Xodim saqlandi: ${u.name} (Login: @${u.username}, Parol: ${u.password})'),
-                              backgroundColor: const Color(0xFF10B981),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.check_rounded, size: 18),
-                        label: const Text('Saqlash', style: TextStyle(fontWeight: FontWeight.bold)),
+                        onPressed: isSaving
+                            ? null
+                            : () async {
+                                final cleanName = nameCtrl.text.trim();
+                                final cleanUser = userCtrl.text.trim().replaceAll('@', '');
+                                final pass = passCtrl.text.trim();
+
+                                if (cleanName.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Xodim ismini kiriting!')),
+                                  );
+                                  return;
+                                }
+
+                                if (cleanUser.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Xodim loginini kiriting!')),
+                                  );
+                                  return;
+                                }
+
+                                final usernameRegex = RegExp(r'^[a-zA-Z0-9_.-]{3,30}$');
+                                if (!usernameRegex.hasMatch(cleanUser)) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Login faqat harf, raqam va pastki chiziqdan iborat bo\'lishi kerak (kamida 3 ta belgi).'),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                if (!isEdit && pass.length < 6) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Parol kamida 6 ta belgidan iborat bo\'lishi kerak!')),
+                                  );
+                                  return;
+                                }
+
+                                if (isEdit && pass.isNotEmpty && pass.length < 6) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Yangi parol kamida 6 ta belgidan iborat bo\'lishi kerak!')),
+                                  );
+                                  return;
+                                }
+
+                                setStateDialog(() => isSaving = true);
+
+                                final u = AppUser(
+                                  id: user?.id ?? appState.nextId(),
+                                  name: cleanName,
+                                  username: cleanUser,
+                                  password: pass,
+                                  phone: phoneCtrl.text.trim(),
+                                  role: role,
+                                  salary: double.tryParse(salaryCtrl.text.trim()) ?? 0,
+                                  cafeId: appState.currentCafeId,
+                                );
+
+                                try {
+                                  await appState.addOrUpdateEmployee(u);
+                                  if (!context.mounted) return;
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(isEdit ? 'Xodim yangilandi: ${u.name}' : 'Yangi xodim saqlandi: ${u.name} (Login: @${u.username})'),
+                                      backgroundColor: const Color(0xFF10B981),
+                                    ),
+                                  );
+                                  setState(() {});
+                                } catch (e) {
+                                  setStateDialog(() => isSaving = false);
+                                  final msg = e.toString().replaceAll('ApiException: ', '').replaceAll('Exception: ', '');
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(msg.isNotEmpty ? msg : 'Xatolik yuz berdi.'),
+                                      backgroundColor: const Color(0xFFEF4444),
+                                    ),
+                                  );
+                                }
+                              },
+                        icon: isSaving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0F172A)),
+                              )
+                            : const Icon(Icons.check_rounded, size: 18),
+                        label: Text(isSaving ? 'Saqlanmoqda...' : 'Saqlash', style: const TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
@@ -19231,7 +19573,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Xodimni o\'chirish'),
-        content: Text('Haqiqatdan ham "${u.name}" (@${u.username}) ni tizimdan o\'chirasizmi?'),
+        content: Text('Haqiqatdan ham "${u.name}" (@${u.username}) ni tizimdan o\'chirasizmi?\n\nEski cheklar va hisobotlar tarixi saqlanadi, faqat xodimning kirish huquqi bekor qilinadi.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -19243,9 +19585,25 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            onPressed: () {
-              setState(() => appState.deleteEmployee(u));
+            onPressed: () async {
               Navigator.pop(context);
+              try {
+                await appState.deleteEmployee(u);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('"${u.name}" tizimdan o\'chirildi'),
+                    backgroundColor: const Color(0xFFEF4444),
+                  ),
+                );
+                setState(() {});
+              } catch (e) {
+                if (!mounted) return;
+                final msg = e.toString().replaceAll('ApiException: ', '').replaceAll('Exception: ', '');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Xatolik: $msg'), backgroundColor: Colors.red),
+                );
+              }
             },
             child: const Text('O\'chirish'),
           ),
@@ -19377,7 +19735,6 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                     itemCount: appState.users.length,
                     itemBuilder: (context, i) {
                       final u = appState.users[i];
-                      final revealed = _revealed.contains(u.id);
                       final rColor = _roleColor(u.role);
                       final rIcon = _roleIcon(u.role);
 
@@ -19493,15 +19850,16 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                         ),
                                         Row(
                                           mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(Icons.key_rounded, size: 14, color: Colors.grey),
-                                            const SizedBox(width: 4),
+                                          children: const [
+                                            Icon(Icons.key_rounded, size: 14, color: Colors.grey),
+                                            SizedBox(width: 4),
                                             Text(
-                                              revealed ? u.password : '••••••',
+                                              '••••••••',
                                               style: TextStyle(
                                                 fontSize: 12.5,
                                                 fontWeight: FontWeight.bold,
-                                                color: revealed ? const Color(0xFF0F172A) : Colors.grey,
+                                                color: Colors.grey,
+                                                letterSpacing: 1.2,
                                               ),
                                             ),
                                           ],
@@ -19536,19 +19894,9 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: Icon(
-                                      revealed ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                                      color: const Color(0xFF64748B),
-                                      size: 20,
-                                    ),
-                                    tooltip: 'Parolni ko\'rish',
-                                    onPressed: () => setState(() {
-                                      if (revealed) {
-                                        _revealed.remove(u.id);
-                                      } else {
-                                        _revealed.add(u.id);
-                                      }
-                                    }),
+                                    icon: const Icon(Icons.visibility_rounded, color: Color(0xFF64748B), size: 20),
+                                    tooltip: 'Xodim ma\'lumotlari va zakazlar tarixi',
+                                    onPressed: () => _showEmployeeDetails(u, staffReceipts, staffRevenue),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.edit_rounded, color: Color(0xFF3B82F6), size: 20),

@@ -240,11 +240,17 @@ try {
   }, 4 * 60 * 1000);
 } catch (_) {}
 
+// Health check endpoint (for Railway, keep-alive, and frontend latency monitor)
+app.get(['/health', '/api/health', '/api/v1/health'], (req, res) => {
+  res.json({ ok: true, status: 'ok', server_time: new Date().toISOString() });
+});
+
 ['/api', '/api/v1'].forEach((prefix) => {
   app.use(`${prefix}/auth`, authRoutes);
   app.use(`${prefix}/director`, directorRoutes);
   app.use(`${prefix}/devices`, deviceRoutes);
   app.use(`${prefix}/cafe`, cafeRoutes);
+  app.use(`${prefix}/cafes`, cafeRoutes);
   app.use(`${prefix}/categories`, categoryRoutes);
   app.use(`${prefix}/products`, productRoutes);
   app.use(`${prefix}/halls`, hallRoutes);

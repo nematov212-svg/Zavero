@@ -69,6 +69,25 @@ const authMiddleware = async (req, res, next) => {
     const decoded = jwt.verify(token, secret);
     req.user = { ...decoded }; // { id, username, cafeId, role }
 
+    // Verify user is active and token_version matches current session version
+    const userDbRes = await db.query(
+      'SELECT is_active, token_version FROM users WHERE id = $1',
+      [decoded.id]
+    );
+    if (userDbRes.rows.length === 0 || userDbRes.rows[0].is_active === false) {
+      return res.status(401).json({
+        success: false,
+        message: 'Foydalanuvchi tizimdan chiqarilgan yoki bloklangan.',
+      });
+    }
+    const currentTokenVersion = userDbRes.rows[0].token_version || 1;
+    if (decoded.tokenVersion && decoded.tokenVersion !== currentTokenVersion) {
+      return res.status(401).json({
+        success: false,
+        message: 'Sessiya muddati tugadi yoki bekor qilindi. Iltimos, qaytadan kiring.',
+      });
+    }
+
     // 2. Multi-Tenant Role Verification & Isolation
     if (decoded.role === 'super_admin') {
       const targetCafe = req.headers['x-cafe-id'] || req.query?.cafeId || (req.body && req.body?.cafeId);

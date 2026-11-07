@@ -29,6 +29,7 @@ enum CafeSocketEvent {
   printerStationStatusChanged,
   printJobCompleted,
   printJobFailed,
+  userForceLogout,
 }
 
 const Map<CafeSocketEvent, String> _eventNames = {
@@ -56,6 +57,7 @@ const Map<CafeSocketEvent, String> _eventNames = {
   CafeSocketEvent.printerStationStatusChanged: 'PRINTER_STATION_STATUS_CHANGED',
   CafeSocketEvent.printJobCompleted: 'PRINT_JOB_COMPLETED',
   CafeSocketEvent.printJobFailed: 'PRINT_JOB_FAILED',
+  CafeSocketEvent.userForceLogout: 'USER_FORCE_LOGOUT',
 };
 
 /// socket_io_client ustidan qatlam: JWT bilan ulanish, JOIN_CAFE,

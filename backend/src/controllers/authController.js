@@ -25,7 +25,13 @@ const generateToken = (user) => {
   const secret = getJwtSecret();
   const expiresIn = getJwtAccessExpiresIn(); // 15 minutes
   return jwt.sign(
-    { id: user.id, username: user.username, cafeId: user.cafe_id, role: user.role },
+    {
+      id: user.id,
+      username: user.username,
+      cafeId: user.cafe_id,
+      role: user.role,
+      tokenVersion: user.token_version || 1,
+    },
     secret,
     { expiresIn }
   );

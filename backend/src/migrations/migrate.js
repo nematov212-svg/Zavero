@@ -26,6 +26,37 @@ const runMigrations = async () => {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_cafe_hall_number ON restaurant_tables(cafe_id, hall_id, number);
     `);
 
+    // Ensure token_version column exists and initialized
+    await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1;`);
+    await db.query(`UPDATE users SET token_version = 1 WHERE token_version IS NULL;`);
+
+    // Ensure cafe_id in employees is NOT NULL
+    await db.query(`
+      UPDATE employees SET cafe_id = '89f104ec-462e-466d-878c-a97615d9a372' 
+      WHERE cafe_id IS NULL OR cafe_id = '';
+    `);
+    await db.query(`ALTER TABLE employees ALTER COLUMN cafe_id SET NOT NULL;`).catch(() => {});
+
+    // Sync any staff users (waiter, cashier, courier) into employees table if missing
+    const staffUsers = await db.query(
+      `SELECT u.id, u.cafe_id, u.name, u.surname, u.username, u.email, u.phone, u.role, u.salary
+       FROM users u
+       WHERE u.role IN ('waiter', 'cashier', 'courier') AND u.cafe_id IS NOT NULL AND u.cafe_id != ''`
+    );
+    for (const u of staffUsers.rows) {
+      const empExists = await db.query(
+        'SELECT id FROM employees WHERE cafe_id = $1 AND LOWER(username) = LOWER($2)',
+        [u.cafe_id, u.username]
+      );
+      if (empExists.rows.length === 0) {
+        await db.query(
+          `INSERT INTO employees (cafe_id, name, surname, username, email, phone, role, salary)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [u.cafe_id, u.name || '', u.surname || '', u.username, u.email || '', u.phone || '', u.role, u.salary || 0]
+        );
+      }
+    }
+
     await seedDirectorAndDefaults();
   } catch (error) {
     console.error('❌ [Migration Error]', error.message);
