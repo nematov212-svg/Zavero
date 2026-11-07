@@ -1265,43 +1265,25 @@ class _StaffTrackingScreenState extends State<StaffTrackingScreen>
   }
 }
 
-class _LivePulseDot extends StatefulWidget {
+class _LivePulseDot extends StatelessWidget {
   final Color color;
   const _LivePulseDot({required this.color});
 
   @override
-  State<_LivePulseDot> createState() => _LivePulseDotState();
-}
-
-class _LivePulseDotState extends State<_LivePulseDot>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1000))
-      ..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: Tween<double>(begin: 0.4, end: 1.0).animate(_ctrl),
-      child: Container(
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(
-          color: widget.color,
-          shape: BoxShape.circle,
-        ),
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.6),
+            blurRadius: 4,
+            spreadRadius: 1,
+          ),
+        ],
       ),
     );
   }

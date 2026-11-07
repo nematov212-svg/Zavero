@@ -34,6 +34,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       _supportTickets.where((t) => t['status'] != 'resolved').length;
 
   bool _isLoading = true;
+  bool _loadError = false;
   String _searchQuery = '';
   String _statusFilter = 'all';
 
@@ -67,14 +68,22 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
   }
 
   Future<void> _loadAllData() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = false;
+    });
     try {
       final metricsFuture = _ds.getMetrics();
       final cafesFuture = _ds.getCafes(q: _searchQuery, status: _statusFilter);
       final devicesFuture = _ds.getDevices();
       final ticketsFuture = _ds.getSupportTickets();
 
-      final results = await Future.wait([metricsFuture, cafesFuture, devicesFuture, ticketsFuture]);
+      final results = await Future.wait([
+        metricsFuture,
+        cafesFuture,
+        devicesFuture,
+        ticketsFuture,
+      ]).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
       setState(() {
@@ -85,6 +94,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       });
     } catch (e) {
       if (mounted) {
+        setState(() => _loadError = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Ma\'lumotlarni yuklashda xatolik: $e'), backgroundColor: Colors.red),
         );
@@ -2555,13 +2565,48 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFFF59E0B)))
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildCafesAndMetricsTab(isMobile: isMobile, isTablet: isTablet),
-                      _buildDevicesTab(),
-                    ],
-                  ),
+                : _loadError
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.wifi_off_rounded, size: 64, color: Colors.redAccent),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Ma\'lumotlarni yuklab bo\'lmadi',
+                                style: TextStyle(color: Color(0xFF0F172A), fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Internet aloqasini tekshiring yoki server javob bermadi',
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                onPressed: _loadAllData,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFBBF24),
+                                  foregroundColor: const Color(0xFF0F172A),
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Qayta urinish', style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildCafesAndMetricsTab(isMobile: isMobile, isTablet: isTablet),
+                          _buildDevicesTab(),
+                        ],
+                      ),
           ),
         ],
       ),
@@ -3519,14 +3564,17 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       return LayoutBuilder(
         builder: (context, constraints) {
           if (constraints.maxWidth <= 50 || constraints.maxHeight <= 0) return const SizedBox.shrink();
-          return GridView.count(
+          return GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 1.45,
-            children: cards,
+            itemCount: cards.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              mainAxisExtent: 96,
+            ),
+            itemBuilder: (context, index) => cards[index],
           );
         },
       );
@@ -3536,14 +3584,17 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       return LayoutBuilder(
         builder: (context, constraints) {
           if (constraints.maxWidth <= 50 || constraints.maxHeight <= 0) return const SizedBox.shrink();
-          return GridView.count(
+          return GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 14,
-            mainAxisSpacing: 14,
-            childAspectRatio: 2.3,
-            children: cards,
+            itemCount: cards.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 14,
+              mainAxisSpacing: 14,
+              mainAxisExtent: 92,
+            ),
+            itemBuilder: (context, index) => cards[index],
           );
         },
       );
@@ -3566,7 +3617,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     required Color borderColor,
   }) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(16),
@@ -3595,6 +3646,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   title,
@@ -3607,12 +3659,16 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 1),
@@ -3999,12 +4055,25 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(count, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
-              Text(label, style: TextStyle(fontSize: 9, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
-            ],
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  count,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 9, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
           ),
         ],
       ),

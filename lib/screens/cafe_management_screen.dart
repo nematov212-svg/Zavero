@@ -37,6 +37,7 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
 
   bool _isLoading = true;
   bool _cafeNotFound = false;
+  bool _loadError = false;
   Map<String, dynamic> _overviewStats = {};
   List<Product> _products = [];
   List<Category> _categories = [];
@@ -142,6 +143,7 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
     setState(() {
       _isLoading = true;
       _cafeNotFound = false;
+      _loadError = false;
     });
     final cafeId = widget.cafe.cafeId;
     try {
@@ -165,7 +167,7 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
         ordersFuture,
         settingsFuture,
         notifsFuture,
-      ]);
+      ]).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
       setState(() {
@@ -190,6 +192,7 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
         if (mounted) setState(() => _cafeNotFound = true);
       } else {
         if (mounted) {
+          setState(() => _loadError = true);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Ma\'lumotlarni yuklashda xatolik: $e'), backgroundColor: Colors.red),
           );
@@ -1020,6 +1023,54 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
       );
     }
 
+    if (_loadError && !_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1E293B),
+          elevation: 2,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Color(0xFFFFC107)),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(widget.cafe.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.wifi_off_rounded, size: 64, color: Colors.redAccent),
+                const SizedBox(height: 16),
+                const Text(
+                  'Ma\'lumotlarni yuklab bo\'lmadi',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Internet aloqasini tekshiring yoki server javob bermadi',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _loadCafeData,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFC107),
+                    foregroundColor: Colors.black87,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Qayta urinish', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
@@ -1031,14 +1082,19 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                Text(
-                  widget.cafe.name,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                Flexible(
+                  child: Text(
+                    widget.cafe.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
@@ -1047,6 +1103,8 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
                   ),
                   child: Text(
                     widget.cafe.status.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: widget.cafe.isBlocked ? Colors.redAccent : Colors.greenAccent,
                       fontSize: 10,
@@ -1058,6 +1116,8 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
             ),
             Text(
               'ID: ${widget.cafe.cafeId} • Egasi: ${widget.cafe.ownerName.isNotEmpty ? widget.cafe.ownerName : widget.cafe.ownerEmail}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.grey, fontSize: 12),
             ),
           ],

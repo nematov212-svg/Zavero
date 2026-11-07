@@ -7466,8 +7466,14 @@ class _AnimatedHeaderLogoBadgeState extends State<_AnimatedHeaderLogoBadge>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 1400),
+    );
+    // 1 marta nafis kirish animatsiyasi, keyin CPU yuklamaslik uchun to'xtaydi
+    _ctrl.forward().then((_) {
+      if (mounted) {
+        _ctrl.reverse();
+      }
+    });
   }
 
   @override
@@ -7528,56 +7534,27 @@ class _AnimatedHeaderLogoBadgeState extends State<_AnimatedHeaderLogoBadge>
 }
 
 // ============================================================
-// PULSING LIVE NETWORK DOT
+// LIVE NETWORK DOT (Stateless, cheksiz animatsiyasiz yuqori unumdorlik)
 // ============================================================
-class _PulsingDot extends StatefulWidget {
+class _PulsingDot extends StatelessWidget {
   final Color color;
   const _PulsingDot({required this.color});
 
   @override
-  State<_PulsingDot> createState() => _PulsingDotState();
-}
-
-class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    )..repeat(reverse: true);
-    _anim = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _anim,
-      child: Container(
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(
-          color: widget.color,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: widget.color.withValues(alpha: 0.5),
-              blurRadius: 4,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.6),
+            blurRadius: 4,
+            spreadRadius: 1,
+          ),
+        ],
       ),
     );
   }
@@ -8330,36 +8307,43 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                             size: isCompact ? 16 : 20,
                           ),
                         ),
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isCompact ? 6 : 8,
-                            vertical: isCompact ? 2.5 : 3.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusBg,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: isCompact ? 5 : 6,
-                                height: isCompact ? 5 : 6,
-                                decoration: BoxDecoration(
-                                  color: statusColor,
-                                  shape: BoxShape.circle,
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isCompact ? 6 : 8,
+                              vertical: isCompact ? 2.5 : 3.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusBg,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: isCompact ? 5 : 6,
+                                  height: isCompact ? 5 : 6,
+                                  decoration: BoxDecoration(
+                                    color: statusColor,
+                                    shape: BoxShape.circle,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                statusText,
-                                style: TextStyle(
-                                  fontSize: isCompact ? 9.5 : 10.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: statusColor,
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    statusText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: isCompact ? 9.5 : 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: statusColor,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -8550,7 +8534,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           _heartbeatIntervalMs = 15000;
         }).catchError((_) {
           _heartbeatIntervalMs = (_heartbeatIntervalMs == 15000) ? 30000 : 60000;
-          return <String, dynamic>{};
         });
       }
     }

@@ -24,20 +24,28 @@ class ZaveroBrandLogo extends StatefulWidget {
 
 class _ZaveroBrandLogoState extends State<ZaveroBrandLogo>
     with SingleTickerProviderStateMixin {
-  late AnimationController _sparkController;
+  AnimationController? _sparkController;
 
   @override
   void initState() {
     super.initState();
-    _sparkController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat();
+    if (widget.animatedSparks) {
+      _sparkController = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 2000),
+      );
+      // Kirish paytida bir marta nafis porlab to'xtaydi (CPU yuklamasligi uchun)
+      _sparkController?.forward().then((_) {
+        if (mounted) {
+          _sparkController?.reverse();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
-    _sparkController.dispose();
+    _sparkController?.dispose();
     super.dispose();
   }
 
@@ -84,19 +92,20 @@ class _ZaveroBrandLogoState extends State<ZaveroBrandLogo>
       ),
     );
 
-    if (!widget.animatedSparks) {
+    if (!widget.animatedSparks || _sparkController == null) {
       return logoContent;
     }
 
     return AnimatedBuilder(
-      animation: _sparkController,
+      animation: _sparkController!,
       builder: (context, child) {
-        final pulse = 1.0 + 0.025 * math.sin(_sparkController.value * 2 * math.pi);
+        final ctrlVal = _sparkController!.value;
+        final pulse = 1.0 + 0.025 * math.sin(ctrlVal * 2 * math.pi);
         return Transform.scale(
           scale: pulse,
           child: CustomPaint(
             painter: _FlyingLightningSparksPainter(
-              progress: _sparkController.value,
+              progress: ctrlVal,
               isWhite: widget.isWhite,
             ),
             child: child,
