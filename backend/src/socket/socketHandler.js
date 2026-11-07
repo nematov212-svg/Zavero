@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { getJwtSecret } = require('../config/jwt');
+const db = require('../config/db');
 
 let ioInstance = null;
 
@@ -147,7 +148,23 @@ const initSocket = (io) => {
       }
     });
 
-    socket.on('PING', () => socket.emit('PONG', { time: new Date().toISOString() }));
+    socket.on('PING', () => {
+      socket.emit('PONG', { time: new Date().toISOString() });
+      const cid = socket.user?.cafeId;
+      if (cid && cid !== 'zavero' && cid !== 'local_default') {
+        db.query(
+          `UPDATE cafes 
+           SET online_since = CASE 
+                 WHEN last_seen IS NULL OR last_seen < CURRENT_TIMESTAMP - INTERVAL '60 seconds' 
+                 THEN CURRENT_TIMESTAMP 
+                 ELSE COALESCE(online_since, CURRENT_TIMESTAMP) 
+               END,
+               last_seen = CURRENT_TIMESTAMP
+           WHERE cafe_id = $1`,
+          [cid]
+        ).catch(() => {});
+      }
+    });
 
     socket.on('STAFF_STATUS_UPDATE', (payload = {}) => {
       // SECURITY: Only emit to authorized cafe room

@@ -814,29 +814,29 @@ class _TablesManagementScreenState extends State<TablesManagementScreen> {
                           if (w <= 64 || constraints.maxHeight <= 0) return const SizedBox.shrink();
                           final isPhone = w < 600;
                           final int cols;
-                          final double childAspectRatio;
                           final double spacing;
+                          final double mainAxisExtent;
                           if (w < 340) {
                             cols = 2;
-                            childAspectRatio = 1.15;
                             spacing = 8.0;
+                            mainAxisExtent = 126.0;
                           } else if (w < 600) {
                             cols = 3;
-                            childAspectRatio = 1.18;
                             spacing = 8.0;
+                            mainAxisExtent = 128.0;
                           } else if (w < 820) {
                             cols = 4;
-                            childAspectRatio = 1.12;
                             spacing = 12.0;
+                            mainAxisExtent = 136.0;
                           } else if (w < 1024) {
                             cols = 5;
-                            childAspectRatio = 1.10;
                             spacing = 12.0;
+                            mainAxisExtent = 138.0;
                           } else {
                             final availableWidth = w - 32.0;
                             cols = math.max(6, (availableWidth / 200.0).floor());
-                            childAspectRatio = 1.05;
                             spacing = 14.0;
+                            mainAxisExtent = 142.0;
                           }
                           return GridView.builder(
                             padding: EdgeInsets.all(isPhone ? 10 : 16),
@@ -844,7 +844,7 @@ class _TablesManagementScreenState extends State<TablesManagementScreen> {
                               crossAxisCount: cols,
                               crossAxisSpacing: spacing,
                               mainAxisSpacing: spacing,
-                              childAspectRatio: childAspectRatio,
+                              mainAxisExtent: mainAxisExtent,
                             ),
                             itemCount: currentHallTables.length,
                         itemBuilder: (context, i) {

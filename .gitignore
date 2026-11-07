@@ -95,6 +95,9 @@ backend/uploads/
 
 .vscode/
 zavero-release.apk
+*.apk
+*.aab
+backend/backups/
 zavero/
 
 print-agent/node_modules/

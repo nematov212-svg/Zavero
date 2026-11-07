@@ -1052,6 +1052,8 @@ class AppState extends ChangeNotifier {
     customerCart.clear();
     selectedHall = null;
     selectedTable = null;
+    liveTodayReport = null;
+    _activeLoadedCafeId = null;
     notifyListeners();
   }
 
@@ -1624,7 +1626,7 @@ class AppState extends ChangeNotifier {
 
       for (final t in tables) {
         final matches = (tId != null && t.id == tId) ||
-            (tNum != null && t.number == tNum && (tHallId == null || t.hallId == tHallId));
+            (tId == null && tNum != null && tHallId != null && t.number == tNum && t.hallId == tHallId);
         if (matches) {
           t.status = isOcc ? TableStatus.occupied : TableStatus.free;
           if (!isOcc) {
@@ -1659,7 +1661,7 @@ class AppState extends ChangeNotifier {
 
       for (final t in tables) {
         final matches = (tId != null && t.id == tId) ||
-            (tNum != null && t.number == tNum && (tHallId == null || t.hallId == tHallId));
+            (tId == null && tNum != null && tHallId != null && t.number == tNum && t.hallId == tHallId);
         if (matches) {
           if (hasItems) {
             final items = rawItems
@@ -1700,7 +1702,7 @@ class AppState extends ChangeNotifier {
       bool updated = false;
       for (final t in tables) {
         final matches = (tId != null && t.id == tId) ||
-            (tNum != null && t.number == tNum && (tHallId == null || t.hallId == tHallId));
+            (tId == null && tNum != null && tHallId != null && t.number == tNum && t.hallId == tHallId);
         if (matches) {
           t.status = TableStatus.free;
           tableOrders.remove(t.id);
@@ -1758,13 +1760,16 @@ class AppState extends ChangeNotifier {
       );
     }
 
-          addAppNotification(AppNotificationItem(
-            id: 'receipt_${r.id}',
-            title: "Chek to'landi #${r.id}",
-            body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} (${r.tableNumber != null ? '${r.tableNumber}-stol' : (r.hallName ?? 'Kassa')})",
-            time: DateTime.now(),
-            type: 'receipt',
-          ));
+            final placeInfo = r.tableNumber != null
+                ? (r.hallName != null && r.hallName!.isNotEmpty ? '${r.hallName}, ${r.tableNumber}-stol' : '${r.tableNumber}-stol')
+                : (r.hallName ?? 'Kassa');
+            addAppNotification(AppNotificationItem(
+              id: 'receipt_${r.id}',
+              title: "Chek to'landi #${r.id}",
+              body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} ($placeInfo)",
+              time: DateTime.now(),
+              type: 'receipt',
+            ));
           unawaited(fetchLiveTodayReport());
           notifyListeners();
         }
@@ -2676,7 +2681,9 @@ class AppState extends ChangeNotifier {
       total: cartTotal,
       method: method,
       cashierName: currentUser?.name ?? guestName ?? 'Mehmon',
+      tableId: selectedTable?.id,
       tableNumber: selectedTable?.number,
+      hallId: selectedHall?.id ?? selectedTable?.hallId,
       hallName: selectedHall?.name,
       cashPaid: cashPaid,
       cardPaid: cardPaid,
@@ -2722,10 +2729,13 @@ class AppState extends ChangeNotifier {
       );
     }
 
+    final rPlace = r.tableNumber != null
+        ? (r.hallName != null && r.hallName!.isNotEmpty ? '${r.hallName}, ${r.tableNumber}-stol' : '${r.tableNumber}-stol')
+        : (r.hallName ?? 'Kassa');
     addAppNotification(AppNotificationItem(
       id: 'receipt_${r.id}',
       title: "Chek to'landi #${r.id}",
-      body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} (${r.tableNumber != null ? '${r.tableNumber}-stol' : (r.hallName ?? 'Kassa')})",
+      body: "${formatSum(r.total)} so'm • ${r.method == PaymentMethod.card ? 'Karta' : 'Naqd'} ($rPlace)",
       time: DateTime.now(),
       type: 'receipt',
     ));
@@ -2745,8 +2755,8 @@ class AppState extends ChangeNotifier {
     // 2. Stolni xotirada darhol bo'shatamiz
     for (var i = 0; i < tables.length; i++) {
       final matches = (tableIdToRelease != null && tables[i].id == tableIdToRelease) ||
-          (tableNumToRelease != null && tables[i].number == tableNumToRelease &&
-           (tableHallIdToRelease == null || tables[i].hallId == tableHallIdToRelease));
+          (tableIdToRelease == null && tableNumToRelease != null && tableHallIdToRelease != null &&
+           tables[i].number == tableNumToRelease && tables[i].hallId == tableHallIdToRelease);
       if (matches) {
         tables[i].status = TableStatus.free;
         tableOrders.remove(tables[i].id);
@@ -8124,6 +8134,87 @@ class _HallDropdownState extends State<_HallDropdown> {
 }
 
 // ============================================================
+// PREMIUM HALL PILL TAB (FOR TABLET & DESKTOP >= 600 PX)
+// ============================================================
+
+class HallPillTab extends StatefulWidget {
+  final Hall hall;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const HallPillTab({
+    super.key,
+    required this.hall,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  State<HallPillTab> createState() => _HallPillTabState();
+}
+
+typedef _HallPillTab = HallPillTab;
+
+class _HallPillTabState extends State<HallPillTab> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    const primaryBlue = Color(0xFF315EFB);
+    final isSel = widget.isSelected;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutQuad,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          decoration: ShapeDecoration(
+            shape: const StadiumBorder(),
+            color: isSel
+                ? primaryBlue
+                : (_isHovered ? const Color(0xFFF1F5F9) : Colors.white),
+            shadows: [
+              BoxShadow(
+                color: isSel
+                    ? primaryBlue.withValues(alpha: 0.28)
+                    : Colors.black.withValues(alpha: 0.04),
+                blurRadius: isSel ? 8 : 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                widget.hall.icon,
+                size: 16,
+                color: isSel ? Colors.white : const Color(0xFF142033),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                widget.hall.name,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: isSel ? FontWeight.w700 : FontWeight.w600,
+                  color: isSel ? Colors.white : const Color(0xFF142033),
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
 // PREMIUM TABLE CARD (WHITE BG, SOFT SHADOW, ANIMATED HOVER & SCALE)
 // ============================================================
 
@@ -8203,8 +8294,9 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                 ],
               ),
               child: Padding(
-                padding: EdgeInsets.all(isCompact ? 8 : 14),
+                padding: EdgeInsets.all(isCompact ? 8 : 12),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Top row: Table Icon + Status Badge
@@ -8212,22 +8304,22 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Container(
-                          width: isCompact ? 28 : 40,
-                          height: isCompact ? 28 : 40,
+                          width: isCompact ? 28 : 36,
+                          height: isCompact ? 28 : 36,
                           decoration: BoxDecoration(
                             color: statusBg,
-                            borderRadius: BorderRadius.circular(isCompact ? 8 : 11),
+                            borderRadius: BorderRadius.circular(isCompact ? 8 : 10),
                           ),
                           child: Icon(
                             Icons.table_restaurant_rounded,
                             color: statusColor,
-                            size: isCompact ? 16 : 21,
+                            size: isCompact ? 16 : 20,
                           ),
                         ),
                         Container(
                           padding: EdgeInsets.symmetric(
-                            horizontal: isCompact ? 6 : 9,
-                            vertical: isCompact ? 2.5 : 4,
+                            horizontal: isCompact ? 6 : 8,
+                            vertical: isCompact ? 2.5 : 3.5,
                           ),
                           decoration: BoxDecoration(
                             color: statusBg,
@@ -8237,8 +8329,8 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                width: isCompact ? 5 : 6.5,
-                                height: isCompact ? 5 : 6.5,
+                                width: isCompact ? 5 : 6,
+                                height: isCompact ? 5 : 6,
                                 decoration: BoxDecoration(
                                   color: statusColor,
                                   shape: BoxShape.circle,
@@ -8248,7 +8340,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                               Text(
                                 statusText,
                                 style: TextStyle(
-                                  fontSize: isCompact ? 9.5 : 11,
+                                  fontSize: isCompact ? 9.5 : 10.5,
                                   fontWeight: FontWeight.w700,
                                   color: statusColor,
                                 ),
@@ -8263,7 +8355,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                     Text(
                       'Stol ${t.number}',
                       style: TextStyle(
-                        fontSize: isCompact ? 13.5 : 18,
+                        fontSize: isCompact ? 13.5 : 17,
                         fontWeight: FontWeight.w800,
                         color: const Color(0xFF142033),
                         letterSpacing: -0.2,
@@ -8277,7 +8369,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                       children: [
                         Icon(
                           Icons.people_outline_rounded,
-                          size: isCompact ? 11 : 13.5,
+                          size: isCompact ? 11 : 13,
                           color: const Color(0xFF8994A7),
                         ),
                         const SizedBox(width: 3.5),
@@ -8285,7 +8377,7 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                           child: Text(
                             '$seats o\'rin',
                             style: TextStyle(
-                              fontSize: isCompact ? 10.5 : 12,
+                              fontSize: isCompact ? 10.5 : 11.5,
                               color: const Color(0xFF8994A7),
                               fontWeight: FontWeight.w500,
                             ),
@@ -8295,36 +8387,42 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                         ),
                       ],
                     ),
-                    SizedBox(height: isCompact ? 4 : 8),
+                    SizedBox(height: isCompact ? 4 : 6),
                     // Bottom: Order total or action hint
                     if (!free && orderTotal > 0)
                       Container(
                         width: double.infinity,
                         padding: EdgeInsets.symmetric(
                           horizontal: isCompact ? 5 : 8,
-                          vertical: isCompact ? 2.5 : 4,
+                          vertical: isCompact ? 2.5 : 3.5,
                         ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFEECEE),
                           borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
                         ),
-                        child: Text(
-                          formatSum(orderTotal),
-                          style: TextStyle(
-                            fontSize: isCompact ? 10.5 : 12,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFFF04452),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            formatSum(orderTotal),
+                            style: TextStyle(
+                              fontSize: isCompact ? 10.5 : 12,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFFF04452),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       )
                     else
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Flexible(
-                            child: Text(
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
                               free ? (isCompact ? "Bo'sh" : "Buyurtma berish") : "Band",
                               style: TextStyle(
                                 fontSize: isCompact ? 10 : 11.5,
@@ -8334,13 +8432,14 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          Icon(
-                            Icons.arrow_forward_rounded,
-                            size: isCompact ? 10.5 : 13,
-                            color: free ? const Color(0xFF16B86A) : const Color(0xFF8994A7),
-                          ),
-                        ],
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.arrow_forward_rounded,
+                              size: isCompact ? 10.5 : 13,
+                              color: free ? const Color(0xFF16B86A) : const Color(0xFF8994A7),
+                            ),
+                          ],
+                        ),
                       ),
                   ],
                 ),
@@ -8375,6 +8474,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   int _pingMs = 0;
   bool _isOnline = true;
   Timer? _pingTimer;
+  int _lastHeartbeatMs = 0;
 
   @override
   void initState() {
@@ -8423,6 +8523,16 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     } catch (_) {
       sw.stop();
       if (mounted) setState(() { _pingMs = 24; _isOnline = true; });
+    }
+
+    // Cafe Heartbeat (Talab 5): har 15-30 soniyada (20s) serverga heartbeat yuborib cafes.last_seen yangilanadi
+    final cafeId = appState.currentCafeId;
+    if (cafeId.isNotEmpty && cafeId != 'local_default' && cafeId != 'zavero' && ApiClient().isAuthenticated) {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (nowMs - _lastHeartbeatMs >= 20000) {
+        _lastHeartbeatMs = nowMs;
+        ApiClient().post('/cafes/heartbeat', body: {'cafeId': cafeId}).catchError((_) => <String, dynamic>{});
+      }
     }
   }
 
@@ -9559,51 +9669,82 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                         children: [
 
                     // Section header
-
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                      child: Row(children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEEF4FF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF315EFB), size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
-                              'Stollar',
-                              style: TextStyle(
-                                fontSize: 19,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF142033),
-                                letterSpacing: -0.3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFEEF4FF),
+                                  borderRadius: BorderRadius.all(Radius.circular(10)),
+                                ),
+                                child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF315EFB), size: 20),
                               ),
-                            ),
-                            Text(
-                              'Xizmat ko\'rsatish uchun stolni tanlang',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF8994A7),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    'Stollar',
+                                    style: TextStyle(
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF142033),
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Xizmat ko\'rsatish uchun stolni tanlang',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF8994A7),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+                              // 1. TELEFON (< 600 px): Dropdown tugmasi aynan shunday qoladi
+                              if (screenWidth < 600 && appState.halls.isNotEmpty)
+                                _HallDropdown(
+                                  halls: appState.halls,
+                                  selectedHall: appState.selectedHall,
+                                  onSelect: (h) => setState(() => appState.selectedHall = h),
+                                ),
+                            ],
+                          ),
+
+                          // 2. PLANSHET va KOMPYUTER (>= 600 px): Sarlavha tagida yonma-yon zal tablari (pill)
+                          if (screenWidth >= 600 && appState.halls.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              child: Row(
+                                children: [
+                                  for (int i = 0; i < appState.halls.length; i++) ...[
+                                    if (i > 0) const SizedBox(width: 12),
+                                    _HallPillTab(
+                                      hall: appState.halls[i],
+                                      isSelected: (appState.selectedHall?.id ?? (appState.halls.isNotEmpty ? appState.halls.first.id : null)) == appState.halls[i].id,
+                                      onTap: () {
+                                        setState(() {
+                                          appState.selectedHall = appState.halls[i];
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ],
-                        ),
-                        const Spacer(),
-                        // Zal dropdown (inline popover, no modal bottom sheet)
-                        if (appState.halls.isNotEmpty)
-                          _HallDropdown(
-                            halls: appState.halls,
-                            selectedHall: appState.selectedHall,
-                            onSelect: (h) => setState(() => appState.selectedHall = h),
-                          ),
-                      ]),
+                        ],
+                      ),
                     ),
 
                     // Table cards grid
@@ -9641,37 +9782,40 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               final availableWidth = w - (isPhone ? 20.0 : 32.0);
                               if (availableWidth <= 0) return const SizedBox.shrink();
 
-                              // Telefon (kenglik < 600): 3 ta ustun (juda kichik ekran < 340 bo'lsa 2), childAspectRatio ~1.15-1.25
+                              // Telefon (kenglik < 600): 3 ta ustun (juda kichik ekran < 340 bo'lsa 2), mainAxisExtent 126-140px
                               // Planshet (600–1024): 4–5 ustun
                               // Kompyuter (>1024): 6+ ustun
                               final int cols;
-                              final double childAspectRatio;
                               final double spacing;
+                              final double mainAxisExtent;
                               if (w < 340) {
                                 cols = 2;
-                                childAspectRatio = 1.15;
                                 spacing = 8.0;
+                                mainAxisExtent = 126.0;
                               } else if (w < 600) {
                                 cols = 3;
-                                childAspectRatio = 1.18;
                                 spacing = 8.0;
+                                mainAxisExtent = 126.0;
                               } else if (w < 820) {
                                 cols = 4;
-                                childAspectRatio = 1.10;
                                 spacing = 12.0;
+                                mainAxisExtent = 134.0;
                               } else if (w < 1024) {
                                 cols = 5;
-                                childAspectRatio = 1.05;
                                 spacing = 12.0;
+                                mainAxisExtent = 136.0;
                               } else if (w < 1360) {
                                 cols = 6;
-                                childAspectRatio = 0.98;
                                 spacing = 14.0;
+                                mainAxisExtent = 138.0;
                               } else {
                                 cols = math.max(6, (availableWidth / 200.0).floor());
-                                childAspectRatio = 0.95;
                                 spacing = 14.0;
+                                mainAxisExtent = 140.0;
                               }
+
+                              final tileWidth = (availableWidth - (cols - 1) * spacing) / cols;
+                              final isCompactTile = isPhone || tileWidth < 145;
 
                               return GridView.builder(
                                 padding: EdgeInsets.fromLTRB(
@@ -9682,7 +9826,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                 ),
                                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: cols,
-                                  childAspectRatio: childAspectRatio,
+                                  mainAxisExtent: mainAxisExtent,
                                   crossAxisSpacing: spacing,
                                   mainAxisSpacing: spacing,
                                 ),
@@ -9697,7 +9841,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                     isFree: free,
                                     orderTotal: orderTotal,
                                     index: i,
-                                    isCompact: isPhone,
+                                    isCompact: isCompactTile,
                                     onTap: () {
                                       appState.selectTable(t);
                                       if (free) {
@@ -15700,7 +15844,7 @@ class _ReceiptHistoryScreenState extends State<ReceiptHistoryScreen> {
         '${r.date.day.toString().padLeft(2, '0')}.${r.date.month.toString().padLeft(2, '0')}.${r.date.year}';
     final staffName = r.cashierName.isNotEmpty ? r.cashierName : 'Xodim';
     final placeStr = r.tableNumber != null
-        ? 'Stol ${r.tableNumber}'
+        ? (r.hallName != null && r.hallName!.isNotEmpty ? '${r.hallName}, ${r.tableNumber}-stol' : 'Stol ${r.tableNumber}')
         : (r.hallName != null && r.hallName!.isNotEmpty ? r.hallName! : 'Olib ketish');
 
     final itemsSummary = r.items.isNotEmpty

@@ -735,7 +735,9 @@ class Receipt {
   double total;
   PaymentMethod method;
   String cashierName;
+  int? tableId;
   int? tableNumber;
+  int? hallId;
   String? hallName;
   double cashPaid;
   double cardPaid;
@@ -751,7 +753,9 @@ class Receipt {
     required this.total,
     required this.method,
     required this.cashierName,
+    this.tableId,
     this.tableNumber,
+    this.hallId,
     this.hallName,
     this.cashPaid = 0,
     this.cardPaid = 0,
@@ -768,7 +772,9 @@ class Receipt {
         'total': total,
         'method': method.name,
         'cashierName': cashierName,
+        'tableId': tableId,
         'tableNumber': tableNumber,
+        'hallId': hallId,
         'hallName': hallName,
         'cashPaid': cashPaid,
         'cardPaid': cardPaid,
@@ -790,7 +796,9 @@ class Receipt {
           orElse: () => PaymentMethod.cash,
         ),
         cashierName: j['cashierName'] as String? ?? '',
+        tableId: (j['tableId'] as num?)?.toInt(),
         tableNumber: (j['tableNumber'] as num?)?.toInt(),
+        hallId: (j['hallId'] as num?)?.toInt(),
         hallName: j['hallName'] as String?,
         cashPaid: (j['cashPaid'] as num?)?.toDouble() ?? 0,
         cardPaid: (j['cardPaid'] as num?)?.toDouble() ?? 0,

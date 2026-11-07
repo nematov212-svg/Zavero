@@ -147,7 +147,9 @@ CREATE TABLE IF NOT EXISTS table_orders (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE table_orders ADD COLUMN IF NOT EXISTS cafe_id VARCHAR(64);
+ALTER TABLE table_orders ADD COLUMN IF NOT EXISTS hall_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_table_orders_cafe ON table_orders(cafe_id);
+CREATE INDEX IF NOT EXISTS idx_table_orders_hall ON table_orders(cafe_id, hall_id);
 
 -- 8. CUSTOMERS
 CREATE TABLE IF NOT EXISTS customers (
@@ -181,10 +183,14 @@ ALTER TABLE receipts ADD COLUMN IF NOT EXISTS cafe_id VARCHAR(64);
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120);
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS order_id VARCHAR(64);
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS waiter_id VARCHAR(64);
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS table_id INTEGER;
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS hall_id INTEGER;
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS type VARCHAR(32) DEFAULT 'receipt';
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS print_status VARCHAR(32) DEFAULT 'unprinted';
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS printed_at TIMESTAMP WITH TIME ZONE;
 CREATE INDEX IF NOT EXISTS idx_receipts_cafe_date ON receipts(cafe_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_receipts_table ON receipts(cafe_id, table_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_hall ON receipts(cafe_id, hall_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_idempotency ON receipts(cafe_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 -- 10. CUSTOMER ORDERS
@@ -552,5 +558,24 @@ CREATE TABLE IF NOT EXISTS failed_logins (
     locked_until TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX IF NOT EXISTS idx_failed_logins_ident ON failed_logins(identifier, ip_address);
+
+-- 31. CAFE HEARTBEAT COLUMNS (Online / Offline tracking for Director bot)
+ALTER TABLE cafes ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP WITH TIME ZONE;
+ALTER TABLE cafes ADD COLUMN IF NOT EXISTS online_since TIMESTAMP WITH TIME ZONE;
+CREATE INDEX IF NOT EXISTS idx_cafes_last_seen ON cafes(last_seen);
+
+-- 32. TELEGRAM SESSIONS (Zero-copy single source of truth for Cafe & Director bot auth)
+CREATE TABLE IF NOT EXISTS telegram_sessions (
+    chat_id VARCHAR(64) PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(30) NOT NULL, -- 'director' | 'cafe'
+    cafe_id VARCHAR(64),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_tg_sessions_cafe ON telegram_sessions(cafe_id);
+CREATE INDEX IF NOT EXISTS idx_tg_sessions_user ON telegram_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_tg_sessions_role ON telegram_sessions(role);
+
 
 

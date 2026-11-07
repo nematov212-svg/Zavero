@@ -74,11 +74,11 @@ const saveOrder = async (req, res) => {
       );
 
       await client.query(
-        `INSERT INTO table_orders (table_id, cafe_id, items, note, started_by, updated_at)
-         VALUES ($1,$2,$3,$4,$5,CURRENT_TIMESTAMP)
-         ON CONFLICT (table_id) DO UPDATE SET items=$3, note=$4, started_by=$5, updated_at=CURRENT_TIMESTAMP
+        `INSERT INTO table_orders (table_id, cafe_id, hall_id, items, note, started_by, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP)
+         ON CONFLICT (table_id) DO UPDATE SET hall_id=$3, items=$4, note=$5, started_by=$6, updated_at=CURRENT_TIMESTAMP
          WHERE table_orders.cafe_id = $2`,
-        [tableId, cafeId, JSON.stringify(items), note || '', startedBy]
+        [tableId, cafeId, table.hall_id, JSON.stringify(items), note || '', startedBy]
       );
 
       await client.query(
@@ -93,6 +93,7 @@ const saveOrder = async (req, res) => {
     notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', {
       tableId,
       tableNumber: result.number,
+      hallId: result.hall_id,
       table: mapTable(result),
       items: mapCartItems(items),
       note: note || '',
@@ -100,6 +101,7 @@ const saveOrder = async (req, res) => {
     notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', {
       tableId,
       tableNumber: result.number,
+      hallId: result.hall_id,
       status: 'occupied',
     });
 
@@ -127,16 +129,18 @@ const release = async (req, res) => {
   const tableId = parseInt(req.params.id, 10);
   try {
     let releasedTableNumber = null;
+    let releasedHallId = null;
     await db.withTransaction(async (client) => {
       const up = await client.query(
         `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL,
-         updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING number`,
+         updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND cafe_id=$2 RETURNING number, hall_id`,
         [tableId, cafeId]
       );
       if (up.rows.length === 0) {
         throw Object.assign(new Error('Stol topilmadi'), { status: 404 });
       }
       releasedTableNumber = up.rows[0].number;
+      releasedHallId = up.rows[0].hall_id;
       await client.query('DELETE FROM table_orders WHERE table_id = $1 AND cafe_id = $2', [tableId, cafeId]);
       await client.query(
         'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',
@@ -144,9 +148,9 @@ const release = async (req, res) => {
       );
     });
 
-    notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: releasedTableNumber });
-    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: releasedTableNumber, status: 'free' });
-    notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: releasedTableNumber, items: [], note: '' });
+    notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId });
+    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId, status: 'free' });
+    notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId, items: [], note: '' });
     return res.json({ success: true });
   } catch (error) {
     console.error('release error:', error);
@@ -172,6 +176,7 @@ const updateStatus = async (req, res) => {
     notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', {
       tableId,
       tableNumber: row.number,
+      hallId: row.hall_id,
       status: row.status,
       table: mapped,
     });
@@ -275,23 +280,32 @@ const removeTable = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Stol ID noto\'g\'ri' });
     }
 
+    let deletedNum = null;
+    let deletedHallId = null;
     await db.withTransaction(async (client) => {
       if (req.user?.role === 'director' && !cafeId) {
+        const checkDir = await client.query('SELECT id, number, hall_id FROM restaurant_tables WHERE id = $1', [tableId]);
+        if (checkDir.rows.length > 0) {
+          deletedNum = checkDir.rows[0].number;
+          deletedHallId = checkDir.rows[0].hall_id;
+        }
         await client.query('DELETE FROM table_orders WHERE table_id = $1', [tableId]);
         await client.query('DELETE FROM restaurant_tables WHERE id = $1', [tableId]);
       } else {
-        const check = await client.query('SELECT id FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
+        const check = await client.query('SELECT id, number, hall_id FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
         if (check.rows.length === 0) {
           throw Object.assign(new Error('Stol topilmadi'), { status: 404 });
         }
+        deletedNum = check.rows[0].number;
+        deletedHallId = check.rows[0].hall_id;
         await client.query('DELETE FROM table_orders WHERE table_id = $1 AND cafe_id = $2', [tableId, cafeId]);
         await client.query('DELETE FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
       }
     });
 
     if (cafeId) {
-      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId });
-      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableDeleted: tableId, tableId });
+      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: deletedNum, hallId: deletedHallId });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableDeleted: tableId, tableId, tableNumber: deletedNum, hallId: deletedHallId });
 
       await db.query(
         'INSERT INTO activity_logs (cafe_id, action, details, performed_by) VALUES ($1,$2,$3,$4)',

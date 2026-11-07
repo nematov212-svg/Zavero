@@ -429,6 +429,12 @@ const changeCredentials = async (req, res) => {
     const updatedUser = updateRes.rows[0];
     const newToken = generateToken(updatedUser);
 
+    // Parol sinxroni: botdagi mavjud sessiyalarni yopish va ogohlantirish
+    try {
+      const { notifySessionsPasswordChanged } = require('../bot/telegramBot');
+      notifySessionsPasswordChanged(updatedUser.id).catch(() => {});
+    } catch (_) {}
+
     logActivity({
       cafeId: updatedUser.cafe_id || 'system',
       action: 'CREDENTIALS_CHANGED',
@@ -491,106 +497,76 @@ const telegramVerify = async (req, res) => {
 
     const userStr = params.get('user');
     const tgUser = userStr ? JSON.parse(userStr) : null;
+    const tgIdStr = tgUser?.id ? String(tgUser.id) : null;
 
-    let hasActiveSubscription = false;
-    let subscriptionInfo = null;
-
-    let userRow = null;
-    let cafeId = 'zavero';
-    let isAdmin = false;
-
-    if (tgUser && tgUser.id) {
-      try {
-        const subRes = await db.query(
-          `SELECT * FROM subscriptions 
-           WHERE telegram_id = $1 AND status = 'active' AND end_date > NOW() 
-           ORDER BY end_date DESC LIMIT 1`,
-          [tgUser.id]
-        );
-
-        if (subRes.rows.length > 0) {
-          const sub = subRes.rows[0];
-          const daysRemaining = Math.max(0, Math.ceil((new Date(sub.end_date) - new Date()) / (1000 * 60 * 60 * 24)));
-          hasActiveSubscription = true;
-          subscriptionInfo = {
-            id: sub.id,
-            plan_name: sub.plan_name,
-            start_date: sub.start_date,
-            end_date: sub.end_date,
-            daysRemaining,
-          };
-          if (sub.cafe_id) cafeId = sub.cafe_id;
-        }
-
-        // Check if user is an Administrator (Admin always has full access)
-        const username = (tgUser.username || '').toLowerCase().replace('@', '');
-        const tgIdStr = String(tgUser.id);
-        const adminUsernames = (process.env.ADMIN_USERNAMES || 'mirzobekn,nmirzobek').toLowerCase().split(',').map(s => s.trim());
-        const adminIds = (process.env.ADMIN_TELEGRAM_IDS || '').split(',').map(s => s.trim());
-
-        // Check DB admin IDs as well
-        let isDbAdmin = false;
-        try {
-          const dbAdminRes = await db.query("SELECT value FROM bot_settings WHERE key = 'admin_telegram_ids'");
-          if (dbAdminRes.rows.length > 0 && dbAdminRes.rows[0].value) {
-            isDbAdmin = dbAdminRes.rows[0].value.split(',').map(s => s.trim()).includes(tgIdStr);
-          }
-        } catch (e) { }
-
-        if (adminUsernames.includes(username) || adminIds.includes(tgIdStr) || isDbAdmin || tgIdStr === '8413914382' || tgIdStr === '8873925517' || tgIdStr === '8989763161') {
-          hasActiveSubscription = true;
-          isAdmin = true;
-          subscriptionInfo = subscriptionInfo || {
-            id: 0,
-            plan_name: 'Administrator (Cheksiz)',
-            daysRemaining: 9999,
-          };
-        }
-
-        // Link with internal user table
-        const uRes = await db.query(
-          'SELECT * FROM users WHERE telegram_id = $1 LIMIT 1',
-          [tgIdStr]
-        );
-        if (uRes.rows.length > 0) {
-          userRow = uRes.rows[0];
-          cafeId = userRow.cafe_id || cafeId;
-          if (userRow.role === 'admin' || userRow.role === 'director') isAdmin = true;
-        } else {
-          const tgUserRes = await db.query(
-            'SELECT cafe_id FROM telegram_users WHERE telegram_id = $1',
-            [tgUser.id]
-          );
-          if (tgUserRes.rows.length > 0 && tgUserRes.rows[0].cafe_id) {
-            cafeId = tgUserRes.rows[0].cafe_id;
-          }
-        }
-      } catch (dbErr) {
-        console.warn('⚠️ [telegramVerify] Subscriptions tekshirish xatosi:', dbErr.message);
-      }
+    if (!tgIdStr) {
+      return res.status(401).json({ success: false, message: 'Foydalanuvchi ma‘lumotlari topilmadi' });
     }
 
-    const sessionPayload = {
-      id: userRow?.id || tgUser?.id || 1,
-      username: userRow?.username || tgUser?.username || `tg_${tgUser?.id}`,
-      role: userRow?.role || (isAdmin ? 'admin' : 'waiter'),
-      cafeId: userRow?.cafe_id || cafeId,
-      telegramId: tgUser?.id,
+    // TALAB 3: Har bosishda sessiya bazadan tekshirilsin. Agar kimdir eski xabardan bossa: "Avval panelga kiring"
+    const sessionRes = await db.query(
+      `SELECT ts.*, u.username, u.name, u.role AS user_role, u.is_active, c.cafe_name, c.receipt_name, c.status AS cafe_status 
+       FROM telegram_sessions ts
+       JOIN users u ON ts.user_id = u.id
+       LEFT JOIN cafes c ON ts.cafe_id = c.cafe_id
+       WHERE ts.chat_id = $1`,
+      [tgIdStr]
+    );
+
+    if (sessionRes.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Avval panelga kiring',
+      });
+    }
+
+    const session = sessionRes.rows[0];
+    if (session.is_active === false || (session.role === 'cafe' && session.cafe_status === 'blocked')) {
+      await db.query('DELETE FROM telegram_sessions WHERE chat_id = $1', [tgIdStr]);
+      return res.status(403).json({
+        success: false,
+        message: 'Avval panelga kiring',
+      });
+    }
+
+    const isDirector = session.role === 'director';
+    const effectiveRole = isDirector ? 'director' : 'admin';
+    const effectiveCafeId = session.cafe_id || 'zavero';
+
+    const userRow = {
+      id: session.user_id,
+      username: session.username,
+      name: session.name || session.username,
+      role: effectiveRole,
+      cafe_id: effectiveCafeId,
+      cafe_name: session.receipt_name || session.cafe_name || 'Cafe',
+      is_active: true,
     };
+
+    const sessionPayload = {
+      id: userRow.id,
+      username: userRow.username,
+      role: userRow.role,
+      cafeId: effectiveCafeId,
+      telegramId: tgUser.id,
+    };
+
     const token = jwt.sign(sessionPayload, getJwtSecret(), { expiresIn: '7d' });
 
     return res.json({
       success: true,
       verified: true,
       token,
-      user: userRow ? toClientUser(userRow) : sessionPayload,
-      cafeId,
+      user: toClientUser(userRow),
+      cafeId: effectiveCafeId,
       telegramUser: tgUser,
-      hasActiveSubscription,
-      subscription: subscriptionInfo,
-      message: hasActiveSubscription
-        ? 'Telegram WebApp ma`lumotlari va faol obuna tasdiqlandi'
-        : 'Obuna faol emas yoki muddati tugagan. Iltimos, Telegram botimiz orqali to‘lovni amalga oshiring.',
+      hasActiveSubscription: true,
+      subscription: {
+        id: 0,
+        plan_name: isDirector ? 'Director (Cheksiz)' : 'Cafe Hisobot (Faol)',
+        daysRemaining: 9999,
+      },
+      message: 'Telegram WebApp muvaffaqiyatli tasdiqlandi',
     });
   } catch (error) {
     console.error('telegramVerify error:', error);

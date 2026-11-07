@@ -804,6 +804,12 @@ const deleteCafe = async (req, res) => {
 
     invalidateCafeCache(cafeId);
 
+    // Cafe o'chirish sinxroni: bot sessiyalarini tozalash va foydalanuvchilarga xabar berish
+    try {
+      const { notifySessionsCafeDeleted } = require('../bot/telegramBot');
+      notifySessionsCafeDeleted(cafeId, cafeName).catch(() => {});
+    } catch (_) {}
+
     const { notifyCafe } = require('../socket/socketHandler');
     notifyCafe(cafeId, 'CAFE_DELETED', { cafeId });
 

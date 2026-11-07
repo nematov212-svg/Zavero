@@ -107,17 +107,27 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    // Verify user membership in user_cafes
+    // Verify user membership in user_cafes or direct users table
     const memberCheck = await db.query(
       'SELECT role FROM user_cafes WHERE user_id = $1 AND cafe_id = $2',
       [decoded.id, decoded.cafeId]
     );
     if (memberCheck.rows.length === 0) {
-      // User is no longer part of this cafe
-      return res.status(403).json({
-        success: false,
-        message: 'Ushbu kafega kirish huquqingiz bekor qilingan.',
-      });
+      const userCheck = await db.query(
+        'SELECT role FROM users WHERE id = $1 AND cafe_id = $2 AND is_active = true',
+        [decoded.id, decoded.cafeId]
+      );
+      if (userCheck.rows.length > 0) {
+        await db.query(
+          'INSERT INTO user_cafes (user_id, cafe_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+          [decoded.id, decoded.cafeId, userCheck.rows[0].role]
+        ).catch(() => {});
+      } else {
+        return res.status(403).json({
+          success: false,
+          message: 'Ushbu kafega kirish huquqingiz bekor qilingan.',
+        });
+      }
     }
 
     // 3. Check Cafe Subscription & Block status

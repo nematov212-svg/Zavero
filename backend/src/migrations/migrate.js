@@ -12,6 +12,20 @@ const runMigrations = async () => {
   try {
     await db.query(sql);
     console.log('✅ [Migration] Database tables and indexes verified successfully.');
+
+    // Deduplicate restaurant_tables before applying unique index
+    await db.query(`
+      DELETE FROM restaurant_tables a
+      USING restaurant_tables b
+      WHERE a.id > b.id
+        AND a.cafe_id = b.cafe_id
+        AND a.hall_id = b.hall_id
+        AND a.number = b.number;
+    `);
+    await db.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_cafe_hall_number ON restaurant_tables(cafe_id, hall_id, number);
+    `);
+
     await seedDirectorAndDefaults();
   } catch (error) {
     console.error('❌ [Migration Error]', error.message);
@@ -51,12 +65,12 @@ const seedDirectorAndDefaults = async () => {
       );
       console.log('🌱 [Seed] Director account created: director@zavero.uz (Password: 123456)');
     } else {
-      // Keep password synced to 123456
+      // Ensure director role & active, but preserve user-changed password if already set
       await db.query(
-        `UPDATE users SET password_hash = $1, role = 'director', is_active = true WHERE id = $2`,
+        `UPDATE users SET password_hash = COALESCE(NULLIF(password_hash, ''), $1), role = 'director', is_active = true WHERE id = $2`,
         [passwordHash, existingDirector.rows[0].id]
       );
-      console.log('ℹ️  [Seed] Director account verified (Password: 123456).');
+      console.log('ℹ️  [Seed] Director account verified.');
     }
 
     // 3. Ensure cafe1 exists and has admin and staff with numeric passwords
@@ -82,10 +96,10 @@ const seedDirectorAndDefaults = async () => {
       console.log('🌱 [Seed] cafe1 admin created: cafe1 (Password: 123456)');
     } else {
       await db.query(
-        `UPDATE users SET password_hash = $1, is_active = true, email = COALESCE(NULLIF(email, ''), 'cafe1@cafe.uz') WHERE id = $2`,
+        `UPDATE users SET password_hash = COALESCE(NULLIF(password_hash, ''), $1), is_active = true, email = COALESCE(NULLIF(email, ''), 'cafe1@cafe.uz') WHERE id = $2`,
         [passwordHash, existingCafe1Admin.rows[0].id]
       );
-      console.log('ℹ️  [Seed] cafe1 admin verified (Password: 123456).');
+      console.log('ℹ️  [Seed] cafe1 admin verified.');
     }
 
     // Sync standard staff accounts for cafe1 (kassir, offitsant, oshpaz, kuryer)
@@ -115,6 +129,34 @@ const seedDirectorAndDefaults = async () => {
       }
     }
     console.log('ℹ️  [Seed] cafe1 default staff verified (Passwords: 123456).');
+
+    // 4. Ensure tovuq_cafe exists with admin account
+    await db.query(
+      `INSERT INTO cafes (cafe_id, cafe_name, receipt_name, owner_name, owner_email, status, start_date, end_date)
+       VALUES ('tovuq_cafe', 'Tovuq Cafe', 'Tovuq Cafe', 'Tovuq Admin', 'tovuq@cafe.uz', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '100 years')
+       ON CONFLICT (cafe_id) DO UPDATE SET 
+         status = 'active',
+         end_date = CURRENT_TIMESTAMP + INTERVAL '100 years',
+         receipt_name = COALESCE(cafes.receipt_name, 'Tovuq Cafe')`
+    );
+
+    const existingTovuqAdmin = await db.query(
+      "SELECT id FROM users WHERE (cafe_id = 'tovuq_cafe' AND role = 'admin') OR username = 'tovuq@cafe.uz' OR email = 'tovuq@cafe.uz'"
+    );
+    if (existingTovuqAdmin.rows.length === 0) {
+      await db.query(
+        `INSERT INTO users (cafe_id, username, password_hash, name, email, role, is_active, must_change_password)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        ['tovuq_cafe', 'tovuq@cafe.uz', passwordHash, 'Tovuq Admin', 'tovuq@cafe.uz', 'admin', true, false]
+      );
+      console.log('🌱 [Seed] tovuq_cafe admin created: tovuq@cafe.uz (Password: 123456)');
+    } else {
+      await db.query(
+        `UPDATE users SET password_hash = COALESCE(NULLIF(password_hash, ''), $1), is_active = true WHERE id = $2`,
+        [passwordHash, existingTovuqAdmin.rows[0].id]
+      );
+    }
+    await seedNewCafe('tovuq_cafe', 'Tovuq Cafe').catch(() => {});
   } catch (error) {
     console.warn('⚠️  [Seed Warning]', error.message);
   }

@@ -457,6 +457,33 @@ const rotatePrintAgentToken = async (req, res) => {
   }
 };
 
+// POST /api/cafes/heartbeat — Cafe online heartbeat (har 15-30 soniyada)
+const heartbeat = async (req, res) => {
+  try {
+    const cafeId = req.user?.cafeId || req.body?.cafeId || req.query?.cafeId;
+    if (!cafeId || cafeId === 'local_default' || cafeId === 'zavero') {
+      return res.status(400).json({ success: false, message: 'Yaroqli cafeId talab qilinadi' });
+    }
+
+    await db.query(
+      `UPDATE cafes 
+       SET online_since = CASE 
+             WHEN last_seen IS NULL OR last_seen < CURRENT_TIMESTAMP - INTERVAL '60 seconds' 
+             THEN CURRENT_TIMESTAMP 
+             ELSE COALESCE(online_since, CURRENT_TIMESTAMP) 
+           END,
+           last_seen = CURRENT_TIMESTAMP
+       WHERE cafe_id = $1`,
+      [cafeId]
+    );
+
+    return res.json({ success: true, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('heartbeat error:', err.message);
+    return res.status(500).json({ success: false, message: 'Server xatosi' });
+  }
+};
+
 module.exports = {
   getFullCafeData,
   restoreMenu,
@@ -473,6 +500,7 @@ module.exports = {
   getBackupData,
   getPrintAgentToken,
   rotatePrintAgentToken,
+  heartbeat,
 };
 
 

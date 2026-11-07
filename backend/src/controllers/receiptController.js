@@ -23,6 +23,50 @@ const checkout = async (req, res) => {
     return res.status(400).json({ success: false, message: 'receipt va items kiritilishi shart.' });
   }
 
+  // Pre-resolve table and hall identifiers strictly scoped to cafe
+  const inputTableId = tableId || receipt.tableId || req.body.tableId || null;
+  const inputTableNum = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
+  const inputHallId = receipt.hallId || req.body.hallId || null;
+  const inputHallName = receipt.hallName ? receipt.hallName.trim() : null;
+
+  let effectiveTableId = inputTableId ? parseInt(inputTableId, 10) : null;
+  let effectiveTableNumber = inputTableNum;
+  let effectiveHallId = inputHallId ? parseInt(inputHallId, 10) : null;
+
+  if (effectiveTableId) {
+    try {
+      const tCheck = await db.query(
+        'SELECT id, number, hall_id FROM restaurant_tables WHERE id = $1 AND cafe_id = $2 LIMIT 1',
+        [effectiveTableId, cafeId]
+      );
+      if (tCheck.rows.length > 0) {
+        effectiveTableNumber = tCheck.rows[0].number;
+        effectiveHallId = tCheck.rows[0].hall_id;
+      }
+    } catch (_) {}
+  } else if (effectiveTableNumber && (effectiveHallId || inputHallName)) {
+    try {
+      let tCheck;
+      if (effectiveHallId) {
+        tCheck = await db.query(
+          'SELECT id, number, hall_id FROM restaurant_tables WHERE cafe_id = $1 AND hall_id = $2 AND number = $3 LIMIT 1',
+          [cafeId, effectiveHallId, effectiveTableNumber]
+        );
+      } else {
+        tCheck = await db.query(
+          `SELECT t.id, t.number, t.hall_id FROM restaurant_tables t
+           JOIN halls h ON h.id = t.hall_id AND h.cafe_id = t.cafe_id
+           WHERE t.cafe_id = $1 AND LOWER(TRIM(h.name)) = LOWER(TRIM($2)) AND t.number = $3 LIMIT 1`,
+          [cafeId, inputHallName, effectiveTableNumber]
+        );
+      }
+      if (tCheck && tCheck.rows.length > 0) {
+        effectiveTableId = tCheck.rows[0].id;
+        effectiveHallId = tCheck.rows[0].hall_id;
+      }
+    } catch (_) {}
+  }
+
   // IDEMPOTENCY: Takroriy so'rov bo'lsa darhol mavjud chekni qaytaramiz (dublikat to'lovning oldi olinadi)
   const effectiveIdempotencyKey = idempotencyKey || (receipt.id ? `rcpt_${receipt.id}` : null);
   if (effectiveIdempotencyKey) {
@@ -32,18 +76,15 @@ const checkout = async (req, res) => {
         [cafeId, effectiveIdempotencyKey]
       );
       if (existing.rows.length > 0) {
-        // Stolni baribir bo'shatish kerak
-        if (tableId) {
-          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE id=$1 AND cafe_id=$2`, [tableId, cafeId]).catch(() => {});
-          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [tableId, cafeId]).catch(() => {});
+        if (effectiveTableId) {
+          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL WHERE id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
+          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
         }
-        if (receipt.tableNumber) {
-          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE number=$1 AND cafe_id=$2`, [receipt.tableNumber, cafeId]).catch(() => {});
-          await db.query(`DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number=$1 AND cafe_id=$2) AND cafe_id=$2`, [receipt.tableNumber, cafeId]).catch(() => {});
+        if (effectiveTableId || effectiveTableNumber) {
+          notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId });
+          notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, status: 'free' });
+          notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, items: [], note: '' });
         }
-        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: receipt.tableNumber });
-        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: receipt.tableNumber, status: 'free' });
-        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: receipt.tableNumber, items: [], note: '' });
         return res.json({
           success: true,
           message: 'To‘lov allaqachon qayd etilgan (idempotent)',
@@ -54,33 +95,28 @@ const checkout = async (req, res) => {
     } catch (_) {}
   }
 
-  // RECENT CHECK DEDUPLICATION: 30 soniya ichida aynan shu stol va summaga chek urilgan bo'lsa qaytaramiz
+  // RECENT CHECK DEDUPLICATION: 30 soniya ichida aynan shu stol, zal va summaga chek urilgan bo'lsa qaytaramiz
   try {
-    let tblNum = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
-    if (!tblNum && tableId) {
-      const tblRes = await db.query('SELECT number FROM restaurant_tables WHERE id = $1 AND cafe_id = $2', [tableId, cafeId]);
-      if (tblRes.rows.length > 0) tblNum = parseInt(tblRes.rows[0].number, 10);
-    }
     const rTotal = parseFloat(receipt.total) || 0;
-    if (tblNum && rTotal > 0) {
+    if (effectiveTableNumber && rTotal > 0) {
       const recent = await db.query(
         `SELECT * FROM receipts 
-         WHERE cafe_id = $1 AND table_number = $2 AND ABS(total - $3) < 0.01 
+         WHERE cafe_id = $1 AND table_number = $2 
+           AND ($3::INTEGER IS NULL OR hall_id = $3::INTEGER OR ($4::TEXT IS NOT NULL AND LOWER(TRIM(hall_name)) = LOWER(TRIM($4::TEXT))))
+           AND ABS(total - $5) < 0.01 
            AND (created_at >= NOW() - INTERVAL '30 seconds' OR date >= NOW() - INTERVAL '30 seconds')
          ORDER BY id DESC LIMIT 1`,
-        [cafeId, tblNum, rTotal]
+        [cafeId, effectiveTableNumber, effectiveHallId, inputHallName, rTotal]
       );
       if (recent.rows.length > 0) {
-        console.log(`⚠️ [Checkout] Takroriy bosish aniqlandi (Stol #${tblNum}, Summa: ${rTotal}). Dublikat rad etildi.`);
-        if (tableId) {
-          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE id=$1 AND cafe_id=$2`, [tableId, cafeId]).catch(() => {});
-          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [tableId, cafeId]).catch(() => {});
+        console.log(`⚠️ [Checkout] Takroriy bosish aniqlandi (Stol #${effectiveTableNumber}, Hall: ${effectiveHallId || inputHallName}, Summa: ${rTotal}). Dublikat rad etildi.`);
+        if (effectiveTableId) {
+          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL WHERE id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
+          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
         }
-        await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0 WHERE number=$1 AND cafe_id=$2`, [tblNum, cafeId]).catch(() => {});
-        await db.query(`DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number=$1 AND cafe_id=$2) AND cafe_id=$2`, [tblNum, cafeId]).catch(() => {});
-        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: tblNum });
-        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: tblNum, status: 'free' });
-        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: tblNum, items: [], note: '' });
+        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId });
+        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, status: 'free' });
+        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, items: [], note: '' });
         return res.json({
           success: true,
           message: 'To‘lov allaqachon qayd etilgan (takroriy bosish oldi olindi)',
@@ -92,7 +128,7 @@ const checkout = async (req, res) => {
   } catch (_) {}
 
   try {
-    const { receiptRow, reportRow, effectiveTableId, effectiveTableNumber } = await db.withTransaction(async (client) => {
+    const { receiptRow, reportRow } = await db.withTransaction(async (client) => {
 
       const date = receipt.date ? new Date(receipt.date) : new Date();
       const dateId = dateIdFrom(date);
@@ -105,14 +141,15 @@ const checkout = async (req, res) => {
 
       const receiptResult = await client.query(
         `INSERT INTO receipts (
-           cafe_id, date, items, total, method, cashier_name, table_number,
-           hall_name, cash_paid, card_paid, idempotency_key, print_status, printed_at,
+           cafe_id, date, items, total, method, cashier_name, table_id, table_number,
+           hall_id, hall_name, cash_paid, card_paid, idempotency_key, print_status, printed_at,
            waiter_id, device_type
          )
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
         [
           cafeId, date, JSON.stringify(items), receipt.total || 0, receipt.method || 'cash',
-          receipt.cashierName || '', receipt.tableNumber ?? null, receipt.hallName ?? null,
+          receipt.cashierName || '', effectiveTableId || null, effectiveTableNumber || null,
+          effectiveHallId || null, receipt.hallName ?? null,
           receipt.cashPaid || 0, receipt.cardPaid || 0, effectiveIdempotencyKey || null,
           printStatus, isPrinted ? date : null,
           waiterId, deviceType,
@@ -152,7 +189,7 @@ const checkout = async (req, res) => {
         rev[name] = (rev[name] || 0) + item.product.price * item.qty;
       }
       if (receipt.tableNumber) {
-        const key = `Stol ${receipt.tableNumber}`;
+        const key = receipt.hallName ? `${receipt.hallName} - ${receipt.tableNumber}-stol` : `Stol ${receipt.tableNumber}`;
         tableRev[key] = (tableRev[key] || 0) + (receipt.total || 0);
       }
       let topQty = 0;
@@ -169,30 +206,7 @@ const checkout = async (req, res) => {
         [cafeId, dateId, totalRev, orderCount, JSON.stringify(qty), JSON.stringify(rev), topProduct, JSON.stringify(tableRev)]
       );
 
-      let effectiveTableId = null;
-      let effectiveTableNumber = receipt.tableNumber ? parseInt(receipt.tableNumber, 10) : null;
-
-      if (tableId) {
-        const idCheck = await client.query(
-          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND id = $2 FOR UPDATE LIMIT 1',
-          [cafeId, parseInt(tableId, 10)]
-        );
-        if (idCheck.rows.length > 0) {
-          effectiveTableId = idCheck.rows[0].id;
-          if (!effectiveTableNumber) effectiveTableNumber = idCheck.rows[0].number;
-        }
-      }
-
-      if (!effectiveTableId && effectiveTableNumber) {
-        const numCheck = await client.query(
-          'SELECT id, number FROM restaurant_tables WHERE cafe_id = $1 AND number = $2 FOR UPDATE LIMIT 1',
-          [cafeId, effectiveTableNumber]
-        );
-        if (numCheck.rows.length > 0) {
-          effectiveTableId = numCheck.rows[0].id;
-        }
-      }
-
+      // Faqatgina aynan shu zal va shu stolning o'zinigina bo'shatamiz
       if (effectiveTableId) {
         await client.query(
           `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL, updated_at=CURRENT_TIMESTAMP
@@ -200,31 +214,6 @@ const checkout = async (req, res) => {
           [effectiveTableId, cafeId]
         );
         await client.query('DELETE FROM table_orders WHERE table_id = $1 AND cafe_id = $2', [effectiveTableId, cafeId]);
-      }
-      if (tableId && parseInt(tableId, 10) !== effectiveTableId) {
-        await client.query(
-          `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL, updated_at=CURRENT_TIMESTAMP
-           WHERE id=$1 AND cafe_id=$2`,
-          [parseInt(tableId, 10), cafeId]
-        ).catch(() => {});
-        await client.query('DELETE FROM table_orders WHERE table_id = $1 AND cafe_id = $2', [parseInt(tableId, 10), cafeId]).catch(() => {});
-      }
-      if (effectiveTableNumber) {
-        let hallFilter = '';
-        const params = [effectiveTableNumber, cafeId];
-        if (receipt.hallName) {
-          params.push(receipt.hallName.trim());
-          hallFilter = ` AND hall_id IN (SELECT id FROM halls WHERE cafe_id = $2 AND LOWER(TRIM(name)) = LOWER(TRIM($3)))`;
-        }
-        await client.query(
-          `UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL, updated_at=CURRENT_TIMESTAMP
-           WHERE number=$1 AND cafe_id=$2${hallFilter}`,
-          params
-        );
-        await client.query(
-          `DELETE FROM table_orders WHERE table_id IN (SELECT id FROM restaurant_tables WHERE number = $1 AND cafe_id = $2${hallFilter})`,
-          params
-        );
       }
 
       await client.query(
@@ -236,7 +225,7 @@ const checkout = async (req, res) => {
         ]
       );
 
-      return { receiptRow, reportRow: reportResult.rows[0], effectiveTableId: effectiveTableId || tableId, effectiveTableNumber };
+      return { receiptRow, reportRow: reportResult.rows[0] };
     });
 
     let todayReport = null;
@@ -249,21 +238,18 @@ const checkout = async (req, res) => {
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapReceipt(receiptRow), todayReport });
     notifyCafe(cafeId, 'REPORT_UPDATED', { report: mapReport(reportRow), todayReport });
 
-    // 6-TALAB: Telegram bot orqali chek yuborish (agar sozlamada yoqilgan bo'lsa)
+    // 4-TALAB: Chek xabarlari — Faqat shu cafe_id ga ulangan Telegram sessiyalariga yuboriladi
     try {
-      db.query('SELECT data FROM settings WHERE cafe_id = $1', [cafeId]).then((sRes) => {
-        const cSettings = sRes.rows[0]?.data || {};
-        const chatInput = cSettings.telegramReceiptsChatId || cSettings.telegramReceiptChatId;
-        if (cSettings.telegramReceiptsEnabled && chatInput) {
-          sendReceiptNotificationToTelegram(chatInput, receiptRow, items, cSettings, cafeId);
-        }
-      }).catch(() => {});
+      const { notifyCafeSessionsReceipt } = require('../bot/telegramBot');
+      notifyCafeSessionsReceipt(cafeId, receiptRow, items).catch((err) => {
+        console.warn('⚠️ [Telegram Receipt] notifyCafeSessionsReceipt xatosi:', err.message);
+      });
     } catch (_) {}
-    const relId = effectiveTableId || tableId;
-    if (relId || effectiveTableNumber) {
-      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: relId, tableNumber: effectiveTableNumber });
-      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: relId, tableNumber: effectiveTableNumber, status: 'free' });
-      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: relId, tableNumber: effectiveTableNumber, items: [], note: '' });
+
+    if (effectiveTableId || effectiveTableNumber) {
+      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, status: 'free' });
+      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, items: [], note: '' });
     }
 
     return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow), todayReport });
@@ -339,7 +325,7 @@ const viewReceiptHtml = async (req, res) => {
 
     const totalStr = Number(r.total || 0).toLocaleString('uz-UZ').replace(/,/g, ' ');
     const cashierName = r.cashier_name || 'Admin';
-    const tableInfo = r.table_number ? `${r.table_number}-stol` : (r.table_name || '');
+    const tableInfo = r.table_number ? (r.hall_name ? `${r.hall_name}, ${r.table_number}-stol` : `${r.table_number}-stol`) : (r.table_name || '');
 
     const html = `<!DOCTYPE html>
 <html>
@@ -611,6 +597,14 @@ const createReceipt = async (req, res) => {
 
     const mapped = mapReceipt(savedReceipt);
     notifyCafe(cafeId, 'RECEIPT_ADDED', { receipt: mapped });
+
+    // Chek xabarlarini cafe sessiyalariga yuborish (agar sotuv cheki bo'lsa)
+    if (!savedReceipt.type || savedReceipt.type === 'sale') {
+      try {
+        const { notifyCafeSessionsReceipt } = require('../bot/telegramBot');
+        notifyCafeSessionsReceipt(cafeId, savedReceipt, items).catch(() => {});
+      } catch (_) {}
+    }
 
     return res.status(201).json({
       success: true,
