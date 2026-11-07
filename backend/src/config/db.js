@@ -46,6 +46,9 @@ const initDb = async () => {
   try {
     const client = await pool.connect();
     console.log('✅ [PostgreSQL] Connected successfully to database');
+    try {
+      await client.query('ALTER TABLE telegram_sessions ADD COLUMN IF NOT EXISTS phone VARCHAR(40);');
+    } catch (_) {}
     client.release();
     return true;
   } catch (err) {

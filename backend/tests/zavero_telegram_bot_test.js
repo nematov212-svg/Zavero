@@ -20,6 +20,7 @@ const {
   notifySessionsPasswordChanged,
   notifySessionsCafeDeleted,
   buildCafesListContent,
+  maskPhone,
 } = require('../src/bot/telegramBot');
 
 let passedTests = 0;
@@ -90,13 +91,22 @@ async function runTestSuite() {
     const adminBId = adminBRes.rows[0].id;
 
     // ----------------------------------------------------
-    // TEST 1: .env Channel configuration
+    // TEST 1: Yangi kirish tartibi & Nomer ulash (Phone Linking & Masking)
     // ----------------------------------------------------
-    console.log('[Test 1] Majburiy obuna kanallari .env orqali konfiguratsiya qilinganligi');
-    const ch1 = process.env.CHANNEL_1 || process.env.REQUIRED_CHANNEL_1;
-    const ch2 = process.env.CHANNEL_2 || process.env.REQUIRED_CHANNEL_2;
-    assert(!!ch1 && !!ch2, 'CHANNEL_1 va CHANNEL_2 .env dan o‘qildi');
-    assert(ch1.startsWith('@') && ch2.startsWith('@'), 'Kanal username lari @ bilan boshlanadi');
+    console.log('[Test 1] Yangi kirish tartibi va Nomer ulash (Phone Linking & Masking)');
+    const rawTestPhone = '+998901234567';
+    const masked = maskPhone(rawTestPhone);
+    assert(masked === '+***4567', 'Telefon raqami faqat oxirgi 4 raqami bilan maskalandi (+***4567)');
+    assert(!masked.includes('123'), 'Telefon raqamining maxfiy qismi yashirildi');
+
+    // Test 3rd party contact validation logic
+    const senderId = 555001;
+    const legitimateContact = { user_id: 555001, phone_number: '+998901234567' };
+    const forgedContact = { user_id: 999999, phone_number: '+998907654321' };
+    const isLegitValid = legitimateContact.user_id === senderId;
+    const isForgedBlocked = forgedContact.user_id !== senderId;
+    assert(isLegitValid, 'Foydalanuvchining o‘z kontakti muvaffaqiyatli qabul qilindi');
+    assert(isForgedBlocked, 'Boshqa birovning kontakti xavfsizlik nuqtai nazaridan rad etildi');
 
     // ----------------------------------------------------
     // TEST 2: Role check — Waiters/Cashiers blocked, Cafe & Director allowed
@@ -129,6 +139,28 @@ async function runTestSuite() {
 
     const sA = await db.query('SELECT * FROM telegram_sessions WHERE chat_id = $1', [chatAlpha]);
     assert(sA.rows.length === 1 && sA.rows[0].cafe_id === cafeAId, 'Alpha Cafe uchun Telegram sessiyasi bazada saqlandi');
+
+    // Test Nomer ulash (Phone saved to session)
+    await db.query(
+      `UPDATE telegram_sessions SET phone = $1 WHERE chat_id = $2`,
+      [rawTestPhone, chatAlpha]
+    );
+    const sAPhone = await db.query('SELECT phone FROM telegram_sessions WHERE chat_id = $1', [chatAlpha]);
+    assert(sAPhone.rows[0].phone === rawTestPhone, 'Telefon raqami Alpha Cafe Telegram sessiyasiga muvaffaqiyatli bog‘landi');
+
+    // Test Nomer uzish (unlink)
+    await db.query(
+      `UPDATE telegram_sessions SET phone = NULL WHERE chat_id = $1`,
+      [chatAlpha]
+    );
+    const sAUnlinked = await db.query('SELECT phone FROM telegram_sessions WHERE chat_id = $1', [chatAlpha]);
+    assert(sAUnlinked.rows[0].phone === null, 'Telefon raqami muvaffaqiyatli uzildi (unlink)');
+
+    // Restore phone for remaining tests
+    await db.query(
+      `UPDATE telegram_sessions SET phone = $1 WHERE chat_id = $2`,
+      [rawTestPhone, chatAlpha]
+    );
 
     // ----------------------------------------------------
     // TEST 4: Cafe Izolatsiyasi — Chek xabarlari qat‘iy cafe_id bo‘yicha

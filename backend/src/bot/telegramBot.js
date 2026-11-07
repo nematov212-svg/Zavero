@@ -76,10 +76,14 @@ const formatDuration = (diffMs) => {
   return `${minutes} daq ${pad(seconds)} s`;
 };
 
-const getRequiredChannels = () => {
-  const ch1 = (process.env.CHANNEL_1 || process.env.REQUIRED_CHANNEL_1 || '@zavero_uz').trim();
-  const ch2 = (process.env.CHANNEL_2 || process.env.REQUIRED_CHANNEL_2 || '@mirzobekdev').trim();
-  return { ch1, ch2 };
+/**
+ * Mask phone number for security in logs and UI: "+998901234567" -> "+***4567"
+ */
+const maskPhone = (phone) => {
+  if (!phone) return 'mavjud emas';
+  const str = String(phone).trim();
+  if (str.length <= 4) return '****';
+  return `+***${str.slice(-4)}`;
 };
 
 const getBaseWebAppUrl = () => {
@@ -152,6 +156,45 @@ const deleteSession = async (chatId) => {
   }
 };
 
+const updateSessionPhone = async (chatId, phone) => {
+  try {
+    await db.query(
+      `UPDATE telegram_sessions SET phone = $1, updated_at = CURRENT_TIMESTAMP WHERE chat_id = $2`,
+      [phone, String(chatId)]
+    );
+  } catch (err) {
+    console.error('updateSessionPhone error:', err.message);
+  }
+};
+
+const deleteSessionPhone = async (chatId) => {
+  try {
+    await db.query(
+      `UPDATE telegram_sessions SET phone = NULL, updated_at = CURRENT_TIMESTAMP WHERE chat_id = $1`,
+      [String(chatId)]
+    );
+  } catch (err) {
+    console.error('deleteSessionPhone error:', err.message);
+  }
+};
+
+const saveTelegramUserPhone = async (telegramId, phone, cafeId, username) => {
+  try {
+    await db.query(
+      `INSERT INTO telegram_users (telegram_id, phone, cafe_id, username, updated_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+       ON CONFLICT (telegram_id) DO UPDATE SET
+         phone = EXCLUDED.phone,
+         cafe_id = EXCLUDED.cafe_id,
+         username = COALESCE(EXCLUDED.username, telegram_users.username),
+         updated_at = CURRENT_TIMESTAMP`,
+      [telegramId, phone, cafeId, username || null]
+    );
+  } catch (_) {
+    // telegram_users is optional, ignore if absent
+  }
+};
+
 // ============================================================
 // BRUTE-FORCE LOCKOUT PROTECTION
 // ============================================================
@@ -193,93 +236,19 @@ const resetLockout = (chatId) => {
 };
 
 // ============================================================
-// MANDATORY SUBSCRIPTION VERIFICATION (getChatMember)
-// ============================================================
-
-const checkUserSubscriptions = async (userId) => {
-  if (!bot || !bot.telegram) return { sub1: true, sub2: true, allSubscribed: true, err1: null, err2: null };
-  const { ch1, ch2 } = getRequiredChannels();
-
-  const isMember = (m) => {
-    if (!m || !m.status) return false;
-    if (['creator', 'administrator', 'member'].includes(m.status)) return true;
-    if (m.status === 'restricted') return m.is_member === true;
-    return false;
-  };
-
-  let sub1 = false;
-  let sub2 = false;
-  let err1 = null;
-  let err2 = null;
-
-  try {
-    const m1 = await bot.telegram.getChatMember(ch1, userId);
-    sub1 = isMember(m1);
-  } catch (e) {
-    err1 = e.message || 'Telegram API xatosi';
-    console.error(`❌ [Telegram Bot Subscription Error] getChatMember for ${ch1} (${userId}):`, err1);
-  }
-
-  try {
-    const m2 = await bot.telegram.getChatMember(ch2, userId);
-    sub2 = isMember(m2);
-  } catch (e) {
-    err2 = e.message || 'Telegram API xatosi';
-    console.error(`❌ [Telegram Bot Subscription Error] getChatMember for ${ch2} (${userId}):`, err2);
-  }
-
-  return { sub1, sub2, allSubscribed: sub1 && sub2, ch1, ch2, err1, err2 };
-};
-
-const verifyBotChannelAdminStatus = async () => {
-  try {
-    if (!bot || !bot.telegram) return;
-    const me = await bot.telegram.getMe();
-    const { ch1, ch2 } = getRequiredChannels();
-    for (const ch of [ch1, ch2]) {
-      try {
-        const member = await bot.telegram.getChatMember(ch, me.id);
-        if (!['creator', 'administrator'].includes(member.status)) {
-          console.error(`⚠️ [Telegram Bot] DIQQAT: Bot "${ch}" kanalida administrator emas (status: ${member.status})! Obunani tekshirish to'g'ri ishlashi uchun bot kanalda ADMIN bo'lishi shart!`);
-        } else {
-          console.log(`✅ [Telegram Bot] Bot "${ch}" kanalida administrator sifatida tasdiqlandi.`);
-        }
-      } catch (chErr) {
-        console.error(`❌ [Telegram Bot] "${ch}" kanalini tekshirishda xatolik (${chErr.message}). Bot kanalga admin qilib qo'shilganini va kanal username to'g'riligini tekshiring.`);
-      }
-    }
-  } catch (err) {
-    console.warn('⚠️ [Telegram Bot] verifyBotChannelAdminStatus xatosi:', err.message);
-  }
-};
-
-const getSubscriptionKeyboard = (ch1, ch2) => {
-  const url1 = `https://t.me/${ch1.replace('@', '')}`;
-  const url2 = `https://t.me/${ch2.replace('@', '')}`;
-  return Markup.inlineKeyboard([
-    [Markup.button.url('1-kanal', url1), Markup.button.url('2-kanal', url2)],
-    [Markup.button.callback('✅ Tekshirish', 'check_subscription')],
-  ]);
-};
-
-// ============================================================
 // ROLE-BASED KEYBOARDS
 // ============================================================
 
 const getCafeKeyboard = (cafeId) => {
-  const url = getWebAppUrl('cafe', cafeId);
   return Markup.keyboard([
     ['📊 Bugungi hisobot', '🧾 Cheklar'],
-    [Markup.button.webApp('📱 Ilovani ochish', url)],
-    ['🚪 Chiqish'],
+    ['📱 Nomerim', '🚪 Chiqish'],
   ]).resize();
 };
 
 const getDirectorKeyboard = () => {
-  const url = getWebAppUrl('director');
   return Markup.keyboard([
-    ['🏢 Cafelar'],
-    [Markup.button.webApp('📱 Ilovani ochish', url)],
+    ['🏢 Cafelar', '📱 Nomerim'],
     ['🚪 Chiqish'],
   ]).resize();
 };
@@ -498,8 +467,10 @@ const initTelegramBot = async () => {
       console.warn('⚠️ [Telegram Bot] Default setChatMenuButton ogohlantirish:', btnErr.message);
     }
 
-    // Verify bot is admin in required channels
-    verifyBotChannelAdminStatus();
+    // 0. Ensure telegram_sessions table has phone column
+    try {
+      await db.query('ALTER TABLE telegram_sessions ADD COLUMN IF NOT EXISTS phone VARCHAR(40);');
+    } catch (_) {}
 
     // 1. Set Bot About & Short Description
     try {
@@ -521,13 +492,10 @@ const initTelegramBot = async () => {
       return next();
     });
 
-    // 3. /start komandasi
+    // 3. /start komandasi (To'g'ridan-to'g'ri login so'rash, kanallarsiz)
     bot.command('start', async (ctx) => {
       const chatId = String(ctx.chat.id);
       clearLiveRefresh(chatId);
-
-      // Reset transient conversation state
-      userStates.set(chatId, { state: 'IDLE', failedAttempts: 0, lockedUntil: null });
 
       // Check existing session in DB first
       const session = await getSession(chatId);
@@ -541,6 +509,20 @@ const initTelegramBot = async () => {
             web_app: { url: getWebAppUrl(session.role, session.cafe_id) },
           },
         }).catch(() => {});
+
+        if (!session.phone) {
+          userStates.set(chatId, { state: 'AWAITING_CONTACT', user: session });
+          const contactKeyboard = Markup.keyboard([
+            [Markup.button.contactRequest('📱 Nomer ulash')],
+          ]).resize().oneTime();
+          return ctx.reply(
+            `👋 Xush kelibsiz, <b>${ctx.from.first_name || 'foydalanuvchi'}</b>!\n\n` +
+            `Cheklar va hisobotlarni avtomatik qabul qilish uchun pastdagi <b>«📱 Nomer ulash»</b> tugmasini bosing:`,
+            { parse_mode: 'HTML', ...contactKeyboard }
+          );
+        }
+
+        userStates.set(chatId, { state: 'AUTHENTICATED' });
 
         if (session.role === 'director') {
           return ctx.reply(
@@ -561,118 +543,78 @@ const initTelegramBot = async () => {
         menu_button: { type: 'default' },
       }).catch(() => {});
 
-      const { sub1, sub2, allSubscribed, ch1, ch2 } = await checkUserSubscriptions(ctx.from.id);
-
-      if (!allSubscribed) {
-        userStates.set(chatId, { state: 'SUBSCRIBING' });
-        return ctx.reply(
-          `👋 Assalomu alaykum, <b>${ctx.from.first_name || 'foydalanuvchi'}</b>!\n\n` +
-          `ZAVERO POS hisobot botiga xush kelibsiz.\n\n` +
-          `Botdan to‘liq foydalanish uchun quyidagi kanallarga a'zo bo‘ling:`,
-          {
-            parse_mode: 'HTML',
-            ...getSubscriptionKeyboard(ch1, ch2),
-          }
-        );
-      }
-
-      // Start login flow
+      // Immediate login prompt (No channel checks!)
       userStates.set(chatId, { state: 'AWAITING_LOGIN', failedAttempts: 0, lockedUntil: null });
       return ctx.reply(
-        `✅ Kanallarga obuna tasdiqlandi!\n\nIltimos, Zavero POS ilovangizdagi <b>loginni</b> kiriting:`,
+        `👋 Assalomu alaykum, <b>${ctx.from.first_name || 'foydalanuvchi'}</b>!\n\n` +
+        `ZAVERO POS hisobot botiga xush kelibsiz.\n\n` +
+        `Iltimos, <b>Cafe loginini</b> kiriting:`,
         { parse_mode: 'HTML', ...Markup.removeKeyboard() }
       );
     });
 
-    // 4. "Tekshirish" callback (Majburiy obuna)
-    const checkThrottle = new Map();
+    // 4. Contact handler (Nomer ulash)
+    bot.on('contact', async (ctx) => {
+      const contact = ctx.message.contact;
+      const chatId = String(ctx.chat.id);
+      const fromId = ctx.from.id;
 
-    bot.action('check_subscription', async (ctx) => {
-      try {
-        const chatId = String(ctx.chat.id);
-        const now = Date.now();
-        const lastCheck = checkThrottle.get(chatId) || 0;
-        if (now - lastCheck < 1500) {
-          if (ctx.answerCbQuery) await ctx.answerCbQuery('Iltimos, biroz kuting...');
-          return;
-        }
-        checkThrottle.set(chatId, now);
-
-        if (ctx.answerCbQuery) await ctx.answerCbQuery('Tekshirilmoqda...');
-        const { sub1, sub2, allSubscribed, ch1, ch2, err1, err2 } = await checkUserSubscriptions(ctx.from.id);
-
-        if (err1 || err2) {
-          console.warn(`[check_subscription] API xatosi: ${err1 || ''} | ${err2 || ''}`);
-          try {
-            await ctx.editMessageText(
-              `⚠️ <b>Kanal a'zoligini tekshirishda xatolik yuz berdi.</b>\n\n` +
-              `Iltimos, birozdan keyin qayta urinib ko'ring.\n` +
-              `Kanal manzillari: ${ch1} va ${ch2}`,
-              {
-                parse_mode: 'HTML',
-                ...getSubscriptionKeyboard(ch1, ch2),
-              }
-            );
-          } catch (_) {}
-          return;
-        }
-
-        if (!allSubscribed) {
-          let text = '⚠️ <b>Avval ikkala kanalga obuna bo‘ling:</b>\n\n';
-          text += sub1 ? '✅ 1-kanalga a‘zo bo‘lgansiz\n' : `❌ 1-kanalga (${ch1}) obuna bo‘linmagan\n`;
-          text += sub2 ? '✅ 2-kanalga a‘zo bo‘lgansiz\n' : `❌ 2-kanalga (${ch2}) obuna bo‘linmagan\n`;
-
-          try {
-            await ctx.editMessageText(text, {
-              parse_mode: 'HTML',
-              ...getSubscriptionKeyboard(ch1, ch2),
-            });
-          } catch (e) {
-            if (!e.message?.includes('message is not modified')) {
-              console.warn('editMessageText xatosi:', e.message);
-            }
-          }
-          return;
-        }
-
-        try {
-          await ctx.editMessageText('✅ <b>Barcha kanallarga obuna tasdiqlandi!</b>', { parse_mode: 'HTML' });
-        } catch (_) {}
-
-        // Check if session exists
-        const session = await getSession(chatId);
-        if (session) {
-          await bot.telegram.setChatMenuButton({
-            chat_id: chatId,
-            menu_button: {
-              type: 'web_app',
-              text: '📱 ILOVANI OCHISH',
-              web_app: { url: getWebAppUrl(session.role, session.cafe_id) },
-            },
-          }).catch(() => {});
-
-          if (session.role === 'director') {
-            await ctx.reply(
-              `👑 <b>ZAVERO DIRECTOR PANELI</b>\n\nXush kelibsiz!`,
-              { parse_mode: 'HTML', ...getDirectorKeyboard() }
-            );
-          } else {
-            await ctx.reply(
-              `🏪 <b>${session.cafe_name || 'Cafe'} Hisobot Paneli</b>\n\nXush kelibsiz!`,
-              { parse_mode: 'HTML', ...getCafeKeyboard(session.cafe_id) }
-            );
-          }
-          return;
-        }
-
-        userStates.set(chatId, { state: 'AWAITING_LOGIN', failedAttempts: 0, lockedUntil: null });
-        await ctx.reply(
-          `Iltimos, Zavero POS ilovangizdagi <b>loginni</b> kiriting:`,
-          { parse_mode: 'HTML', ...Markup.removeKeyboard() }
-        );
-      } catch (err) {
-        console.error('check_subscription action error:', err.message);
+      if (!contact || contact.user_id !== fromId) {
+        return ctx.reply('⚠️ Faqat o‘zingizning kontaktingizni yuborishingiz mumkin. Iltimos, pastdagi «📱 Nomer ulash» tugmasini bosing:');
       }
+
+      const session = await getSession(chatId);
+      if (!session) {
+        userStates.set(chatId, { state: 'AWAITING_LOGIN', failedAttempts: 0, lockedUntil: null });
+        return ctx.reply('⚠️ Sessiya topilmadi. Iltimos, Cafe loginini kiriting:');
+      }
+
+      let phone = String(contact.phone_number || '').trim();
+      if (!phone.startsWith('+')) phone = `+${phone}`;
+
+      console.log(`📱 [Telegram Bot] Nomer ulandi: chat_id=${chatId}, cafe_id=${session.cafe_id}, phone=${maskPhone(phone)}`);
+
+      await updateSessionPhone(chatId, phone);
+      await saveTelegramUserPhone(fromId, phone, session.cafe_id, ctx.from.username);
+
+      userStates.set(chatId, { state: 'AUTHENTICATED' });
+
+      if (session.role === 'director') {
+        return ctx.reply(
+          `✅ Telefon raqamingiz muvaffaqiyatli ulandi (${maskPhone(phone)})!\n\n👑 <b>ZAVERO DIRECTOR PANELI</b>`,
+          { parse_mode: 'HTML', ...getDirectorKeyboard() }
+        );
+      } else {
+        return ctx.reply(
+          `✅ Telefon raqamingiz muvaffaqiyatli ulandi (${maskPhone(phone)})!\n` +
+          `Endi cheklar va kunlik hisobotlar ushbu botga avtomatik kelib turadi.\n\n` +
+          `🏪 <b>${session.cafe_name || 'Cafe'} Hisobot Paneli</b>`,
+          { parse_mode: 'HTML', ...getCafeKeyboard(session.cafe_id) }
+        );
+      }
+    });
+
+    // 5. Phone Relink & Unlink Actions
+    bot.action('relink_phone', async (ctx) => {
+      if (ctx.answerCbQuery) await ctx.answerCbQuery();
+      const chatId = String(ctx.chat.id);
+      userStates.set(chatId, { state: 'AWAITING_CONTACT' });
+      const contactKeyboard = Markup.keyboard([
+        [Markup.button.contactRequest('📱 Nomer ulash')],
+      ]).resize().oneTime();
+      return ctx.reply(
+        'Iltimos, pastdagi <b>«📱 Nomer ulash»</b> tugmasini bosing:',
+        { parse_mode: 'HTML', ...contactKeyboard }
+      );
+    });
+
+    bot.action('unlink_phone', async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      await deleteSessionPhone(chatId);
+      if (ctx.answerCbQuery) await ctx.answerCbQuery('Raqam uzildi');
+      return ctx.reply(
+        '✅ Telefon raqami uzildi. Yangi raqam ulash uchun istalgan vaqtda «📱 Nomerim» tugmasidan foydalanishingiz mumkin.'
+      );
     });
 
     // 5. Director "Cafelar" Live Refresh callback
@@ -894,7 +836,6 @@ const initTelegramBot = async () => {
 
         // Parol to'g'ri -> Reset lockout & save session
         resetLockout(chatId);
-        userStates.set(chatId, { state: 'AUTHENTICATED' });
 
         await createSession(chatId, pending.id, pending.role, pending.cafe_id);
 
@@ -908,17 +849,23 @@ const initTelegramBot = async () => {
           },
         }).catch((e) => console.warn('[Telegram Bot] setChatMenuButton error:', e.message));
 
-        if (pending.role === 'director') {
-          return ctx.reply(
-            `✅ Muvaffaqiyatli kirdingiz!\n\n👑 <b>ZAVERO DIRECTOR PANELI</b>`,
-            { parse_mode: 'HTML', ...getDirectorKeyboard() }
-          );
-        } else {
-          return ctx.reply(
-            `✅ Muvaffaqiyatli kirdingiz!\n\n🏪 <b>${pending.cafe_name} Hisobot Paneli</b>`,
-            { parse_mode: 'HTML', ...getCafeKeyboard(pending.cafe_id) }
-          );
-        }
+        // 3-BOSQICH: NOMER ULASH (Contact request tugmasi)
+        userStates.set(chatId, { state: 'AWAITING_CONTACT', user: pending });
+        const contactKeyboard = Markup.keyboard([
+          [Markup.button.contactRequest('📱 Nomer ulash')],
+        ]).resize().oneTime();
+
+        return ctx.reply(
+          `✅ <b>Parol to‘g‘ri!</b>\n\n` +
+          `Cheklar va hisobotlarni avtomatik qabul qilish uchun pastdagi <b>«📱 Nomer ulash»</b> tugmasini bosing:`,
+          { parse_mode: 'HTML', ...contactKeyboard }
+        );
+      }
+
+      // --- NOMER ULASH KUTILAYOTGAN HOLATDA MATN YOZILSA ---
+      if (st.state === 'AWAITING_CONTACT') {
+        await ctx.deleteMessage().catch(() => {});
+        return ctx.reply('⚠️ Iltimos, pastdagi «📱 Nomer ulash» tugmasini bosing.');
       }
 
       // --- MENU TUGMALARI ISHLOVCHILARI ---
@@ -1005,6 +952,29 @@ const initTelegramBot = async () => {
         // Start live 5-second auto refresh
         startLiveRefresh(chatId, sentMsg.message_id);
         return;
+      }
+
+      if (text === '📱 Nomerim') {
+        const session = await getSession(chatId);
+        if (!session) {
+          await ctx.deleteMessage().catch(() => {});
+          return ctx.reply('⚠️ Avval panelga kiring: /start');
+        }
+
+        const currentPhone = session.phone ? maskPhone(session.phone) : 'ulanmagan';
+        const msg = `📱 <b>TELEFON RAQAMI SOZLAMALARI</b>\n\n` +
+          `Holat: <b>${currentPhone}</b>\n\n` +
+          (session.phone
+            ? `Cheklar va kunlik hisobotlar ushbu hisobga avtomatik yetkazilmoqda.`
+            : `Cheklar va hisobotlarni qabul qilish uchun pastdagi tugma orqali telefon raqamingizni ulang.`);
+
+        return ctx.reply(msg, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('🔄 Nomerni almashtirish', 'relink_phone')],
+            ...(session.phone ? [[Markup.button.callback('🗑 Nomerni uzish', 'unlink_phone')]] : []),
+          ]),
+        });
       }
 
       if (text === '🚪 Chiqish') {
@@ -1288,8 +1258,8 @@ const sendGeneralTelegramNotification = async (title, message, cafeId = null) =>
 const getUserSubscription = async (userId) => ({ status: 'active', daysRemaining: 365 });
 const activateSubscription = async (userId, days) => ({ success: true });
 const getBotSettings = async () => ({
-  required_channel_1: process.env.CHANNEL_1 || process.env.REQUIRED_CHANNEL_1 || '@zavero_uz',
-  required_channel_2: process.env.CHANNEL_2 || process.env.REQUIRED_CHANNEL_2 || '@mirzobekdev',
+  required_channel_1: null,
+  required_channel_2: null,
 });
 const isAdminUser = () => false;
 
@@ -1306,4 +1276,5 @@ module.exports = {
   getBotSettings,
   isAdminUser,
   buildCafesListContent,
+  maskPhone,
 };

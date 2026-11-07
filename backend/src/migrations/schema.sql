@@ -571,12 +571,15 @@ CREATE TABLE IF NOT EXISTS telegram_sessions (
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     role VARCHAR(30) NOT NULL, -- 'director' | 'cafe'
     cafe_id VARCHAR(64),
+    phone VARCHAR(40),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE telegram_sessions ADD COLUMN IF NOT EXISTS phone VARCHAR(40);
 CREATE INDEX IF NOT EXISTS idx_tg_sessions_cafe ON telegram_sessions(cafe_id);
 CREATE INDEX IF NOT EXISTS idx_tg_sessions_user ON telegram_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_tg_sessions_role ON telegram_sessions(role);
+CREATE INDEX IF NOT EXISTS idx_tg_sessions_phone ON telegram_sessions(phone);
 
 
 
