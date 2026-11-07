@@ -4057,9 +4057,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.02),
@@ -4068,7 +4065,14 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
               ),
             ],
           ),
-          child: ListTile(
+          child: Material(
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: Colors.grey.shade200),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
             leading: CircleAvatar(
               backgroundColor: const Color(0xFFFEF3C7),
               child: Icon(
@@ -4092,7 +4096,8 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
               },
             ),
           ),
-        );
+        ),
+      );
       },
     );
   }

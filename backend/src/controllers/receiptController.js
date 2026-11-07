@@ -2,13 +2,18 @@ const db = require('../config/db');
 const { mapReceipt, mapReport } = require('../utils/mappers');
 const { notifyCafe } = require('../socket/socketHandler');
 const { getTodayReportData } = require('./reportController');
+const { getTenantCafeId } = require('../utils/tenantHelper');
 
 const dateIdFrom = (d) => new Date(d).toISOString().substring(0, 10);
 
 const list = async (req, res) => {
+  const cafeId = getTenantCafeId(req);
+  if (!cafeId) {
+    return res.json({ success: true, receipts: [] });
+  }
   const result = await db.query(
     'SELECT * FROM receipts WHERE cafe_id = $1 ORDER BY date DESC LIMIT 200',
-    [req.user.cafeId]
+    [cafeId]
   );
   res.json({ success: true, receipts: result.rows.map(mapReceipt) });
 };
@@ -16,7 +21,7 @@ const list = async (req, res) => {
 // POST /api/receipts/checkout — finalize payment: save receipt, decrement stock,
 // update the day's report, free the table. Mirrors CloudService.completeCheckout.
 const checkout = async (req, res) => {
-  const cafeId = req.user.cafeId;
+  const cafeId = getTenantCafeId(req);
   const { receipt, tableId, items, idempotencyKey } = req.body;
 
   if (!receipt || !items) {

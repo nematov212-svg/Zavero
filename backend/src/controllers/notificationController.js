@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { notifyCafe } = require('../socket/socketHandler');
+const { getTenantCafeId } = require('../utils/tenantHelper');
 
 const mapNotification = (r) => ({
   id: r.id,
@@ -17,9 +18,9 @@ const mapNotification = (r) => ({
 // GET /api/notifications
 const list = async (req, res) => {
   try {
-    const cafeId = (req.user.role === 'director' && (req.query.cafeId || req.headers['x-cafe-id'])) || req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
     if (!cafeId) {
-      return res.status(400).json({ success: false, message: 'Cafe tanlanishi shart.' });
+      return res.json({ success: true, notifications: [] });
     }
 
     const result = await db.query(
@@ -42,7 +43,7 @@ const list = async (req, res) => {
 // POST /api/notifications
 const create = async (req, res) => {
   try {
-    const cafeId = (req.user.role === 'director' && (req.body.cafeId || req.headers['x-cafe-id'])) || req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
     const { title, message, priority, scheduledAt } = req.body;
 
     if (!cafeId) {
@@ -86,7 +87,7 @@ const create = async (req, res) => {
 const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
-    const cafeId = (req.user.role === 'director' && (req.query.cafeId || req.headers['x-cafe-id'])) || req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
 
     await db.query(
       `UPDATE notifications SET is_read = true, read_at = CURRENT_TIMESTAMP 
@@ -107,7 +108,7 @@ const markAsRead = async (req, res) => {
 const remove = async (req, res) => {
   try {
     const { id } = req.params;
-    const cafeId = (req.user.role === 'director' && (req.query.cafeId || req.headers['x-cafe-id'])) || req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
 
     await db.query(
       `DELETE FROM notifications WHERE id = $1 AND ($2 = 'zavero' OR cafe_id = $2)`,

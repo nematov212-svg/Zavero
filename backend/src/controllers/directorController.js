@@ -560,7 +560,7 @@ const extendSubscription = async (req, res) => {
 
     const cafeRes = await db.query('SELECT * FROM cafes WHERE cafe_id = $1', [cafeId]);
     if (cafeRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Cafe topilmadi.' });
+      return res.status(404).json({ success: false, error: 'cafe_not_found', message: 'Cafe topilmadi.' });
     }
 
     const currentCafe = cafeRes.rows[0];
@@ -826,7 +826,7 @@ const getCafeOverview = async (req, res) => {
     const { cafeId } = req.params;
     const cafeRes = await db.query('SELECT * FROM cafes WHERE cafe_id = $1', [cafeId]);
     if (cafeRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Cafe topilmadi.' });
+      return res.status(404).json({ success: false, error: 'cafe_not_found', message: 'Cafe topilmadi.' });
     }
     const cafe = cafeRes.rows[0];
 

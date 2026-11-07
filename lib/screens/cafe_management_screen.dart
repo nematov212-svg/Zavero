@@ -36,6 +36,7 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
   final List<StreamSubscription> _subscriptions = [];
 
   bool _isLoading = true;
+  bool _cafeNotFound = false;
   Map<String, dynamic> _overviewStats = {};
   List<Product> _products = [];
   List<Category> _categories = [];
@@ -138,7 +139,10 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
   }
 
   Future<void> _loadCafeData() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _cafeNotFound = false;
+    });
     final cafeId = widget.cafe.cafeId;
     try {
       final overviewFuture = _ds.getCafeOverview(cafeId);
@@ -177,10 +181,19 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
         _notifications = results[8] as List<Map<String, dynamic>>;
       });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ma\'lumotlarni yuklashda xatolik: $e'), backgroundColor: Colors.red),
-        );
+      final errStr = e.toString().toLowerCase();
+      final is404 = (e is ApiException && (e.statusCode == 404 || e.code == 'cafe_not_found')) ||
+          errStr.contains('404') ||
+          errStr.contains('cafe_not_found') ||
+          errStr.contains('topilmadi');
+      if (is404) {
+        if (mounted) setState(() => _cafeNotFound = true);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Ma\'lumotlarni yuklashda xatolik: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -960,6 +973,53 @@ class _CafeManagementScreenState extends State<CafeManagementScreen>
   // ============================================================
   @override
   Widget build(BuildContext context) {
+    if (_cafeNotFound) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1E293B),
+          elevation: 2,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Color(0xFFFFC107)),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(widget.cafe.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.storefront_outlined, size: 64, color: Colors.orangeAccent),
+                const SizedBox(height: 16),
+                const Text(
+                  'Cafe topilmadi yoki o‘chirilgan',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'ID: ${widget.cafe.cafeId}',
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFC107),
+                    foregroundColor: Colors.black87,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Cafelar ro‘yxatiga qaytish', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
@@ -2151,12 +2211,13 @@ class _CafeSettingsTabContentState extends State<_CafeSettingsTabContent> {
               const SizedBox(height: 14),
 
               // QR CODE SWITCH
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+              Material(
+                color: const Color(0xFF1E293B),
+                shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white12),
+                  side: const BorderSide(color: Colors.white12),
                 ),
+                clipBehavior: Clip.antiAlias,
                 child: SwitchListTile(
                   title: const Text('QR Kodni chekda ko\'rsatish', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   subtitle: const Text('Chek pastida QR kod va "QR kodni skaner qiling" chiqadi', style: TextStyle(color: Colors.grey, fontSize: 11)),

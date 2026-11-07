@@ -1,18 +1,26 @@
 const db = require('../config/db');
 const { mapCustomerOrder, mapCategory, mapProduct, mapCustomer, mapTable, mapCartItems } = require('../utils/mappers');
 const { notifyCafe } = require('../socket/socketHandler');
+const { getTenantCafeId } = require('../utils/tenantHelper');
 
 const list = async (req, res) => {
-  const result = await db.query(
-    'SELECT * FROM customer_orders WHERE cafe_id = $1 ORDER BY date DESC LIMIT 100',
-    [req.user.cafeId]
-  );
-  res.json({ success: true, customerOrders: result.rows.map(mapCustomerOrder) });
+  try {
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.json({ success: true, customerOrders: [] });
+    const result = await db.query(
+      'SELECT * FROM customer_orders WHERE cafe_id = $1 ORDER BY date DESC LIMIT 100',
+      [cafeId]
+    );
+    res.json({ success: true, customerOrders: result.rows.map(mapCustomerOrder) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 const save = async (req, res) => {
   try {
-    const cafeId = req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(400).json({ success: false, message: 'cafeId kiritilishi shart' });
     const { id, date, items, customerName, phone, type, tableNumber, hallId, deliveryAddress, status } = req.body;
 
     let row;
@@ -48,7 +56,8 @@ const save = async (req, res) => {
 
 const updateStatus = async (req, res) => {
   try {
-    const cafeId = req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(400).json({ success: false, message: 'cafeId kiritilishi shart' });
     const { id } = req.params;
     const { status } = req.body;
     const result = await db.query(
@@ -517,7 +526,8 @@ const getPublicOrderStatus = async (req, res) => {
 
 const remove = async (req, res) => {
   try {
-    const cafeId = req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(400).json({ success: false, message: 'cafeId kiritilishi shart' });
     const { id } = req.params;
     await db.query('DELETE FROM customer_orders WHERE id = $1 AND cafe_id = $2', [id, cafeId]);
     notifyCafe(cafeId, 'CUSTOMER_ORDER_DELETED', { orderId: Number(id) });
@@ -529,7 +539,8 @@ const remove = async (req, res) => {
 
 const clearCompleted = async (req, res) => {
   try {
-    const cafeId = req.user.cafeId;
+    const cafeId = getTenantCafeId(req);
+    if (!cafeId) return res.status(400).json({ success: false, message: 'cafeId kiritilishi shart' });
     await db.query(
       `DELETE FROM customer_orders WHERE cafe_id = $1 AND status IN ('completed', 'cancelled', 'delivered')`,
       [cafeId]

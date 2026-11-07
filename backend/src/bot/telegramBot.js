@@ -197,28 +197,60 @@ const resetLockout = (chatId) => {
 // ============================================================
 
 const checkUserSubscriptions = async (userId) => {
-  if (!bot || !bot.telegram) return { sub1: true, sub2: true, allSubscribed: true };
+  if (!bot || !bot.telegram) return { sub1: true, sub2: true, allSubscribed: true, err1: null, err2: null };
   const { ch1, ch2 } = getRequiredChannels();
-  const isMember = (status) => ['creator', 'administrator', 'member', 'restricted'].includes(status);
+
+  const isMember = (m) => {
+    if (!m || !m.status) return false;
+    if (['creator', 'administrator', 'member'].includes(m.status)) return true;
+    if (m.status === 'restricted') return m.is_member === true;
+    return false;
+  };
 
   let sub1 = false;
   let sub2 = false;
+  let err1 = null;
+  let err2 = null;
 
   try {
     const m1 = await bot.telegram.getChatMember(ch1, userId);
-    sub1 = isMember(m1.status);
+    sub1 = isMember(m1);
   } catch (e) {
-    console.warn(`[Bot Subscription] getChatMember for ${ch1} (${userId}):`, e.message);
+    err1 = e.message || 'Telegram API xatosi';
+    console.error(`❌ [Telegram Bot Subscription Error] getChatMember for ${ch1} (${userId}):`, err1);
   }
 
   try {
     const m2 = await bot.telegram.getChatMember(ch2, userId);
-    sub2 = isMember(m2.status);
+    sub2 = isMember(m2);
   } catch (e) {
-    console.warn(`[Bot Subscription] getChatMember for ${ch2} (${userId}):`, e.message);
+    err2 = e.message || 'Telegram API xatosi';
+    console.error(`❌ [Telegram Bot Subscription Error] getChatMember for ${ch2} (${userId}):`, err2);
   }
 
-  return { sub1, sub2, allSubscribed: sub1 && sub2, ch1, ch2 };
+  return { sub1, sub2, allSubscribed: sub1 && sub2, ch1, ch2, err1, err2 };
+};
+
+const verifyBotChannelAdminStatus = async () => {
+  try {
+    if (!bot || !bot.telegram) return;
+    const me = await bot.telegram.getMe();
+    const { ch1, ch2 } = getRequiredChannels();
+    for (const ch of [ch1, ch2]) {
+      try {
+        const member = await bot.telegram.getChatMember(ch, me.id);
+        if (!['creator', 'administrator'].includes(member.status)) {
+          console.error(`⚠️ [Telegram Bot] DIQQAT: Bot "${ch}" kanalida administrator emas (status: ${member.status})! Obunani tekshirish to'g'ri ishlashi uchun bot kanalda ADMIN bo'lishi shart!`);
+        } else {
+          console.log(`✅ [Telegram Bot] Bot "${ch}" kanalida administrator sifatida tasdiqlandi.`);
+        }
+      } catch (chErr) {
+        console.error(`❌ [Telegram Bot] "${ch}" kanalini tekshirishda xatolik (${chErr.message}). Bot kanalga admin qilib qo'shilganini va kanal username to'g'riligini tekshiring.`);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ [Telegram Bot] verifyBotChannelAdminStatus xatosi:', err.message);
+  }
 };
 
 const getSubscriptionKeyboard = (ch1, ch2) => {
@@ -458,6 +490,17 @@ const initTelegramBot = async () => {
   try {
     bot = new Telegraf(token);
 
+    // 0. Reset global chat menu button to default (WebApp loginsiz ko'rinmasligi uchun)
+    try {
+      await bot.telegram.setChatMenuButton({ menu_button: { type: 'default' } });
+      console.log('✅ [Telegram Bot] Default chat menu tugmasi standart holatga qaytarildi.');
+    } catch (btnErr) {
+      console.warn('⚠️ [Telegram Bot] Default setChatMenuButton ogohlantirish:', btnErr.message);
+    }
+
+    // Verify bot is admin in required channels
+    verifyBotChannelAdminStatus();
+
     // 1. Set Bot About & Short Description
     try {
       await bot.telegram.setMyDescription(
@@ -486,6 +529,38 @@ const initTelegramBot = async () => {
       // Reset transient conversation state
       userStates.set(chatId, { state: 'IDLE', failedAttempts: 0, lockedUntil: null });
 
+      // Check existing session in DB first
+      const session = await getSession(chatId);
+      if (session) {
+        // Authenticated user: set Web App menu button specifically for this chat
+        await bot.telegram.setChatMenuButton({
+          chat_id: chatId,
+          menu_button: {
+            type: 'web_app',
+            text: '📱 ILOVANI OCHISH',
+            web_app: { url: getWebAppUrl(session.role, session.cafe_id) },
+          },
+        }).catch(() => {});
+
+        if (session.role === 'director') {
+          return ctx.reply(
+            `👑 <b>ZAVERO DIRECTOR PANELI</b>\n\nXush kelibsiz! Cafelarni monitoring qilish uchun quyidagi menyudan foydalaning:`,
+            { parse_mode: 'HTML', ...getDirectorKeyboard() }
+          );
+        } else {
+          return ctx.reply(
+            `🏪 <b>${session.cafe_name || 'Cafe'} Hisobot Paneli</b>\n\nXush kelibsiz! Bugungi savdo va cheklarni ko‘rish uchun menyudan tanlang:`,
+            { parse_mode: 'HTML', ...getCafeKeyboard(session.cafe_id) }
+          );
+        }
+      }
+
+      // Unauthenticated: Ensure menu button is default
+      await bot.telegram.setChatMenuButton({
+        chat_id: chatId,
+        menu_button: { type: 'default' },
+      }).catch(() => {});
+
       const { sub1, sub2, allSubscribed, ch1, ch2 } = await checkUserSubscriptions(ctx.from.id);
 
       if (!allSubscribed) {
@@ -501,22 +576,6 @@ const initTelegramBot = async () => {
         );
       }
 
-      // Check existing session in DB
-      const session = await getSession(chatId);
-      if (session) {
-        if (session.role === 'director') {
-          return ctx.reply(
-            `👑 <b>ZAVERO DIRECTOR PANELI</b>\n\nXush kelibsiz! Cafelarni monitoring qilish uchun quyidagi menyudan foydalaning:`,
-            { parse_mode: 'HTML', ...getDirectorKeyboard() }
-          );
-        } else {
-          return ctx.reply(
-            `🏪 <b>${session.cafe_name || 'Cafe'} Hisobot Paneli</b>\n\nXush kelibsiz! Bugungi savdo va cheklarni ko‘rish uchun menyudan tanlang:`,
-            { parse_mode: 'HTML', ...getCafeKeyboard(session.cafe_id) }
-          );
-        }
-      }
-
       // Start login flow
       userStates.set(chatId, { state: 'AWAITING_LOGIN', failedAttempts: 0, lockedUntil: null });
       return ctx.reply(
@@ -526,26 +585,72 @@ const initTelegramBot = async () => {
     });
 
     // 4. "Tekshirish" callback (Majburiy obuna)
+    const checkThrottle = new Map();
+
     bot.action('check_subscription', async (ctx) => {
       try {
-        if (ctx.answerCbQuery) await ctx.answerCbQuery();
         const chatId = String(ctx.chat.id);
-        const { sub1, sub2, allSubscribed, ch1, ch2 } = await checkUserSubscriptions(ctx.from.id);
+        const now = Date.now();
+        const lastCheck = checkThrottle.get(chatId) || 0;
+        if (now - lastCheck < 1500) {
+          if (ctx.answerCbQuery) await ctx.answerCbQuery('Iltimos, biroz kuting...');
+          return;
+        }
+        checkThrottle.set(chatId, now);
+
+        if (ctx.answerCbQuery) await ctx.answerCbQuery('Tekshirilmoqda...');
+        const { sub1, sub2, allSubscribed, ch1, ch2, err1, err2 } = await checkUserSubscriptions(ctx.from.id);
+
+        if (err1 || err2) {
+          console.warn(`[check_subscription] API xatosi: ${err1 || ''} | ${err2 || ''}`);
+          try {
+            await ctx.editMessageText(
+              `⚠️ <b>Kanal a'zoligini tekshirishda xatolik yuz berdi.</b>\n\n` +
+              `Iltimos, birozdan keyin qayta urinib ko'ring.\n` +
+              `Kanal manzillari: ${ch1} va ${ch2}`,
+              {
+                parse_mode: 'HTML',
+                ...getSubscriptionKeyboard(ch1, ch2),
+              }
+            );
+          } catch (_) {}
+          return;
+        }
 
         if (!allSubscribed) {
-          let errorText = '⚠️ <b>Avval ikkala kanalga obuna bo‘ling:</b>\n\n';
-          errorText += sub1 ? '✅ 1-kanalga a‘zo bo‘lgansiz\n' : `❌ 1-kanalga (${ch1}) obuna bo‘linmagan\n`;
-          errorText += sub2 ? '✅ 2-kanalga a‘zo bo‘lgansiz\n' : `❌ 2-kanalga (${ch2}) obuna bo‘linmagan\n`;
+          let text = '⚠️ <b>Avval ikkala kanalga obuna bo‘ling:</b>\n\n';
+          text += sub1 ? '✅ 1-kanalga a‘zo bo‘lgansiz\n' : `❌ 1-kanalga (${ch1}) obuna bo‘linmagan\n`;
+          text += sub2 ? '✅ 2-kanalga a‘zo bo‘lgansiz\n' : `❌ 2-kanalga (${ch2}) obuna bo‘linmagan\n`;
 
-          return ctx.editMessageText(errorText, {
-            parse_mode: 'HTML',
-            ...getSubscriptionKeyboard(ch1, ch2),
-          });
+          try {
+            await ctx.editMessageText(text, {
+              parse_mode: 'HTML',
+              ...getSubscriptionKeyboard(ch1, ch2),
+            });
+          } catch (e) {
+            if (!e.message?.includes('message is not modified')) {
+              console.warn('editMessageText xatosi:', e.message);
+            }
+          }
+          return;
         }
+
+        try {
+          await ctx.editMessageText('✅ <b>Barcha kanallarga obuna tasdiqlandi!</b>', { parse_mode: 'HTML' });
+        } catch (_) {}
 
         // Check if session exists
         const session = await getSession(chatId);
         if (session) {
+          await bot.telegram.setChatMenuButton({
+            chat_id: chatId,
+            menu_button: {
+              type: 'web_app',
+              text: '📱 ILOVANI OCHISH',
+              web_app: { url: getWebAppUrl(session.role, session.cafe_id) },
+            },
+          }).catch(() => {});
+
           if (session.role === 'director') {
             await ctx.reply(
               `👑 <b>ZAVERO DIRECTOR PANELI</b>\n\nXush kelibsiz!`,
@@ -562,7 +667,7 @@ const initTelegramBot = async () => {
 
         userStates.set(chatId, { state: 'AWAITING_LOGIN', failedAttempts: 0, lockedUntil: null });
         await ctx.reply(
-          `✅ Kanallarga obuna tasdiqlandi!\n\nIltimos, Zavero POS ilovangizdagi <b>loginni</b> kiriting:`,
+          `Iltimos, Zavero POS ilovangizdagi <b>loginni</b> kiriting:`,
           { parse_mode: 'HTML', ...Markup.removeKeyboard() }
         );
       } catch (err) {
@@ -709,9 +814,7 @@ const initTelegramBot = async () => {
               OR LOWER(u.username) = $2
               OR LOWER(u.email) = $1
               OR LOWER(u.email) = $2
-              OR LOWER(u.email) = $3
-              OR ($2 = 'director' AND u.role = 'director')
-              OR ($2 = 'admin' AND u.cafe_id = 'cafe1' AND u.role = 'admin'))
+              OR LOWER(u.email) = $3)
              AND u.is_active = true
            LIMIT 1`,
           [rawInput.toLowerCase(), cleanInput, cleanEmail]
@@ -794,6 +897,16 @@ const initTelegramBot = async () => {
         userStates.set(chatId, { state: 'AUTHENTICATED' });
 
         await createSession(chatId, pending.id, pending.role, pending.cafe_id);
+
+        // Faqat muvaffaqiyatli login qilgan chat uchun "ILOVANI OCHISH" menyu tugmasini o'rnatish
+        await bot.telegram.setChatMenuButton({
+          chat_id: chatId,
+          menu_button: {
+            type: 'web_app',
+            text: '📱 ILOVANI OCHISH',
+            web_app: { url: getWebAppUrl(pending.role, pending.cafe_id) },
+          },
+        }).catch((e) => console.warn('[Telegram Bot] setChatMenuButton error:', e.message));
 
         if (pending.role === 'director') {
           return ctx.reply(
@@ -898,6 +1011,13 @@ const initTelegramBot = async () => {
         clearLiveRefresh(chatId);
         await deleteSession(chatId);
         userStates.set(chatId, { state: 'IDLE' });
+
+        // Reset chat menu button to default
+        await bot.telegram.setChatMenuButton({
+          chat_id: chatId,
+          menu_button: { type: 'default' },
+        }).catch(() => {});
+
         return ctx.reply(
           `👋 Siz tizimdan chiqdingiz. Bot orqali xabarlar kelishi to‘xtatildi.\n\nQayta kirish uchun: /start`,
           { ...Markup.removeKeyboard() }
@@ -1045,6 +1165,10 @@ const notifySessionsPasswordChanged = async (userId) => {
     for (const row of res.rows) {
       try {
         if (bot && bot.telegram) {
+          await bot.telegram.setChatMenuButton({
+            chat_id: row.chat_id,
+            menu_button: { type: 'default' },
+          }).catch(() => {});
           await bot.telegram.sendMessage(
             row.chat_id,
             `⚠️ <b>Parol o‘zgartirildi!</b>\n\nIlovadan hisob ma‘lumotlaringiz yangilandi. Xavfsizlik maqsadida botdagi sessiyangiz yakunlandi.\n\nYangi ma‘lumotlar bilan qaytadan kiring: /start`,
@@ -1074,6 +1198,10 @@ const notifySessionsCafeDeleted = async (cafeId, cafeName) => {
     for (const row of res.rows) {
       try {
         if (bot && bot.telegram) {
+          await bot.telegram.setChatMenuButton({
+            chat_id: row.chat_id,
+            menu_button: { type: 'default' },
+          }).catch(() => {});
           await bot.telegram.sendMessage(
             row.chat_id,
             `⚠️ <b>"${cafeName || 'Cafe'}" kafesi o‘chirildi!</b>\n\nUshbu cafe paneli va bot xizmatiga kirish to‘liq yopildi.`,

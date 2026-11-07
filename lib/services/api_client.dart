@@ -395,7 +395,7 @@ class ApiClient {
     String? code;
     if (data is Map) {
       message = data['message']?.toString() ?? message;
-      code = data['code']?.toString();
+      code = data['code']?.toString() ?? data['error']?.toString();
     } else if (e.response != null) {
       message = 'Server xatoligi (${e.response?.statusCode}).';
     }

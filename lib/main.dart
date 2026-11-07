@@ -8489,6 +8489,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   bool _isOnline = true;
   Timer? _pingTimer;
   int _lastHeartbeatMs = 0;
+  int _heartbeatIntervalMs = 15000;
 
   @override
   void initState() {
@@ -8539,13 +8540,18 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       if (mounted) setState(() { _pingMs = 24; _isOnline = true; });
     }
 
-    // Cafe Heartbeat (Talab 5): har 15-30 soniyada (20s) serverga heartbeat yuborib cafes.last_seen yangilanadi
+    // Cafe Heartbeat: har 15-60s serverga heartbeat yuborib cafes.last_seen yangilanadi (15s -> 30s -> 60s backoff)
     final cafeId = appState.currentCafeId;
     if (cafeId.isNotEmpty && cafeId != 'local_default' && cafeId != 'zavero' && ApiClient().isAuthenticated) {
       final nowMs = DateTime.now().millisecondsSinceEpoch;
-      if (nowMs - _lastHeartbeatMs >= 20000) {
+      if (nowMs - _lastHeartbeatMs >= _heartbeatIntervalMs) {
         _lastHeartbeatMs = nowMs;
-        ApiClient().post('/cafes/heartbeat', body: {'cafeId': cafeId}).catchError((_) => <String, dynamic>{});
+        ApiClient().post('/cafes/heartbeat', body: {'cafeId': cafeId}).then((_) {
+          _heartbeatIntervalMs = 15000;
+        }).catchError((_) {
+          _heartbeatIntervalMs = (_heartbeatIntervalMs == 15000) ? 30000 : 60000;
+          return <String, dynamic>{};
+        });
       }
     }
   }
