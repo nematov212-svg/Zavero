@@ -241,14 +241,17 @@ const resetLockout = (chatId) => {
 
 const getCafeKeyboard = (cafeId) => {
   return Markup.keyboard([
-    ['📊 Bugungi hisobot', '🧾 Cheklar'],
-    ['📱 Nomerim', '🚪 Chiqish'],
+    ['📊 Bugungi hisobot', '🧾 Bugungi cheklar'],
+    ['💰 Jami daromad', '📅 Kecha / oxirgi kunlar'],
+    ['🔄 Yangilash', '📱 Nomerim'],
+    ['🚪 Chiqish'],
   ]).resize();
 };
 
 const getDirectorKeyboard = () => {
   return Markup.keyboard([
-    ['🏢 Cafelar', '📱 Nomerim'],
+    ['🏢 Cafelar', '📊 Umumiy hisobot'],
+    ['🔄 Yangilash', '📱 Nomerim'],
     ['🚪 Chiqish'],
   ]).resize();
 };
@@ -459,6 +462,277 @@ const markReportAsSent = async (cafeId, dateStr) => {
   } catch (err) {
     console.error('markReportAsSent error:', err.message);
   }
+};
+
+/**
+ * Sanani Asia/Tashkent bo'yicha YYYY-MM-DD ko'rinishida olish
+ */
+const toTashkentDateString = (date = new Date()) => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tashkent',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+};
+
+/**
+ * Bugungi hisobot ostidagi qulay inline tugmalar
+ */
+const getTodayReportInlineMarkup = () => {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback('🔄 Yangilash', 'action_refresh_today'),
+      Markup.button.callback('🧾 Bugungi cheklar', 'action_view_receipts'),
+    ],
+    [
+      Markup.button.callback('💰 Jami daromad', 'action_view_all_time'),
+      Markup.button.callback('📅 Kecha / oxirgi kunlar', 'action_view_recent_days'),
+    ]
+  ]);
+};
+
+/**
+ * 1. Bugungi jonli hisobot matnini generatsiya qilish (real-vaqt, soniyagacha)
+ */
+const generateTodayReportMessage = async (cafeId, cafeName) => {
+  const tk = getTashkentNow();
+  const todayStr = tk.dateStr;
+
+  const statsRes = await db.query(
+    `SELECT 
+       COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN total ELSE 0 END), 0) AS daily_revenue,
+       COALESCE(COUNT(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN 1 ELSE NULL END), 0) AS daily_count,
+       COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 AND method = 'cash' THEN total ELSE (CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN cash_paid ELSE 0 END) END), 0) AS daily_cash,
+       COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 AND method = 'card' THEN total ELSE (CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN card_paid ELSE 0 END) END), 0) AS daily_card,
+       COALESCE(SUM(total), 0) AS all_time_revenue,
+       COUNT(*) AS all_time_count
+     FROM receipts 
+     WHERE cafe_id = $1`,
+    [cafeId, todayStr]
+  );
+  const stats = statsRes.rows[0] || {};
+
+  return `📊 <b>BUGUNGI HISOBOT (JONLI)</b>\n` +
+    `🏪 Cafe: <b>${cafeName || 'Cafe'}</b>\n` +
+    `📅 Sana: <b>${todayStr}</b>\n` +
+    `⏱ Hozirgi vaqt: <b>${tk.fullStr}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `💰 <b>Bugungi daromad:</b> <b>${formatSum(stats.daily_revenue)} so'm</b>\n` +
+    `🧾 <b>Bugungi cheklar soni:</b> <b>${stats.daily_count || 0} ta</b>\n` +
+    `   ├ 💵 Naqd savdo: <b>${formatSum(stats.daily_cash)} so'm</b>\n` +
+    `   └ 💳 Karta savdo: <b>${formatSum(stats.daily_card)} so'm</b>\n` +
+    `────────────────────\n` +
+    `🌐 <b>Jami daromad (umumiy):</b> <b>${formatSum(stats.all_time_revenue)} so'm</b>\n` +
+    `📑 <b>Jami cheklar soni:</b> <b>${stats.all_time_count || 0} ta</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `<i>ZAVERO POS tizimi • Real-vaqt ko‘rsatkichi</i>`;
+};
+
+/**
+ * 2. So'nggi yopilgan cheklar ro'yxati matnini generatsiya qilish
+ */
+const generateRecentReceiptsMessage = async (cafeId, cafeName) => {
+  const tk = getTashkentNow();
+  const todayStr = tk.dateStr;
+
+  let recRes = await db.query(
+    `SELECT id, total, method, table_number, hall_name, date, cashier_name 
+     FROM receipts 
+     WHERE cafe_id = $1 AND to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2
+     ORDER BY date DESC LIMIT 15`,
+    [cafeId, todayStr]
+  );
+
+  let isToday = true;
+  if (recRes.rows.length === 0) {
+    recRes = await db.query(
+      `SELECT id, total, method, table_number, hall_name, date, cashier_name 
+       FROM receipts 
+       WHERE cafe_id = $1 
+       ORDER BY date DESC LIMIT 10`,
+      [cafeId]
+    );
+    isToday = false;
+  }
+
+  if (recRes.rows.length === 0) {
+    return `🧾 <b>CHEKLAR RO‘YXATI (${cafeName || 'Cafe'})</b>\n\n` +
+      `<i>Hozircha yopilgan cheklar mavjud emas.</i>`;
+  }
+
+  const titleHeader = isToday
+    ? `🧾 <b>BUGUNGI SO‘NGGI CHEKLAR (${cafeName || 'Cafe'})</b>`
+    : `🧾 <b>SO‘NGGI YOPILGAN CHEKLAR (${cafeName || 'Cafe'})</b>\n<i>(Bugun hali chek urilmagan, oxirgi kungi cheklar ko‘rsatilmoqda)</i>`;
+
+  let msg = `${titleHeader}\n⏱ Vaqt: <b>${tk.fullStr}</b>\n━━━━━━━━━━━━━━━━━━━━\n`;
+  for (const r of recRes.rows) {
+    const time = new Date(r.date).toLocaleTimeString('uz-UZ', { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit' });
+    const datePart = toTashkentDateString(new Date(r.date));
+    const table = r.table_number ? (r.hall_name ? `${r.hall_name}, ${r.table_number}-stol` : `${r.table_number}-stol`) : (r.hall_name || 'Stol');
+    const method = (r.method === 'card' || r.payment_method === 'card') ? '💳 Karta' : '💵 Naqd';
+    const cashier = r.cashier_name ? ` | 👤 ${r.cashier_name}` : '';
+    msg += `• Chek #${r.id} | ${datePart} ${time} | ${table}${cashier}\n  💰 Summa: <b>${formatSum(r.total)} so'm</b> (${method})\n`;
+  }
+  msg += `━━━━━━━━━━━━━━━━━━━━\n<i>ZAVERO POS tizimi</i>`;
+  return msg;
+};
+
+/**
+ * 3. Umumiy (All-Time) daromad va statistika matnini generatsiya qilish
+ */
+const generateAllTimeRevenueMessage = async (cafeId, cafeName) => {
+  const tk = getTashkentNow();
+
+  const res = await db.query(
+    `SELECT 
+       COALESCE(SUM(total), 0) AS all_time_revenue,
+       COUNT(*) AS all_time_count,
+       COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0) AS all_time_cash,
+       COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0) AS all_time_card,
+       COALESCE(ROUND(AVG(total)), 0) AS all_time_avg,
+       MIN(date AT TIME ZONE 'Asia/Tashkent') AS first_date,
+       MAX(date AT TIME ZONE 'Asia/Tashkent') AS last_date
+     FROM receipts
+     WHERE cafe_id = $1`,
+    [cafeId]
+  );
+
+  const stats = res.rows[0] || {};
+  const firstDateStr = stats.first_date ? toTashkentDateString(new Date(stats.first_date)) : 'Noma\'lum';
+  const lastDateStr = stats.last_date ? toTashkentDateString(new Date(stats.last_date)) : 'Noma\'lum';
+
+  return `💰 <b>UMUMIY JAMI DAROMAD (ALL-TIME)</b>\n` +
+    `🏪 Cafe: <b>${cafeName || 'Cafe'}</b>\n` +
+    `⏱ Hozirgi vaqt: <b>${tk.fullStr}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🌐 <b>Jami daromad:</b> <b>${formatSum(stats.all_time_revenue)} so'm</b>\n` +
+    `📑 <b>Jami cheklar soni:</b> <b>${stats.all_time_count || 0} ta</b>\n` +
+    `📊 <b>O‘rtacha chek:</b> <b>${formatSum(stats.all_time_avg)} so'm</b>\n` +
+    `────────────────────\n` +
+    `💵 <b>Jami naqd savdo:</b> <b>${formatSum(stats.all_time_cash)} so'm</b>\n` +
+    `💳 <b>Jami karta savdo:</b> <b>${formatSum(stats.all_time_card)} so'm</b>\n` +
+    `────────────────────\n` +
+    `🗓 Ilk chek sanasi: <b>${firstDateStr}</b>\n` +
+    `🕒 So‘nggi chek sanasi: <b>${lastDateStr}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `<i>ZAVERO POS tizimi</i>`;
+};
+
+/**
+ * 4. Kecha va oxirgi kunlar hisoboti matnini generatsiya qilish
+ */
+const generateRecentDaysReportMessage = async (cafeId, cafeName) => {
+  const tk = getTashkentNow();
+
+  const res = await db.query(
+    `SELECT 
+       to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') AS day_str,
+       COUNT(*) AS day_count,
+       COALESCE(SUM(total), 0) AS day_revenue,
+       COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0) AS day_cash,
+       COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0) AS day_card
+     FROM receipts
+     WHERE cafe_id = $1
+     GROUP BY day_str
+     ORDER BY day_str DESC
+     LIMIT 7`,
+    [cafeId]
+  );
+
+  const days = res.rows;
+  if (days.length === 0) {
+    return `📅 <b>KUNLIK HISOBOTLAR TARIXI</b>\n\n` +
+      `🏪 Cafe: <b>${cafeName || 'Cafe'}</b>\n\n` +
+      `<i>Hozircha oldingi kunlar bo‘yicha cheklar mavjud emas.</i>`;
+  }
+
+  const yesterdayObj = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const yesterdayStr = getTashkentNow(yesterdayObj).dateStr;
+  const yesterdayData = days.find(d => d.day_str === yesterdayStr) || (days[0].day_str !== tk.dateStr ? days[0] : days[1]);
+
+  let msg = `📅 <b>KECHA VA OXIRGI KUNLAR HISOBOTI</b>\n` +
+    `🏪 Cafe: <b>${cafeName || 'Cafe'}</b>\n` +
+    `⏱ Hozirgi vaqt: <b>${tk.fullStr}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n`;
+
+  if (yesterdayData) {
+    msg += `🌙 <b>KECHAGI KUN (${yesterdayData.day_str}):</b>\n` +
+      `💰 Daromad: <b>${formatSum(yesterdayData.day_revenue)} so'm</b>\n` +
+      `🧾 Cheklar soni: <b>${yesterdayData.day_count} ta</b>\n` +
+      `   ├ 💵 Naqd: ${formatSum(yesterdayData.day_cash)} so'm\n` +
+      `   └ 💳 Karta: ${formatSum(yesterdayData.day_card)} so'm\n` +
+      `────────────────────\n`;
+  }
+
+  msg += `📊 <b>OXIRGI 7 KUN KO‘RSATKICHLARI:</b>\n`;
+  let total7Revenue = 0;
+  let total7Count = 0;
+
+  for (const d of days) {
+    total7Revenue += Number(d.day_revenue);
+    total7Count += Number(d.day_count);
+    const dayLabel = d.day_str === tk.dateStr ? 'Bugun' : (d.day_str === yesterdayStr ? 'Kecha' : d.day_str);
+    msg += `• <b>${dayLabel} (${d.day_str})</b>: <b>${formatSum(d.day_revenue)} so'm</b> (${d.day_count} ta chek)\n`;
+  }
+
+  msg += `────────────────────\n` +
+    `📈 <b>Oxirgi kunlar jami:</b> <b>${formatSum(total7Revenue)} so'm</b> (${total7Count} ta chek)\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `<i>ZAVERO POS tizimi</i>`;
+
+  return msg;
+};
+
+/**
+ * 5. Director uchun barcha cafelar umumiy hisoboti
+ */
+const generateDirectorSummaryMessage = async () => {
+  const tk = getTashkentNow();
+  const todayStr = tk.dateStr;
+
+  const summaryRes = await db.query(
+    `SELECT 
+       COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $1 THEN total ELSE 0 END), 0) AS today_revenue,
+       COALESCE(COUNT(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $1 THEN 1 ELSE NULL END), 0) AS today_count,
+       COALESCE(SUM(total), 0) AS all_time_revenue,
+       COUNT(*) AS all_time_count
+     FROM receipts`
+    , [todayStr]
+  );
+  const s = summaryRes.rows[0] || {};
+
+  const cafeStatsRes = await db.query(
+    `SELECT 
+       c.cafe_id, 
+       COALESCE(c.receipt_name, c.cafe_name, 'Cafe') AS name,
+       COALESCE(SUM(CASE WHEN to_char(r.date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $1 THEN r.total ELSE 0 END), 0) AS today_rev,
+       COALESCE(COUNT(CASE WHEN to_char(r.date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $1 THEN 1 ELSE NULL END), 0) AS today_cnt,
+       COALESCE(SUM(r.total), 0) AS all_time_rev
+     FROM cafes c
+     LEFT JOIN receipts r ON c.cafe_id = r.cafe_id
+     WHERE c.status = 'active' AND c.cafe_id != 'zavero'
+     GROUP BY c.cafe_id, c.receipt_name, c.cafe_name
+     ORDER BY today_rev DESC`,
+    [todayStr]
+  );
+
+  let msg = `👑 <b>ZAVERO DIRECTOR — UMUMIY TARMOQ HISOBOTI</b>\n` +
+    `📅 Sana: <b>${todayStr}</b>\n` +
+    `⏱ Hozirgi vaqt: <b>${tk.fullStr}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `💰 <b>Bugungi umumiy savdo:</b> <b>${formatSum(s.today_revenue)} so'm</b>\n` +
+    `🧾 <b>Bugungi jami cheklar:</b> <b>${s.today_count || 0} ta</b>\n` +
+    `🌐 <b>Tarmoq jami aylanmasi:</b> <b>${formatSum(s.all_time_revenue)} so'm</b>\n` +
+    `📑 <b>Jami cheklar soni:</b> <b>${s.all_time_count || 0} ta</b>\n` +
+    `────────────────────\n` +
+    `🏢 <b>CAFELAR BO‘YICHA BUGUN:</b>\n`;
+
+  for (const c of cafeStatsRes.rows) {
+    msg += `• <b>${c.name}</b>: <b>${formatSum(c.today_rev)} so'm</b> (${c.today_cnt} ta chek) | Jami: ${formatSum(c.all_time_rev)} so'm\n`;
+  }
+  msg += `━━━━━━━━━━━━━━━━━━━━\n<i>ZAVERO Central Director Paneli</i>`;
+  return msg;
 };
 
 /**
@@ -963,6 +1237,57 @@ const initTelegramBot = async () => {
       }
     });
 
+    // 7.1. Cafe report inline callbacks
+    bot.action('action_refresh_today', async (ctx) => {
+      try {
+        if (ctx.answerCbQuery) await ctx.answerCbQuery('🔄 Hisobot yangilandi');
+        const session = await getSession(ctx.chat.id);
+        if (!session || session.role !== 'cafe') return;
+        const msg = await generateTodayReportMessage(session.cafe_id, session.cafe_name);
+        await ctx.editMessageText(msg, { parse_mode: 'HTML', ...getTodayReportInlineMarkup() }).catch(() => {});
+      } catch (err) {
+        if (!err.message?.includes('message is not modified')) {
+          console.error('action_refresh_today error:', err.message);
+        }
+      }
+    });
+
+    bot.action('action_view_receipts', async (ctx) => {
+      try {
+        if (ctx.answerCbQuery) await ctx.answerCbQuery();
+        const session = await getSession(ctx.chat.id);
+        if (!session || session.role !== 'cafe') return;
+        const msg = await generateRecentReceiptsMessage(session.cafe_id, session.cafe_name);
+        await ctx.reply(msg, { parse_mode: 'HTML' });
+      } catch (err) {
+        console.error('action_view_receipts error:', err.message);
+      }
+    });
+
+    bot.action('action_view_all_time', async (ctx) => {
+      try {
+        if (ctx.answerCbQuery) await ctx.answerCbQuery();
+        const session = await getSession(ctx.chat.id);
+        if (!session || session.role !== 'cafe') return;
+        const msg = await generateAllTimeRevenueMessage(session.cafe_id, session.cafe_name);
+        await ctx.reply(msg, { parse_mode: 'HTML' });
+      } catch (err) {
+        console.error('action_view_all_time error:', err.message);
+      }
+    });
+
+    bot.action('action_view_recent_days', async (ctx) => {
+      try {
+        if (ctx.answerCbQuery) await ctx.answerCbQuery();
+        const session = await getSession(ctx.chat.id);
+        if (!session || session.role !== 'cafe') return;
+        const msg = await generateRecentDaysReportMessage(session.cafe_id, session.cafe_name);
+        await ctx.reply(msg, { parse_mode: 'HTML' });
+      } catch (err) {
+        console.error('action_view_recent_days error:', err.message);
+      }
+    });
+
     // 8. Text message handler (Strict button enforcement + Login/Password state machine)
     bot.on('text', async (ctx, next) => {
       const text = ctx.message.text.trim();
@@ -1152,72 +1477,69 @@ const initTelegramBot = async () => {
         }
       }
 
-      if (text === '📊 Bugungi hisobot') {
+      // 1. Bugungi hisobot & Yangilash
+      if (text === '📊 Bugungi hisobot' || text === '🔄 Yangilash') {
         const session = await getSession(chatId);
-        if (!session || session.role !== 'cafe') {
+        if (!session) {
           await ctx.deleteMessage().catch(() => {});
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
-        const tk = getTashkentNow();
-        const todayStr = tk.dateStr;
-        const statsRes = await db.query(
-          `SELECT 
-             COUNT(*) AS total_count,
-             COALESCE(SUM(total), 0) AS total_revenue,
-             COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE cash_paid END), 0) AS cash_revenue,
-             COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE card_paid END), 0) AS card_revenue
-           FROM receipts 
-           WHERE cafe_id = $1 AND to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2`,
-          [session.cafe_id, todayStr]
-        );
-        const stats = statsRes.rows[0] || {};
-
-        const reportMsg = `📊 <b>BUGUNGI HISOBOT</b>\n` +
-          `🏪 <b>${session.cafe_name || 'Cafe'}</b>\n` +
-          `📅 Sana: <b>${todayStr}</b>\n` +
-          `⏱ Vaqt: <b>${tk.timeStr}</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
-          `💰 Jami savdo: <b>${formatSum(stats.total_revenue)} so'm</b>\n` +
-          `🧾 Cheklar soni: <b>${stats.total_count || 0} ta</b>\n` +
-          `💵 Naqd savdo: <b>${formatSum(stats.cash_revenue)} so'm</b>\n` +
-          `💳 Karta savdo: <b>${formatSum(stats.card_revenue)} so'm</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
-          `<i>ZAVERO POS tizimi</i>`;
-
-        return ctx.reply(reportMsg, { parse_mode: 'HTML' });
+        if (session.role === 'cafe') {
+          const reportMsg = await generateTodayReportMessage(session.cafe_id, session.cafe_name);
+          return ctx.reply(reportMsg, { parse_mode: 'HTML', ...getTodayReportInlineMarkup() });
+        } else if (session.role === 'director') {
+          const dirMsg = await generateDirectorSummaryMessage();
+          return ctx.reply(dirMsg, { parse_mode: 'HTML' });
+        }
       }
 
-      if (text === '🧾 Cheklar') {
+      // 2. Bugungi so'nggi cheklar ro'yxati
+      if (text === '🧾 Bugungi cheklar' || text === '🧾 Cheklar') {
         const session = await getSession(chatId);
         if (!session || session.role !== 'cafe') {
           await ctx.deleteMessage().catch(() => {});
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
-        const tk = getTashkentNow();
-        const todayStr = tk.dateStr;
-        const recRes = await db.query(
-          `SELECT id, total, method, table_number, hall_name, date, cashier_name 
-           FROM receipts 
-           WHERE cafe_id = $1 AND to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2
-           ORDER BY date DESC LIMIT 10`,
-          [session.cafe_id, todayStr]
-        );
-
-        if (recRes.rows.length === 0) {
-          return ctx.reply(`🧾 Bugun (${todayStr}) hali yopilgan cheklar mavjud emas.`);
-        }
-
-        let msg = `🧾 <b>BUGUNGI OXIRGI CHEKLAR (${session.cafe_name || 'Cafe'})</b>\n━━━━━━━━━━━━━━━━━━━━\n`;
-        for (const r of recRes.rows) {
-          const time = new Date(r.date).toLocaleTimeString('uz-UZ', { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit' });
-          const table = r.table_number ? (r.hall_name ? `${r.hall_name}, ${r.table_number}-stol` : `${r.table_number}-stol`) : (r.hall_name || 'Stol');
-          const method = r.method === 'card' ? 'Karta' : 'Naqd';
-          msg += `• Chek #${r.id} | ${time} | ${table}\n  💰 Summa: <b>${formatSum(r.total)} so'm</b> (${method})\n`;
-        }
-        msg += `━━━━━━━━━━━━━━━━━━━━\n<i>ZAVERO POS tizimi</i>`;
+        const msg = await generateRecentReceiptsMessage(session.cafe_id, session.cafe_name);
         return ctx.reply(msg, { parse_mode: 'HTML' });
+      }
+
+      // 3. Umumiy jami daromad
+      if (text === '💰 Jami daromad') {
+        const session = await getSession(chatId);
+        if (!session || session.role !== 'cafe') {
+          await ctx.deleteMessage().catch(() => {});
+          return ctx.reply('⚠️ Avval panelga kiring: /start');
+        }
+
+        const msg = await generateAllTimeRevenueMessage(session.cafe_id, session.cafe_name);
+        return ctx.reply(msg, { parse_mode: 'HTML' });
+      }
+
+      // 4. Kecha va oxirgi kunlar hisoboti
+      if (text === '📅 Kecha / oxirgi kunlar' || text === '📅 Oxirgi kunlar' || text === '📅 Kechagi hisobot') {
+        const session = await getSession(chatId);
+        if (!session || session.role !== 'cafe') {
+          await ctx.deleteMessage().catch(() => {});
+          return ctx.reply('⚠️ Avval panelga kiring: /start');
+        }
+
+        const msg = await generateRecentDaysReportMessage(session.cafe_id, session.cafe_name);
+        return ctx.reply(msg, { parse_mode: 'HTML' });
+      }
+
+      // 5. Director umumiy hisoboti
+      if (text === '📊 Umumiy hisobot') {
+        const session = await getSession(chatId);
+        if (!session || session.role !== 'director') {
+          await ctx.deleteMessage().catch(() => {});
+          return ctx.reply('⚠️ Avval panelga kiring: /start');
+        }
+
+        const dirMsg = await generateDirectorSummaryMessage();
+        return ctx.reply(dirMsg, { parse_mode: 'HTML' });
       }
 
       if (text === '🏢 Cafelar') {
@@ -1279,9 +1601,15 @@ const initTelegramBot = async () => {
       }
 
       // --- BOSHQA HAR QANDAY ERKIN MATN ---
-      // Bot erkin matnga javob bermaydi: xabar o'chiriladi va tugmadan foydalanish so'raladi
+      // Agar foydalanuvchi erkin matn yozsa, menyu klaviaturasini qayta ko'rsatish
       await ctx.deleteMessage().catch(() => {});
-      return ctx.reply('⚠️ Iltimos, pastdagi tugmalardan foydalaning.');
+      const currentSession = await getSession(chatId);
+      if (currentSession) {
+        const kb = currentSession.role === 'director' ? getDirectorKeyboard() : getCafeKeyboard(currentSession.cafe_id);
+        return ctx.reply('ℹ️ Iltimos, pastdagi menyu tugmalaridan foydalaning:', { ...kb });
+      } else {
+        return ctx.reply('⚠️ Iltimos, hisobingiz bilan tizimga kiring: /start');
+      }
     });
 
     // 9. Periodic 24:00 (Asia/Tashkent) cron scheduler
@@ -1569,4 +1897,11 @@ module.exports = {
   startDailyReportScheduler,
   isReportAlreadySent,
   markReportAsSent,
+  toTashkentDateString,
+  getTodayReportInlineMarkup,
+  generateTodayReportMessage,
+  generateRecentReceiptsMessage,
+  generateAllTimeRevenueMessage,
+  generateRecentDaysReportMessage,
+  generateDirectorSummaryMessage,
 };

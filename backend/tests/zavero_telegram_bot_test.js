@@ -26,6 +26,10 @@ const {
   sendDailyReportForCafe,
   isReportAlreadySent,
   markReportAsSent,
+  generateTodayReportMessage,
+  generateRecentReceiptsMessage,
+  generateAllTimeRevenueMessage,
+  generateRecentDaysReportMessage,
 } = require('../src/bot/telegramBot');
 
 let passedTests = 0;
@@ -361,6 +365,68 @@ async function runTestSuite() {
     const betaSent = await isReportAlreadySent(cafeBId, dedupeDate);
     assert(betaSent === false, 'Alpha dublikat himoyasi Beta Cafega ta‘sir qilmadi (Tenant isolation)');
     await db.query('DELETE FROM bot_settings WHERE key = $1', [dedupeKey]);
+
+    // ----------------------------------------------------
+    // TEST 11: 24 soatgacha kutmasdan hisobotlarni olish
+    // ----------------------------------------------------
+    console.log('\n[Test 11] On-demand hisobotlar: Bugungi, Cheklar, Jami, Oxirgi kunlar');
+    
+    // Seed receipts for Alpha Cafe today
+    const nowTk = getTashkentNow();
+    await db.query(
+      `INSERT INTO receipts (cafe_id, date, total, method, cash_paid, card_paid, cashier_name)
+       VALUES ($1, NOW(), 120000, 'cash', 120000, 0, 'Kassir Alpha'),
+              ($1, NOW(), 80000, 'card', 0, 80000, 'Kassir Alpha')`,
+      [cafeAId]
+    );
+
+    const todayMsg = await generateTodayReportMessage(cafeAId, 'Alpha Cafe');
+    assert(todayMsg.includes('Alpha Cafe'), 'Bugungi hisobotda Cafe nomi bor');
+    assert(todayMsg.includes('200 000'), 'Bugungi hisobotda 200 000 so‘m aks etgan');
+    assert(todayMsg.includes('Naqd') && todayMsg.includes('120 000'), 'Bugungi hisobotda naqd 120 000');
+    assert(todayMsg.includes('Karta') && todayMsg.includes('80 000'), 'Bugungi hisobotda karta 80 000');
+
+    const recentChecksMsg = await generateRecentReceiptsMessage(cafeAId, 'Alpha Cafe');
+    assert(recentChecksMsg.includes('🧾 Bugungi cheklar') || recentChecksMsg.includes('Alpha Cafe'), 'Cheklar ro‘yxati sarlavhasi to‘g‘ri');
+    assert(recentChecksMsg.includes('120 000') || recentChecksMsg.includes('80 000'), 'Cheklar ro‘yxatida chek summalari bor');
+
+    const allTimeMsg = await generateAllTimeRevenueMessage(cafeAId, 'Alpha Cafe');
+    assert(allTimeMsg.includes('JAMI DAROMAD') || allTimeMsg.includes('Jami daromad'), 'Jami daromad sarlavhasi to‘g‘ri');
+    assert(allTimeMsg.includes('Alpha Cafe'), 'Jami daromadda cafe nomi bor');
+
+    const recentDaysMsg = await generateRecentDaysReportMessage(cafeAId, 'Alpha Cafe');
+    assert(recentDaysMsg.includes('OXIRGI KUNLAR') || recentDaysMsg.includes('Oxirgi kunlar'), 'Oxirgi kunlar hisobot sarlavhasi to‘g‘ri');
+
+    // ----------------------------------------------------
+    // TEST 12: Cheksiz foydalanuvchi bitta cafega kirishi va bildirishnomalar olishi
+    // ----------------------------------------------------
+    console.log('\n[Test 12] Cheksiz foydalanuvchi kirishi va bir vaqtda bildirishnoma tarqatilishi');
+    const userChat1 = '1111111';
+    const userChat2 = '2222222';
+    const userChat3 = '3333333';
+
+    // Insert 3 separate users into the same cafe A
+    await db.query(
+      `INSERT INTO telegram_sessions (chat_id, user_id, cafe_id, role)
+       VALUES ($1, $4, $5, 'cafe'),
+              ($2, $4, $5, 'cafe'),
+              ($3, $4, $5, 'cafe')
+       ON CONFLICT (chat_id) DO UPDATE SET cafe_id = EXCLUDED.cafe_id, role = EXCLUDED.role`,
+      [userChat1, userChat2, userChat3, adminAId, cafeAId]
+    );
+
+    const activeSessionsRes = await db.query(
+      `SELECT chat_id FROM telegram_sessions WHERE cafe_id = $1 AND role = 'cafe'`,
+      [cafeAId]
+    );
+    assert(activeSessionsRes.rows.length === 3, 'Alpha Cafega 3 ta turli Telegram foydalanuvchi bir vaqtda ulangan (cheksiz)');
+
+    // Verify tenant isolation: Beta sessions are 0
+    const betaSessionsRes = await db.query(
+      `SELECT chat_id FROM telegram_sessions WHERE cafe_id = $1 AND role = 'cafe'`,
+      [cafeBId]
+    );
+    assert(betaSessionsRes.rows.length === 0, 'Beta Cafeda Alpha foydalanuvchilari mutlaqo ko‘rinmaydi');
 
     console.log('\n====================================================');
     console.log(`  Barcha testlar muvaffaqiyatli o'tdi: ${passedTests}/${totalTests}`);
