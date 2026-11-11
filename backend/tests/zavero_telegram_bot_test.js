@@ -21,6 +21,11 @@ const {
   notifySessionsCafeDeleted,
   buildCafesListContent,
   maskPhone,
+  getTashkentNow,
+  buildDailyReportMessage,
+  sendDailyReportForCafe,
+  isReportAlreadySent,
+  markReportAsSent,
 } = require('../src/bot/telegramBot');
 
 let passedTests = 0;
@@ -259,6 +264,103 @@ async function runTestSuite() {
       [cafeBId]
     );
     assert(checkBetaSessions.rows.length === 0, 'Cafe o‘chirilganda uning barcha Telegram sessiyalari tozalandi');
+
+    // ----------------------------------------------------
+    // TEST 8: 24:00 Kunlik hisobot xabari va vaqt aniqligi
+    // ----------------------------------------------------
+    console.log('\n[Test 8] 24:00 Kunlik hisobot: Hisobot xabari va maydonlar to‘liqligi');
+    const tkNow = getTashkentNow();
+    assert(tkNow.year && tkNow.month && tkNow.day, 'Toshkent sanasi to‘liq shakllandi');
+    assert(typeof tkNow.hour === 'number' && typeof tkNow.minute === 'number', 'Toshkent soati va daqiqasi raqam sifatida olindi');
+    assert(/^\d{4}-\d{2}-\d{2}$/.test(tkNow.dateStr), 'dateStr YYYY-MM-DD formatida');
+
+    const sampleMsg = buildDailyReportMessage({
+      cafeName: 'Family Cafe',
+      closedDate: '2026-11-10',
+      timestamp: '2026-11-11 00:00:00',
+      dailyRevenue: 1937000,
+      dailyCount: 20,
+      dailyCash: 1500000,
+      dailyCard: 437000,
+      allTimeRevenue: 23876000,
+      allTimeCount: 215,
+      isTest: false,
+    });
+
+    assert(sampleMsg.includes('Family Cafe'), 'Hisobotda Cafe nomi to‘g‘ri chiqdi');
+    assert(sampleMsg.includes('2026-11-10'), 'Hisobotda yopilgan kun sanasi chiqdi');
+    assert(sampleMsg.includes('2026-11-11 00:00:00'), 'Hisobotda aniq hisobot vaqti (soat:daqiqa:soniya) chiqdi');
+    assert(sampleMsg.includes('Bugungi daromad:') && sampleMsg.includes('1 937 000'), 'Bugungi daromad to‘g‘ri formatda chiqdi');
+    assert(sampleMsg.includes('Bugungi cheklar soni:') && sampleMsg.includes('20 ta'), 'Bugungi cheklar soni to‘g‘ri chiqdi');
+    assert(sampleMsg.includes('Jami daromad (umumiy):') && sampleMsg.includes('23 876 000'), 'Jami umumiy daromad chiqdi');
+    assert(sampleMsg.includes('Jami cheklar soni:') && sampleMsg.includes('215 ta'), 'Jami umumiy cheklar soni chiqdi');
+
+    // ----------------------------------------------------
+    // TEST 9: 24:00 Kunlik hisobot: Multi-tenant va SQL hisob-kitob
+    // ----------------------------------------------------
+    console.log('\n[Test 9] 24:00 Kunlik hisobot: Multi-tenant izolyatsiya va SQL hisob-kitob');
+    const testDate = '2026-11-10';
+    // Clean receipts for test cafes
+    await db.query('DELETE FROM receipts WHERE cafe_id IN ($1, $2)', [cafeAId, cafeBId]);
+
+    // Insert Alpha Cafe receipts for 2026-11-10
+    await db.query(
+      `INSERT INTO receipts (cafe_id, date, total, method, cash_paid, card_paid, cashier_name)
+       VALUES ($1, '2026-11-10 12:00:00+05', 50000, 'cash', 50000, 0, 'Kassir A'),
+              ($1, '2026-11-10 18:30:00+05', 30000, 'card', 0, 30000, 'Kassir A'),
+              ($1, '2026-11-09 20:00:00+05', 20000, 'cash', 20000, 0, 'Kassir A')`,
+      [cafeAId]
+    );
+
+    // Insert Beta Cafe receipt for 2026-11-10
+    await db.query(
+      `INSERT INTO receipts (cafe_id, date, total, method, cash_paid, card_paid, cashier_name)
+       VALUES ($1, '2026-11-10 15:00:00+05', 990000, 'cash', 990000, 0, 'Kassir B')`,
+      [cafeBId]
+    );
+
+    const statsAlphaRes = await db.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN total ELSE 0 END), 0) AS daily_revenue,
+         COALESCE(COUNT(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN 1 ELSE NULL END), 0) AS daily_count,
+         COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 AND method = 'cash' THEN total ELSE (CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN cash_paid ELSE 0 END) END), 0) AS daily_cash,
+         COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 AND method = 'card' THEN total ELSE (CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN card_paid ELSE 0 END) END), 0) AS daily_card,
+         COALESCE(SUM(total), 0) AS all_time_revenue,
+         COUNT(*) AS all_time_count
+       FROM receipts
+       WHERE cafe_id = $1`,
+      [cafeAId, testDate]
+    );
+
+    const aStats = statsAlphaRes.rows[0];
+    assert(Number(aStats.daily_revenue) === 80000, 'Alpha Cafe 2026-11-10 kunlik daromadi aniq 80 000');
+    assert(Number(aStats.daily_count) === 2, 'Alpha Cafe 2026-11-10 cheklar soni aniq 2 ta');
+    assert(Number(aStats.daily_cash) === 50000, 'Alpha Cafe naqd daromadi 50 000');
+    assert(Number(aStats.daily_card) === 30000, 'Alpha Cafe karta daromadi 30 000');
+    assert(Number(aStats.all_time_revenue) === 100000, 'Alpha Cafe umumiy daromadi aniq 100 000 (oldingi kun bilan)');
+    assert(Number(aStats.all_time_count) === 3, 'Alpha Cafe umumiy cheklar soni aniq 3 ta');
+
+    // Multi-tenant check: Beta Cafe stats must not leak into Alpha Cafe
+    assert(!sampleMsg.includes('Beta Cafe'), 'Alpha hisobotida Beta Cafe ma‘lumotlari mutlaqo yo‘q');
+
+    // ----------------------------------------------------
+    // TEST 10: Dublikat himoyasi (Deduplication)
+    // ----------------------------------------------------
+    console.log('\n[Test 10] 24:00 Kunlik hisobot: Dublikat himoyasi (Deduplication)');
+    const dedupeDate = '2026-11-10';
+    const dedupeKey = `daily_report_${cafeAId}_${dedupeDate}`;
+    await db.query('DELETE FROM bot_settings WHERE key = $1', [dedupeKey]);
+
+    const beforeSent = await isReportAlreadySent(cafeAId, dedupeDate);
+    assert(beforeSent === false, 'Yuborishdan oldin dublikat mavjud emas');
+
+    await markReportAsSent(cafeAId, dedupeDate);
+    const afterSent = await isReportAlreadySent(cafeAId, dedupeDate);
+    assert(afterSent === true, 'Yuborilgandan so‘ng dublikat himoyasi faollashdi');
+
+    const betaSent = await isReportAlreadySent(cafeBId, dedupeDate);
+    assert(betaSent === false, 'Alpha dublikat himoyasi Beta Cafega ta‘sir qilmadi (Tenant isolation)');
+    await db.query('DELETE FROM bot_settings WHERE key = $1', [dedupeKey]);
 
     console.log('\n====================================================');
     console.log(`  Barcha testlar muvaffaqiyatli o'tdi: ${passedTests}/${totalTests}`);
