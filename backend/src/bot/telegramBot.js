@@ -1741,14 +1741,22 @@ const notifyCafeSessionsReceipt = async (cafeId, receipt, items) => {
       const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
       const sData = sRes.rows[0]?.data || {};
       if (sData.telegramReceiptsEnabled !== false) {
-        const cfgChat = sData.telegramReceiptChatId || sData.telegramReceiptsChatId || sData.telegramResolvedChatId;
+        const cfgChat = sData.telegramReceiptChatId || sData.telegramReceiptsChatId || sData.telegramResolvedChatId || sData.telegramReceiptPhone;
         if (cfgChat) {
-          String(cfgChat).split(',').forEach((c) => {
-            const trimmed = c.trim();
-            if (/^-?\d+$/.test(trimmed) || trimmed.startsWith('@')) {
-              targetChatIds.add(trimmed);
+          try {
+            const { resolveChatIds } = require('../controllers/receiptController');
+            const resolved = await resolveChatIds(cfgChat, cafeId);
+            for (const c of resolved) {
+              if (c) targetChatIds.add(String(c).trim());
             }
-          });
+          } catch (_) {
+            String(cfgChat).split(/[,;\s]+/).forEach((c) => {
+              const trimmed = c.trim();
+              if (/^-?\d+$/.test(trimmed) || trimmed.startsWith('@')) {
+                targetChatIds.add(trimmed);
+              }
+            });
+          }
         }
       }
     } catch (sErr) {
