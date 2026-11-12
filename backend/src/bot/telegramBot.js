@@ -65,10 +65,14 @@ const formatDate = (date) => {
 
 
 const formatDuration = (diffMs) => {
+
   if (!diffMs || diffMs < 0) diffMs = 0;
   const totalSeconds = Math.floor(diffMs / 1000);
+
   const hours = Math.floor(totalSeconds / 3600);
+
   const minutes = Math.floor((totalSeconds % 3600) / 60);
+
   const seconds = totalSeconds % 60;
 
   const pad = (n) => String(n).padStart(2, '0');
@@ -77,6 +81,7 @@ const formatDuration = (diffMs) => {
     return `${hours} soat ${pad(minutes)} daq ${pad(seconds)} s`;
   }
   return `${minutes} daq ${pad(seconds)} s`;
+  
 };
 
 /**
@@ -955,7 +960,7 @@ const initTelegramBot = async () => {
     // 0. Ensure telegram_sessions table has phone column
     try {
       await db.query('ALTER TABLE telegram_sessions ADD COLUMN IF NOT EXISTS phone VARCHAR(40);');
-    } catch (_) {}
+    } catch (_) { }
 
     // 1. Set Bot About & Short Description
     try {
@@ -993,7 +998,7 @@ const initTelegramBot = async () => {
             text: '📱 ILOVANI OCHISH',
             web_app: { url: getWebAppUrl(session.role, session.cafe_id) },
           },
-        }).catch(() => {});
+        }).catch(() => { });
 
         if (!session.phone) {
           userStates.set(chatId, { state: 'AWAITING_CONTACT', user: session });
@@ -1026,7 +1031,7 @@ const initTelegramBot = async () => {
       await bot.telegram.setChatMenuButton({
         chat_id: chatId,
         menu_button: { type: 'default' },
-      }).catch(() => {});
+      }).catch(() => { });
 
       // Immediate login prompt (No channel checks!)
       userStates.set(chatId, { state: 'AWAITING_LOGIN', failedAttempts: 0, lockedUntil: null });
@@ -1260,7 +1265,7 @@ const initTelegramBot = async () => {
         const session = await getSession(ctx.chat.id);
         if (!session || session.role !== 'cafe') return;
         const msg = await generateTodayReportMessage(session.cafe_id, session.cafe_name);
-        await ctx.editMessageText(msg, { parse_mode: 'HTML', ...getTodayReportInlineMarkup() }).catch(() => {});
+        await ctx.editMessageText(msg, { parse_mode: 'HTML', ...getTodayReportInlineMarkup() }).catch(() => { });
       } catch (err) {
         if (!err.message?.includes('message is not modified')) {
           console.error('action_refresh_today error:', err.message);
@@ -1316,7 +1321,7 @@ const initTelegramBot = async () => {
       // Check lockout status
       const lockStatus = checkLockout(chatId);
       if (lockStatus.locked) {
-        await ctx.deleteMessage().catch(() => {});
+        await ctx.deleteMessage().catch(() => { });
         return ctx.reply(
           `⛔ Ketma-ket 5 ta xato urinish tufayli kirish bloklangan. Iltimos, ${lockStatus.mins} daqiqadan so‘ng qayta urinib ko‘ring.`
         );
@@ -1384,7 +1389,7 @@ const initTelegramBot = async () => {
       // --- PAROL BOSQICHI ---
       if (st.state === 'AWAITING_PASSWORD') {
         // MUHIM: Parol xabari chatdan darhol o'chiriladi
-        await ctx.deleteMessage().catch(() => {});
+        await ctx.deleteMessage().catch(() => { });
 
         const pending = st.pendingUser;
         if (!pending || !pending.id) {
@@ -1447,7 +1452,7 @@ const initTelegramBot = async () => {
 
       // --- NOMER ULASH KUTILAYOTGAN HOLATDA MATN YOZILSA ---
       if (st.state === 'AWAITING_CONTACT') {
-        await ctx.deleteMessage().catch(() => {});
+        await ctx.deleteMessage().catch(() => { });
         return ctx.reply('⚠️ Iltimos, pastdagi «📱 Nomer ulash» tugmasini bosing.');
       }
 
@@ -1456,7 +1461,7 @@ const initTelegramBot = async () => {
       if (text === '/test_report' || text === 'test_report' || text === '/hisobot_test' || text === 'hisobot_test' || text === 'kunlik_hisobot') {
         const session = await getSession(chatId);
         if (!session) {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1497,7 +1502,7 @@ const initTelegramBot = async () => {
       if (text === '📊 Bugungi hisobot' || text === '🔄 Yangilash') {
         const session = await getSession(chatId);
         if (!session) {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1514,7 +1519,7 @@ const initTelegramBot = async () => {
       if (text === '🧾 Bugungi cheklar' || text === '🧾 Cheklar') {
         const session = await getSession(chatId);
         if (!session || session.role !== 'cafe') {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1526,7 +1531,7 @@ const initTelegramBot = async () => {
       if (text === '💰 Jami daromad') {
         const session = await getSession(chatId);
         if (!session || session.role !== 'cafe') {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1538,7 +1543,7 @@ const initTelegramBot = async () => {
       if (text === '📅 Kecha / oxirgi kunlar' || text === '📅 Oxirgi kunlar' || text === '📅 Kechagi hisobot') {
         const session = await getSession(chatId);
         if (!session || session.role !== 'cafe') {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1550,7 +1555,7 @@ const initTelegramBot = async () => {
       if (text === '📊 Umumiy hisobot') {
         const session = await getSession(chatId);
         if (!session || session.role !== 'director') {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1561,7 +1566,7 @@ const initTelegramBot = async () => {
       if (text === '🏢 Cafelar') {
         const session = await getSession(chatId);
         if (!session || session.role !== 'director') {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1579,7 +1584,7 @@ const initTelegramBot = async () => {
       if (text === '📱 Nomerim') {
         const session = await getSession(chatId);
         if (!session) {
-          await ctx.deleteMessage().catch(() => {});
+          await ctx.deleteMessage().catch(() => { });
           return ctx.reply('⚠️ Avval panelga kiring: /start');
         }
 
@@ -1608,7 +1613,7 @@ const initTelegramBot = async () => {
         await bot.telegram.setChatMenuButton({
           chat_id: chatId,
           menu_button: { type: 'default' },
-        }).catch(() => {});
+        }).catch(() => { });
 
         return ctx.reply(
           `👋 Siz tizimdan chiqdingiz. Bot orqali xabarlar kelishi to‘xtatildi.\n\nQayta kirish uchun: /start`,
@@ -1618,7 +1623,7 @@ const initTelegramBot = async () => {
 
       // --- BOSHQA HAR QANDAY ERKIN MATN ---
       // Agar foydalanuvchi erkin matn yozsa, menyu klaviaturasini qayta ko'rsatish
-      await ctx.deleteMessage().catch(() => {});
+      await ctx.deleteMessage().catch(() => { });
       const currentSession = await getSession(chatId);
       if (currentSession) {
         const kb = currentSession.role === 'director' ? getDirectorKeyboard() : getCafeKeyboard(currentSession.cafe_id);
@@ -1757,6 +1762,33 @@ const notifyCafeSessionsReceipt = async (cafeId, receipt, items) => {
       return;
     }
 
+    // 2. Query settings for configured telegram receipt chat
+    try {
+      const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
+      const sData = sRes.rows[0]?.data || {};
+      if (sData.telegramReceiptsEnabled !== false) {
+        const cfgChat = sData.telegramReceiptChatId || sData.telegramReceiptsChatId || sData.telegramResolvedChatId;
+        if (cfgChat) {
+          String(cfgChat).split(',').forEach((c) => {
+            const trimmed = c.trim();
+            if (/^-?\d+$/.test(trimmed) || trimmed.startsWith('@')) {
+              targetChatIds.add(trimmed);
+            }
+          });
+        }
+      }
+    } catch (sErr) {
+      console.warn('⚠️ [Telegram Receipt] Settings tekshirishda ogohlantirish:', sErr.message);
+    }
+
+    if (targetChatIds.size === 0) {
+      console.warn(`⚠️ [Telegram Receipt] Cafe (${cafeId}) uchun hech qanday faol Telegram chat topilmadi. Chek #${receipt.id} yuborilmadi.`);
+      if (receipt.id) {
+        await db.query(`UPDATE receipts SET telegram_status = 'no_chat' WHERE id = $1`, [receipt.id]).catch(() => { });
+      }
+      return;
+    }
+
     // Fetch cafe name
     let cafeName = 'ZAVERO Cafe';
     const cRes = await db.query(
@@ -1843,14 +1875,14 @@ const notifySessionsPasswordChanged = async (userId) => {
           await bot.telegram.setChatMenuButton({
             chat_id: row.chat_id,
             menu_button: { type: 'default' },
-          }).catch(() => {});
+          }).catch(() => { });
           await bot.telegram.sendMessage(
             row.chat_id,
             `⚠️ <b>Parol o‘zgartirildi!</b>\n\nIlovadan hisob ma‘lumotlaringiz yangilandi. Xavfsizlik maqsadida botdagi sessiyangiz yakunlandi.\n\nYangi ma‘lumotlar bilan qaytadan kiring: /start`,
             { parse_mode: 'HTML', ...Markup.removeKeyboard() }
           );
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     await db.query('DELETE FROM telegram_sessions WHERE user_id = $1', [userId]);
@@ -1876,14 +1908,14 @@ const notifySessionsCafeDeleted = async (cafeId, cafeName) => {
           await bot.telegram.setChatMenuButton({
             chat_id: row.chat_id,
             menu_button: { type: 'default' },
-          }).catch(() => {});
+          }).catch(() => { });
           await bot.telegram.sendMessage(
             row.chat_id,
             `⚠️ <b>"${cafeName || 'Cafe'}" kafesi o‘chirildi!</b>\n\nUshbu cafe paneli va bot xizmatiga kirish to‘liq yopildi.`,
             { parse_mode: 'HTML', ...Markup.removeKeyboard() }
           );
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     await db.query('DELETE FROM telegram_sessions WHERE cafe_id = $1', [cafeId]);
@@ -1932,7 +1964,7 @@ const sendCustomerOrderNotification = async (cafeId, order) => {
     for (const s of sessions.rows) {
       try {
         await bot.telegram.sendMessage(s.chat_id, text, { parse_mode: 'HTML' });
-      } catch (_) {}
+      } catch (_) { }
     }
   } catch (err) {
     console.error('sendCustomerOrderNotification error:', err.message);
@@ -1952,7 +1984,7 @@ const sendGeneralTelegramNotification = async (title, message, cafeId = null) =>
     for (const row of res.rows) {
       try {
         await bot.telegram.sendMessage(row.chat_id, fullMsg, { parse_mode: 'HTML' });
-      } catch (_) {}
+      } catch (_) { }
     }
   } catch (err) {
     console.error('sendGeneralTelegramNotification error:', err.message);

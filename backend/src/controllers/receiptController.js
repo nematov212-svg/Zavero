@@ -49,7 +49,7 @@ const checkout = async (req, res) => {
         effectiveTableNumber = tCheck.rows[0].number;
         effectiveHallId = tCheck.rows[0].hall_id;
       }
-    } catch (_) {}
+    } catch (_) { }
   } else if (effectiveTableNumber && (effectiveHallId || inputHallName)) {
     try {
       let tCheck;
@@ -70,14 +70,14 @@ const checkout = async (req, res) => {
         effectiveTableId = tCheck.rows[0].id;
         effectiveHallId = tCheck.rows[0].hall_id;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (!resolvedHallName && effectiveHallId) {
     try {
       const hRow = await db.query('SELECT name FROM halls WHERE id = $1 AND cafe_id = $2', [effectiveHallId, cafeId]);
       if (hRow.rows.length > 0) resolvedHallName = hRow.rows[0].name;
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // IDEMPOTENCY: Takroriy so'rov bo'lsa darhol mavjud chekni qaytaramiz (dublikat to'lovning oldi olinadi)
@@ -90,8 +90,8 @@ const checkout = async (req, res) => {
       );
       if (existing.rows.length > 0) {
         if (effectiveTableId) {
-          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL WHERE id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
-          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
+          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL WHERE id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => { });
+          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => { });
         }
         if (effectiveTableId || effectiveTableNumber) {
           const tKey = effectiveHallId && effectiveTableId ? `${effectiveHallId}_${effectiveTableId}` : null;
@@ -106,7 +106,7 @@ const checkout = async (req, res) => {
           isDuplicate: true,
         });
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // RECENT CHECK DEDUPLICATION: 30 soniya ichida aynan shu stol, zal va summaga chek urilgan bo'lsa qaytaramiz
@@ -125,8 +125,8 @@ const checkout = async (req, res) => {
       if (recent.rows.length > 0) {
         console.log(`⚠️ [Checkout] Takroriy bosish aniqlandi (Stol #${effectiveTableNumber}, Hall: ${effectiveHallId || inputHallName}, Summa: ${rTotal}). Dublikat rad etildi.`);
         if (effectiveTableId) {
-          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL WHERE id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
-          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => {});
+          await db.query(`UPDATE restaurant_tables SET status='free', order_id=NULL, total=0, started_by=NULL WHERE id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => { });
+          await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => { });
         }
         const tKey = effectiveHallId && effectiveTableId ? `${effectiveHallId}_${effectiveTableId}` : null;
         notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey });
@@ -140,7 +140,7 @@ const checkout = async (req, res) => {
         });
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 
   try {
     const { receiptRow, reportRow } = await db.withTransaction(async (client) => {
@@ -260,7 +260,7 @@ const checkout = async (req, res) => {
       notifyCafeSessionsReceipt(cafeId, receiptRow, items).catch((err) => {
         console.warn('⚠️ [Telegram Receipt] notifyCafeSessionsReceipt xatosi:', err.message);
       });
-    } catch (_) {}
+    } catch (_) { }
 
     if (effectiveTableId || effectiveTableNumber) {
       const tKey = effectiveHallId && effectiveTableId ? `${effectiveHallId}_${effectiveTableId}` : null;
@@ -285,7 +285,7 @@ const checkout = async (req, res) => {
             isDuplicate: true,
           });
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     console.error('checkout error:', error);
     return res.status(500).json({ success: false, message: "To'lovni yakunlashda xatolik: " + error.message });
@@ -310,7 +310,7 @@ const viewReceiptHtml = async (req, res) => {
       if (sRes.rows.length > 0 && sRes.rows[0].data) {
         settings = typeof sRes.rows[0].data === 'string' ? JSON.parse(sRes.rows[0].data) : sRes.rows[0].data;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const cafeName = settings.restaurantName || settings.receiptName || 'Family Cafe';
     const address = settings.restaurantAddress || "Navoi ko'chasi 12, Buxoro";
@@ -544,7 +544,7 @@ const createReceipt = async (req, res) => {
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS order_id VARCHAR(64);
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS waiter_id VARCHAR(64);
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS type VARCHAR(32) DEFAULT 'receipt';
-    `).catch(() => {});
+    `).catch(() => { });
 
     const result = await db.query(
       `INSERT INTO receipts 
@@ -619,8 +619,8 @@ const createReceipt = async (req, res) => {
     if (!savedReceipt.type || savedReceipt.type === 'sale') {
       try {
         const { notifyCafeSessionsReceipt } = require('../bot/telegramBot');
-        notifyCafeSessionsReceipt(cafeId, savedReceipt, items).catch(() => {});
-      } catch (_) {}
+        notifyCafeSessionsReceipt(cafeId, savedReceipt, items).catch(() => { });
+      } catch (_) { }
     }
 
     return res.status(201).json({
@@ -716,7 +716,7 @@ async function resolveChatIds(rawInput, cafeId) {
           resolved.push(linkRes.rows[0].chat_id);
           continue;
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // C) telegram_users jadvalidan tekshiramiz
       try {
@@ -728,7 +728,7 @@ async function resolveChatIds(rawInput, cafeId) {
           resolved.push(userRes.rows[0].telegram_id);
           continue;
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // D) Sozlamalardagi telegramResolvedChatId tekshiramiz
       if (cafeId) {
@@ -739,7 +739,7 @@ async function resolveChatIds(rawInput, cafeId) {
             resolved.push(d.telegramResolvedChatId);
             continue;
           }
-        } catch (_) {}
+        } catch (_) { }
       }
     }
   }
@@ -760,7 +760,7 @@ async function sendReceiptNotificationToTelegram(rawChatInput, receipt, items, s
     if (targetChatIds.length === 0) {
       console.warn(`⚠️ [Telegram Receipt] Chat ID topilmadi (${rawChatInput}). Chek #${receipt.id} yuborilmadi.`);
       if (receipt.id && typeof receipt.id === 'number') {
-        await db.query(`UPDATE receipts SET telegram_status = 'failed' WHERE id = $1`, [receipt.id]).catch(() => {});
+        await db.query(`UPDATE receipts SET telegram_status = 'failed' WHERE id = $1`, [receipt.id]).catch(() => { });
       }
       return { ok: false, error: 'Chat ID topilmadi yoki telefon raqami botga ulanmagan' };
     }
@@ -805,7 +805,7 @@ async function sendReceiptNotificationToTelegram(rawChatInput, receipt, items, s
       await db.query(
         `UPDATE receipts SET telegram_status = $1, telegram_sent_at = CURRENT_TIMESTAMP WHERE id = $2`,
         [status, receipt.id]
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
     return { ok: anySuccess };

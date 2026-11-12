@@ -1,3 +1,4 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const assert = require('assert');
 const db = require('../src/config/db');
 

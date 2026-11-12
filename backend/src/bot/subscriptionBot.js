@@ -78,18 +78,18 @@ const initSubscriptionBot = () => {
 
       const startSubPolling = async (retries = 0) => {
         try {
-          await subBot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
+          await subBot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => { });
           subBot.launch({ dropPendingUpdates: false }, () => {
-            console.log('🤖 [Subscription Bot] Alohida bot muvaffaqiyatli ishga tushdi va xabarlarni tinglamoqda!');
+            console.log(' [Subscription Bot] Alohida bot muvaffaqiyatli ishga tushdi va xabarlarni tinglamoqda!');
           }).then(() => {
-            console.log('ℹ️ [Subscription Bot] Polling to‘xtadi. 10 soniyadan so‘ng qayta uriniladi...');
+            console.log(' [Subscription Bot] Polling to`xtadi. 10 soniyadan so`ng qayta uriniladi...');
             setTimeout(() => startSubPolling(retries + 1), 10000);
           }).catch((err) => {
-            console.warn(`⚠️ [Subscription Bot] Polling xatosi: ${err.message}. 10 soniyadan so‘ng qayta uriniladi...`);
+            console.warn(`[Subscription Bot] Polling xatosi: ${err.message}. 10 soniyadan so'ng qayta uriniladi...`);
             setTimeout(() => startSubPolling(retries + 1), 10000);
           });
         } catch (err) {
-          console.warn(`⚠️ [Subscription Bot] Launch xatosi: ${err.message}. 10 soniyadan so‘ng qayta uriniladi...`);
+          console.warn(`[Subscription Bot] Launch xatosi: ${err.message}. 10 soniyadan so'ng qayta uriniladi...`);
           setTimeout(() => startSubPolling(retries + 1), 10000);
         }
       };
