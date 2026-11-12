@@ -1669,7 +1669,14 @@ const initTelegramBot = async () => {
   }
 };
 
-const getBotInstance = () => bot;
+const getBotInstance = () => {
+  if (!bot && process.env.TELEGRAM_BOT_TOKEN) {
+    try {
+      bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+    } catch (_) {}
+  }
+  return bot;
+};
 
 // ============================================================
 // REAL-TIME NOTIFICATIONS (ISOLATED BY CAFE_ID)
