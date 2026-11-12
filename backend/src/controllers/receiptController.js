@@ -694,7 +694,19 @@ async function resolveChatIds(rawInput, cafeId) {
     if (digits.length >= 9) {
       const suffix = digits.slice(-9);
 
-      // A) telegram_contact_links jadvalidan tekshiramiz
+      // A) telegram_sessions jadvalidan tekshiramiz
+      try {
+        const sessRes = await db.query(
+          `SELECT chat_id FROM telegram_sessions WHERE phone LIKE '%' || $1 LIMIT 1`,
+          [suffix]
+        );
+        if (sessRes.rows.length > 0 && sessRes.rows[0].chat_id) {
+          resolved.push(sessRes.rows[0].chat_id);
+          continue;
+        }
+      } catch (_) {}
+
+      // B) telegram_contact_links jadvalidan tekshiramiz
       try {
         const linkRes = await db.query(
           `SELECT chat_id FROM telegram_contact_links WHERE phone LIKE '%' || $1 LIMIT 1`,
@@ -706,7 +718,7 @@ async function resolveChatIds(rawInput, cafeId) {
         }
       } catch (_) {}
 
-      // B) telegram_users jadvalidan tekshiramiz
+      // C) telegram_users jadvalidan tekshiramiz
       try {
         const userRes = await db.query(
           `SELECT telegram_id FROM telegram_users WHERE phone LIKE '%' || $1 LIMIT 1`,
@@ -718,7 +730,7 @@ async function resolveChatIds(rawInput, cafeId) {
         }
       } catch (_) {}
 
-      // C) Sozlamalardagi telegramResolvedChatId tekshiramiz
+      // D) Sozlamalardagi telegramResolvedChatId tekshiramiz
       if (cafeId) {
         try {
           const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
@@ -817,10 +829,17 @@ const resendTelegramReceipt = async (req, res) => {
 
     const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
     const settings = sRes.rows[0]?.data || {};
-    const chatInput = settings.telegramReceiptChatId || settings.telegramReceiptsChatId;
+    let chatInput = settings.telegramReceiptChatId || settings.telegramReceiptsChatId || settings.telegramResolvedChatId;
 
     if (!chatInput) {
-      return res.status(400).json({ success: false, message: 'Telegram chat sozlanmagan' });
+      const sessRes = await db.query('SELECT chat_id FROM telegram_sessions WHERE cafe_id = $1', [cafeId]);
+      if (sessRes.rows.length > 0) {
+        chatInput = sessRes.rows.map((r) => r.chat_id).join(',');
+      }
+    }
+
+    if (!chatInput) {
+      return res.status(400).json({ success: false, message: 'Telegram chat sozlanmagan yoki botga ulangan chat topilmadi' });
     }
 
     const items = typeof receipt.items === 'string' ? JSON.parse(receipt.items) : (receipt.items || []);

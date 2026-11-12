@@ -76,11 +76,25 @@ const initSubscriptionBot = () => {
         console.warn('⚠️ [Subscription Bot] Xatolik:', err.message);
       });
 
-      subBot.launch().then(() => {
-        console.log('🤖 [Subscription Bot] Alohida bot muvaffaqiyatli ishga tushdi!');
-      }).catch((err) => {
-        console.warn('⚠️ [Subscription Bot] Launch xatosi:', err.message);
-      });
+      const startSubPolling = async (retries = 0) => {
+        try {
+          await subBot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
+          subBot.launch({ dropPendingUpdates: false }, () => {
+            console.log('🤖 [Subscription Bot] Alohida bot muvaffaqiyatli ishga tushdi va xabarlarni tinglamoqda!');
+          }).then(() => {
+            console.log('ℹ️ [Subscription Bot] Polling to‘xtadi. 10 soniyadan so‘ng qayta uriniladi...');
+            setTimeout(() => startSubPolling(retries + 1), 10000);
+          }).catch((err) => {
+            console.warn(`⚠️ [Subscription Bot] Polling xatosi: ${err.message}. 10 soniyadan so‘ng qayta uriniladi...`);
+            setTimeout(() => startSubPolling(retries + 1), 10000);
+          });
+        } catch (err) {
+          console.warn(`⚠️ [Subscription Bot] Launch xatosi: ${err.message}. 10 soniyadan so‘ng qayta uriniladi...`);
+          setTimeout(() => startSubPolling(retries + 1), 10000);
+        }
+      };
+
+      startSubPolling();
 
       process.once('SIGINT', () => subBot && subBot.stop('SIGINT'));
       process.once('SIGTERM', () => subBot && subBot.stop('SIGTERM'));

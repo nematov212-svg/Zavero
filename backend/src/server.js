@@ -70,8 +70,15 @@ const start = async () => {
     return;
   }
 
+  // Faqat 0-instansiyada yoki yakka processda bot ishga tushadi (PM2 cluster 409 Conflict xatosining oldi olinadi)
+  const isPrimaryWorker = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
+  if (!isPrimaryWorker) {
+    console.log(`ℹ️ [Cluster Worker ${process.env.NODE_APP_INSTANCE}] Telegram bot asosiy worker (0) da ishlaydi.`);
+    return;
+  }
+
   try {
-    initTelegramBot();
+    await initTelegramBot();
     initSubscriptionBot();
   } catch (botErr) {
     console.error('⚠️  Telegram botni ishga tushirishda xatolik:', botErr.message);

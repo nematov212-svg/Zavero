@@ -931,6 +931,19 @@ const initTelegramBot = async () => {
   try {
     bot = new Telegraf(token);
 
+    // Global xatolarni ushlash (xatolik pollingni o'ldirib qo'ymasligi uchun)
+    bot.catch((err, ctx) => {
+      console.error(`💥 [Telegram Bot] Xatolik yuz berdi (${ctx?.updateType || 'nomaʼlum'}):`, err.message);
+    });
+
+    // 0. Webhook holatini tozalash (polling bilan to'qnashuvni bartaraf etish)
+    try {
+      await bot.telegram.deleteWebhook({ drop_pending_updates: false });
+      console.log('✅ [Telegram Bot] Webhook tekshirildi va tozalandi.');
+    } catch (whErr) {
+      console.warn('⚠️ [Telegram Bot] deleteWebhook ogohlantirish:', whErr.message);
+    }
+
     // 0. Reset global chat menu button to default (WebApp loginsiz ko'rinmasligi uchun)
     try {
       await bot.telegram.setChatMenuButton({ menu_button: { type: 'default' } });
@@ -1618,16 +1631,36 @@ const initTelegramBot = async () => {
     // 9. Periodic 24:00 (Asia/Tashkent) cron scheduler
     startDailyReportScheduler();
 
-    // 10. Launch bot (polling mode if no webhook configured)
-    if (!process.env.TELEGRAM_WEBHOOK_URL) {
-      bot.launch({ dropPendingUpdates: true }).then(() => {
-        console.log('🤖 [Telegram Bot] ZAVERO POS hisobot boti muvaffaqiyatli ishga tushdi (Polling rejimida).');
-      }).catch((launchErr) => {
-        console.warn('⚠️  [Telegram Bot] Launch ogohlantirish:', launchErr.message);
-      });
-    } else {
-      console.log('🤖 [Telegram Bot] Webhook rejimida sozlangan.');
-    }
+    // 10. Launch bot with auto-reconnecting polling
+    const startPollingWithRetry = async (retryCount = 0) => {
+      if (process.env.TELEGRAM_WEBHOOK_URL) {
+        console.log('🤖 [Telegram Bot] Webhook rejimida sozlangan.');
+        return;
+      }
+
+      try {
+        console.log(`🤖 [Telegram Bot] Polling ishga tushirilmoqda (urinish: ${retryCount + 1})...`);
+        await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
+
+        bot.launch({ dropPendingUpdates: false }, () => {
+          console.log('🤖 [Telegram Bot] ZAVERO POS hisobot boti muvaffaqiyatli ishga tushdi va xabarlarni tinglamoqda.');
+        }).then(() => {
+          console.log('ℹ️ [Telegram Bot] Polling tugadi. 5 soniyadan so‘ng qayta tiklanadi...');
+          setTimeout(() => startPollingWithRetry(retryCount + 1), 5000);
+        }).catch((launchErr) => {
+          console.warn(`⚠️ [Telegram Bot] Polling xatosi: ${launchErr.message}. 5 soniyadan so‘ng qayta ishga tushiriladi...`);
+          setTimeout(() => startPollingWithRetry(retryCount + 1), 5000);
+        });
+      } catch (err) {
+        console.error(`❌ [Telegram Bot] Launch xatosi: ${err.message}. 5 soniyadan so‘ng qayta uriniladi...`);
+        setTimeout(() => startPollingWithRetry(retryCount + 1), 5000);
+      }
+    };
+
+    startPollingWithRetry();
+
+    process.once('SIGINT', () => { if (bot) bot.stop('SIGINT'); });
+    process.once('SIGTERM', () => { if (bot) bot.stop('SIGTERM'); });
 
     return bot;
   } catch (err) {
@@ -1647,11 +1680,23 @@ const getBotInstance = () => bot;
  */
 const notifyCafeSessionsReceipt = async (cafeId, receipt, items) => {
   try {
-    if (!bot || !bot.telegram || !cafeId || !receipt) return;
+    let currentBot = bot;
+    if (!currentBot || !currentBot.telegram) {
+      currentBot = getBotInstance();
+    }
+    if (!currentBot || !currentBot.telegram) {
+      console.warn('⚠️ [Telegram Receipt] Telegram bot instansi hali faol emas, chek yuborilmadi.');
+      return;
+    }
+    if (!cafeId || !receipt) {
+      console.warn('⚠️ [Telegram Receipt] cafeId yoki receipt parametri kiritilmagan.');
+      return;
+    }
 
     // Deduplication check
     const dedupKey = `rec_${cafeId}_${receipt.id}`;
     if (sentReceiptsCache.has(dedupKey)) {
+      console.log(`ℹ️ [Telegram Receipt] Chek #${receipt.id} allaqachon yuborilgan (cache dedup).`);
       return; // Already sent, prevent duplicate
     }
     sentReceiptsCache.add(dedupKey);
@@ -1662,17 +1707,48 @@ const notifyCafeSessionsReceipt = async (cafeId, receipt, items) => {
         [receipt.id]
       ).catch(() => ({ rows: [] }));
       if (chk.rows.length > 0 && chk.rows[0].telegram_status === 'sent') {
+        console.log(`ℹ️ [Telegram Receipt] Chek #${receipt.id} bazada allaqachon 'sent' holatida.`);
         return;
       }
     }
 
-    // Query active cafe sessions for this cafe_id
+    // 1. Query active sessions for this cafe_id
     const sessionsRes = await db.query(
-      `SELECT chat_id FROM telegram_sessions WHERE role = 'cafe' AND cafe_id = $1`,
+      `SELECT chat_id FROM telegram_sessions WHERE cafe_id = $1`,
       [cafeId]
     );
 
-    if (sessionsRes.rows.length === 0) return;
+    const targetChatIds = new Set();
+    for (const r of sessionsRes.rows) {
+      if (r.chat_id) targetChatIds.add(String(r.chat_id).trim());
+    }
+
+    // 2. Query settings for configured telegram receipt chat
+    try {
+      const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
+      const sData = sRes.rows[0]?.data || {};
+      if (sData.telegramReceiptsEnabled !== false) {
+        const cfgChat = sData.telegramReceiptChatId || sData.telegramReceiptsChatId || sData.telegramResolvedChatId;
+        if (cfgChat) {
+          String(cfgChat).split(',').forEach((c) => {
+            const trimmed = c.trim();
+            if (/^-?\d+$/.test(trimmed) || trimmed.startsWith('@')) {
+              targetChatIds.add(trimmed);
+            }
+          });
+        }
+      }
+    } catch (sErr) {
+      console.warn('⚠️ [Telegram Receipt] Settings tekshirishda ogohlantirish:', sErr.message);
+    }
+
+    if (targetChatIds.size === 0) {
+      console.warn(`⚠️ [Telegram Receipt] Cafe (${cafeId}) uchun hech qanday faol Telegram chat topilmadi. Chek #${receipt.id} yuborilmadi.`);
+      if (receipt.id) {
+        await db.query(`UPDATE receipts SET telegram_status = 'no_chat' WHERE id = $1`, [receipt.id]).catch(() => {});
+      }
+      return;
+    }
 
     // Fetch cafe name
     let cafeName = 'ZAVERO Cafe';
@@ -1716,19 +1792,26 @@ const notifyCafeSessionsReceipt = async (cafeId, receipt, items) => {
     text += `💰 <b>JAMI: ${totalStr} so'm</b>`;
 
     let anySent = false;
-    for (const row of sessionsRes.rows) {
+    for (const chatId of targetChatIds) {
       try {
-        await bot.telegram.sendMessage(row.chat_id, text, { parse_mode: 'HTML' });
+        await currentBot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
         anySent = true;
+        console.log(`✅ [Telegram Receipt] Chek #${receipt.id || ''} chat ${chatId} ga muvaffaqiyatli yetkazildi.`);
       } catch (sendErr) {
-        console.warn(`[Telegram Bot] Failed to send receipt to chat ${row.chat_id}:`, sendErr.message);
+        console.error(`❌ [Telegram Receipt] Chat ${chatId} ga chek yuborishda xatolik:`, sendErr.message);
+        if (sendErr.message && sendErr.message.includes('blocked')) {
+          console.warn(`🚫 [Telegram Receipt] Foydalanuvchi (${chatId}) botni bloklagan (Forbidden).`);
+        } else if (sendErr.message && sendErr.message.includes('chat not found')) {
+          console.warn(`⚠️ [Telegram Receipt] Chat (${chatId}) topilmadi. Foydalanuvchi botga /start bosishi lozim.`);
+        }
       }
     }
 
-    if (receipt.id && anySent) {
+    if (receipt.id) {
+      const status = anySent ? 'sent' : 'failed';
       await db.query(
-        `UPDATE receipts SET telegram_status = 'sent', telegram_sent_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [receipt.id]
+        `UPDATE receipts SET telegram_status = $1, telegram_sent_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [status, receipt.id]
       ).catch(() => {});
     }
   } catch (err) {

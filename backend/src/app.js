@@ -29,6 +29,7 @@ const { generalApiLimiter } = require('./middleware/rateLimitMiddleware');
 
 const app = express();
 
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
 // 🛑 Render Decommission: If running on Render, redirect all traffic to Railway
