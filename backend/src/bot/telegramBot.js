@@ -81,7 +81,7 @@ const formatDuration = (diffMs) => {
     return `${hours} soat ${pad(minutes)} daq ${pad(seconds)} s`;
   }
   return `${minutes} daq ${pad(seconds)} s`;
-  
+
 };
 
 /**
@@ -115,6 +115,7 @@ const getWebAppUrl = (role, cafeId) => {
 // ============================================================
 // DATABASE SESSION MANAGEMENT (Single Source of Truth)
 // ============================================================
+
 
 const getSession = async (chatId) => {
   try {
@@ -1645,7 +1646,7 @@ const initTelegramBot = async () => {
 
       try {
         console.log(`🤖 [Telegram Bot] Polling ishga tushirilmoqda (urinish: ${retryCount + 1})...`);
-        await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
+        await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => { });
 
         bot.launch({ dropPendingUpdates: false }, () => {
           console.log('🤖 [Telegram Bot] ZAVERO POS hisobot boti muvaffaqiyatli ishga tushdi va xabarlarni tinglamoqda.');
@@ -1678,7 +1679,7 @@ const getBotInstance = () => {
   if (!bot && process.env.TELEGRAM_BOT_TOKEN) {
     try {
       bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-    } catch (_) {}
+    } catch (_) { }
   }
   return bot;
 };
@@ -1733,33 +1734,6 @@ const notifyCafeSessionsReceipt = async (cafeId, receipt, items) => {
     const targetChatIds = new Set();
     for (const r of sessionsRes.rows) {
       if (r.chat_id) targetChatIds.add(String(r.chat_id).trim());
-    }
-
-    // 2. Query settings for configured telegram receipt chat
-    try {
-      const sRes = await db.query('SELECT data FROM settings WHERE cafe_id = $1 LIMIT 1', [cafeId]);
-      const sData = sRes.rows[0]?.data || {};
-      if (sData.telegramReceiptsEnabled !== false) {
-        const cfgChat = sData.telegramReceiptChatId || sData.telegramReceiptsChatId || sData.telegramResolvedChatId;
-        if (cfgChat) {
-          String(cfgChat).split(',').forEach((c) => {
-            const trimmed = c.trim();
-            if (/^-?\d+$/.test(trimmed) || trimmed.startsWith('@')) {
-              targetChatIds.add(trimmed);
-            }
-          });
-        }
-      }
-    } catch (sErr) {
-      console.warn('⚠️ [Telegram Receipt] Settings tekshirishda ogohlantirish:', sErr.message);
-    }
-
-    if (targetChatIds.size === 0) {
-      console.warn(`⚠️ [Telegram Receipt] Cafe (${cafeId}) uchun hech qanday faol Telegram chat topilmadi. Chek #${receipt.id} yuborilmadi.`);
-      if (receipt.id) {
-        await db.query(`UPDATE receipts SET telegram_status = 'no_chat' WHERE id = $1`, [receipt.id]).catch(() => {});
-      }
-      return;
     }
 
     // 2. Query settings for configured telegram receipt chat
@@ -1851,7 +1825,7 @@ const notifyCafeSessionsReceipt = async (cafeId, receipt, items) => {
       await db.query(
         `UPDATE receipts SET telegram_status = $1, telegram_sent_at = CURRENT_TIMESTAMP WHERE id = $2`,
         [status, receipt.id]
-      ).catch(() => {});
+      ).catch(() => { });
     }
   } catch (err) {
     console.error('notifyCafeSessionsReceipt error:', err.message);
