@@ -26,6 +26,7 @@ class ApiException implements Exception {
 /// - Tokenni flutter_secure_storage'da saqlaydi
 
 
+
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
   factory ApiClient() => _instance;
