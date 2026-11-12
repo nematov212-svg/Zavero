@@ -742,6 +742,8 @@ class Receipt {
   int? tableNumber;
   int? hallId;
   String? hallName;
+  int? waiterId;
+  String? waiterName;
   double cashPaid;
   double cardPaid;
   String printStatus; // 'printed', 'queued', 'unprinted'
@@ -760,6 +762,8 @@ class Receipt {
     this.tableNumber,
     this.hallId,
     this.hallName,
+    this.waiterId,
+    this.waiterName,
     this.cashPaid = 0,
     this.cardPaid = 0,
     this.printStatus = 'unprinted',
@@ -779,6 +783,8 @@ class Receipt {
         'tableNumber': tableNumber,
         'hallId': hallId,
         'hallName': hallName,
+        'waiterId': waiterId,
+        'waiterName': waiterName,
         'cashPaid': cashPaid,
         'cardPaid': cardPaid,
         'printStatus': printStatus,
@@ -803,6 +809,8 @@ class Receipt {
         tableNumber: (j['tableNumber'] as num?)?.toInt(),
         hallId: (j['hallId'] as num?)?.toInt(),
         hallName: j['hallName'] as String?,
+        waiterId: (j['waiterId'] as num?)?.toInt() ?? (j['waiter_id'] as num?)?.toInt(),
+        waiterName: j['waiterName'] as String? ?? j['waiter_name'] as String?,
         cashPaid: (j['cashPaid'] as num?)?.toDouble() ?? 0,
         cardPaid: (j['cardPaid'] as num?)?.toDouble() ?? 0,
         printStatus: j['printStatus'] as String? ?? 'unprinted',

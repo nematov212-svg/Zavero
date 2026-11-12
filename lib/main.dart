@@ -35,6 +35,7 @@ import 'services/local_cache_service.dart';
 import 'services/sound_service.dart';
 import 'services/localization_service.dart';
 import 'services/offline_sync_service.dart';
+import 'services/connectivity_service.dart';
 import 'services/thermal_html_generator.dart';
 import 'services/web_receipt_printer.dart';
 import 'services/receipt_printer_service.dart';
@@ -746,7 +747,9 @@ class AppState extends ChangeNotifier {
   DateTime? _lastLocalCartUserMutationTime;
 
   final Map<int, List<CartItem>> tableOrders = {};
+  final Map<String, List<CartItem>> tableOrdersByZone = {};
   final Map<int, String> tableNotes = {};
+  final Map<String, String> tableNotesByZone = {};
   final Map<int, int> _tableOrderMutationTimes = {};
   Timer? _cartSaveDebounceTimer;
 
@@ -1048,7 +1051,9 @@ class AppState extends ChangeNotifier {
     receipts.clear();
     customerOrders.clear();
     tableOrders.clear();
+    tableOrdersByZone.clear();
     tableNotes.clear();
+    tableNotesByZone.clear();
     cart.clear();
     customerCart.clear();
     selectedHall = null;
@@ -1395,6 +1400,8 @@ class AppState extends ChangeNotifier {
           final tIdx = tables.indexWhere((t) => t.id == tableId);
           if (tIdx != -1) {
             tables[tIdx].status = TableStatus.free;
+            tableOrdersByZone.remove(tables[tIdx].tableKey);
+            tableNotesByZone.remove(tables[tIdx].tableKey);
           }
         }
       }
@@ -1407,15 +1414,18 @@ class AppState extends ChangeNotifier {
         if (now - lastMutation < 4000) {
           continue;
         }
+        final tIdx = tables.indexWhere((t) => t.id == tableId);
+        final tableKey = tIdx != -1 ? tables[tIdx].tableKey : null;
+
         if (remoteItems.isNotEmpty) {
           tableOrders[tableId] = remoteItems;
-          final tIdx = tables.indexWhere((t) => t.id == tableId);
+          if (tableKey != null) tableOrdersByZone[tableKey] = remoteItems;
           if (tIdx != -1) {
             tables[tIdx].status = TableStatus.occupied;
           }
         } else {
           tableOrders.remove(tableId);
-          final tIdx = tables.indexWhere((t) => t.id == tableId);
+          if (tableKey != null) tableOrdersByZone.remove(tableKey);
           if (tIdx != -1) {
             tables[tIdx].status = TableStatus.free;
           }
@@ -1628,13 +1638,15 @@ class AppState extends ChangeNotifier {
       }
 
       for (final t in tables) {
-        final matches = (tId != null && t.id == tId) ||
-            (tId == null && tNum != null && tHallId != null && t.number == tNum && t.hallId == tHallId);
+        final matches = (tHallId != null && t.hallId == tHallId && ((tId != null && t.id == tId) || (tNum != null && t.number == tNum))) ||
+            (tHallId == null && tId != null && t.id == tId);
         if (matches) {
           t.status = isOcc ? TableStatus.occupied : TableStatus.free;
           if (!isOcc) {
             tableOrders.remove(t.id);
+            tableOrdersByZone.remove(t.tableKey);
             tableNotes.remove(t.id);
+            tableNotesByZone.remove(t.tableKey);
           }
           updated = true;
         }
@@ -1663,8 +1675,8 @@ class AppState extends ChangeNotifier {
       }
 
       for (final t in tables) {
-        final matches = (tId != null && t.id == tId) ||
-            (tId == null && tNum != null && tHallId != null && t.number == tNum && t.hallId == tHallId);
+        final matches = (tHallId != null && t.hallId == tHallId && ((tId != null && t.id == tId) || (tNum != null && t.number == tNum))) ||
+            (tHallId == null && tId != null && t.id == tId);
         if (matches) {
           if (hasItems) {
             final items = rawItems
@@ -1672,10 +1684,13 @@ class AppState extends ChangeNotifier {
                 .map((m) => CartItem.fromJson(Map<String, dynamic>.from(m)))
                 .toList();
             tableOrders[t.id] = items;
+            tableOrdersByZone[t.tableKey] = items;
             t.status = TableStatus.occupied;
           } else {
             tableOrders.remove(t.id);
+            tableOrdersByZone.remove(t.tableKey);
             tableNotes.remove(t.id);
+            tableNotesByZone.remove(t.tableKey);
             t.status = TableStatus.free;
           }
           updated = true;
@@ -1704,12 +1719,14 @@ class AppState extends ChangeNotifier {
 
       bool updated = false;
       for (final t in tables) {
-        final matches = (tId != null && t.id == tId) ||
-            (tId == null && tNum != null && tHallId != null && t.number == tNum && t.hallId == tHallId);
+        final matches = (tHallId != null && t.hallId == tHallId && ((tId != null && t.id == tId) || (tNum != null && t.number == tNum))) ||
+            (tHallId == null && tId != null && t.id == tId);
         if (matches) {
           t.status = TableStatus.free;
           tableOrders.remove(t.id);
+          tableOrdersByZone.remove(t.tableKey);
           tableNotes.remove(t.id);
+          tableNotesByZone.remove(t.tableKey);
           _tableOrderMutationTimes[t.id] = DateTime.now().millisecondsSinceEpoch;
           updated = true;
         }
@@ -2139,33 +2156,49 @@ class AppState extends ChangeNotifier {
   // ---------------- KASSIR SAVATI & STOL BAND QILISH LOGIKASI ----------------
 
   /// Stol uchun aktiv (bo'sh bo'lmagan) buyurtma bormi?
-  bool hasActiveOrder(int tableId) {
-    final order = tableOrders[tableId];
-    return order != null && order.isNotEmpty;
+  bool hasActiveOrder(dynamic tableOrId) {
+    if (tableOrId is TableModel) {
+      final byZone = tableOrdersByZone[tableOrId.tableKey];
+      if (byZone != null && byZone.isNotEmpty) return true;
+      final byId = tableOrders[tableOrId.id];
+      return byId != null && byId.isNotEmpty;
+    }
+    if (tableOrId is int) {
+      final byId = tableOrders[tableOrId];
+      if (byId != null && byId.isNotEmpty) return true;
+      for (final e in tableOrdersByZone.entries) {
+        if (e.key.endsWith('_$tableOrId') && e.value.isNotEmpty) return true;
+      }
+    }
+    return false;
   }
 
   /// Barcha stollar holatini `tableOrders` bilan sinxronlashtiradi.
   void _reconcileAllTableStatuses() {
     for (final table in tables) {
-      final occupied = hasActiveOrder(table.id);
+      final occupied = hasActiveOrder(table);
       table.status = occupied ? TableStatus.occupied : TableStatus.free;
       if (!occupied && selectedTable?.id != table.id) {
         tableOrders.remove(table.id);
+        tableOrdersByZone.remove(table.tableKey);
         tableNotes.remove(table.id);
+        tableNotesByZone.remove(table.tableKey);
       }
     }
   }
 
   void _syncTableStatusesFromOrders() {
     for (final table in tables) {
-      final hasOrder = hasActiveOrder(table.id);
+      final hasOrder = hasActiveOrder(table);
       if (hasOrder) {
         table.status = TableStatus.occupied;
       } else {
         if (selectedTable?.id != table.id) {
           table.status = TableStatus.free;
           tableOrders.remove(table.id);
+          tableOrdersByZone.remove(table.tableKey);
           tableNotes.remove(table.id);
+          tableNotesByZone.remove(table.tableKey);
         }
       }
     }
@@ -2176,7 +2209,7 @@ class AppState extends ChangeNotifier {
     final idx = tables.indexWhere((t) => t.id == tableId);
     if (idx == -1) return;
 
-    final occupied = hasActiveOrder(tableId);
+    final occupied = hasActiveOrder(tables[idx]);
     final table = tables[idx];
     final newStatus = occupied ? TableStatus.occupied : TableStatus.free;
     table.status = newStatus;
@@ -2228,7 +2261,7 @@ class AppState extends ChangeNotifier {
         selectedHall = halls[hIdx];
       }
     }
-    final items = tableOrders[t.id];
+    final items = tableOrdersByZone[t.tableKey] ?? tableOrders[t.id];
     cart
       ..clear()
       ..addAll(
@@ -2257,6 +2290,7 @@ class AppState extends ChangeNotifier {
             tableOrders[tableId] = loadedItems;
             final tIdx = tables.indexWhere((tbl) => tbl.id == tableId);
             if (tIdx != -1) {
+              tableOrdersByZone[tables[tIdx].tableKey] = loadedItems;
               tables[tIdx].status = TableStatus.occupied;
             }
             if (selectedTable?.id == tableId && cart.isEmpty) {
@@ -2275,15 +2309,21 @@ class AppState extends ChangeNotifier {
 
   void _syncCartToTable() {
     if (selectedTable == null) return;
-    final tableId = selectedTable!.id;
+    final table = selectedTable!;
+    final tableId = table.id;
+    final zoneKey = table.tableKey;
 
     if (cart.isEmpty) {
       tableOrders.remove(tableId);
+      tableOrdersByZone.remove(zoneKey);
       tableNotes.remove(tableId);
+      tableNotesByZone.remove(zoneKey);
     } else {
-      tableOrders[tableId] = List<CartItem>.from(
+      final items = List<CartItem>.from(
         cart.map((c) => CartItem(product: c.product, qty: c.qty, note: c.note)),
       );
+      tableOrders[tableId] = items;
+      tableOrdersByZone[zoneKey] = items;
       _tableOrderMutationTimes[tableId] = DateTime.now().millisecondsSinceEpoch;
     }
 
@@ -2307,6 +2347,9 @@ class AppState extends ChangeNotifier {
       final jsonTableOrders = tableOrders.map(
         (k, v) => MapEntry(k.toString(), v.map((e) => e.toJson()).toList()),
       );
+      for (final e in tableOrdersByZone.entries) {
+        jsonTableOrders[e.key] = e.value.map((item) => item.toJson()).toList();
+      }
       await prefs.setString('tableOrders', jsonEncode(jsonTableOrders));
       await prefs.setString('tableNotes', jsonEncode(tableNotes));
       await LocalCacheService().setCachedMap('cache_table_orders_$currentCafeId', jsonTableOrders);
@@ -2524,7 +2567,9 @@ class AppState extends ChangeNotifier {
   Future<void> clearAllTables() async {
     tables.clear();
     tableOrders.clear();
+    tableOrdersByZone.clear();
     tableNotes.clear();
+    tableNotesByZone.clear();
     selectedTable = null;
     cart.clear();
     await saveData();
@@ -2681,10 +2726,14 @@ class AppState extends ChangeNotifier {
   /// Stolni bo'shatish va buyurtmani bekor qilish.
   Future<void> releaseCurrentTable() async {
     if (selectedTable == null) return;
-    final tId = selectedTable!.id;
+    final table = selectedTable!;
+    final tId = table.id;
     cart.clear();
     tableOrders.remove(tId);
+    tableOrdersByZone.remove(table.tableKey);
     tableNotes.remove(tId);
+    tableNotesByZone.remove(table.tableKey);
+    table.status = TableStatus.free;
     await _persistTableStatus(tId, false);
     selectedTable = null;
     notifyListeners();
@@ -2707,6 +2756,8 @@ class AppState extends ChangeNotifier {
       total: cartTotal,
       method: method,
       cashierName: currentUser?.name ?? guestName ?? 'Mehmon',
+      waiterId: currentUser?.id,
+      waiterName: currentUser?.name ?? guestName ?? 'Ofitsiant',
       tableId: selectedTable?.id,
       tableNumber: selectedTable?.number,
       hallId: selectedHall?.id ?? selectedTable?.hallId,
@@ -2776,6 +2827,10 @@ class AppState extends ChangeNotifier {
       _tableOrderMutationTimes[tableIdToRelease] = nowMs;
       tableOrders.remove(tableIdToRelease);
       tableNotes.remove(tableIdToRelease);
+      if (selectedTable != null) {
+        tableOrdersByZone.remove(selectedTable!.tableKey);
+        tableNotesByZone.remove(selectedTable!.tableKey);
+      }
     }
 
     // 2. Stolni xotirada darhol bo'shatamiz
@@ -2786,7 +2841,9 @@ class AppState extends ChangeNotifier {
       if (matches) {
         tables[i].status = TableStatus.free;
         tableOrders.remove(tables[i].id);
+        tableOrdersByZone.remove(tables[i].tableKey);
         tableNotes.remove(tables[i].id);
+        tableNotesByZone.remove(tables[i].tableKey);
         _tableOrderMutationTimes[tables[i].id] = nowMs;
         unawaited(_persistTableStatus(tables[i].id, false));
       }
@@ -2794,6 +2851,10 @@ class AppState extends ChangeNotifier {
     if (tableIdToRelease != null) {
       tableOrders.remove(tableIdToRelease);
       tableNotes.remove(tableIdToRelease);
+      if (selectedTable != null) {
+        tableOrdersByZone.remove(selectedTable!.tableKey);
+        tableNotesByZone.remove(selectedTable!.tableKey);
+      }
     }
 
     try {
@@ -3702,25 +3763,36 @@ class AppState extends ChangeNotifier {
     final rawTableOrders = prefs.getString('${pfx}tableOrders');
     if (rawTableOrders != null) {
       final decoded = jsonDecode(rawTableOrders) as Map<String, dynamic>;
-      tableOrders
-        ..clear()
-        ..addAll(
-          decoded.map(
-            (k, v) => MapEntry(
-              int.parse(k),
-              (v as List)
-                  .map((e) => CartItem.fromJson(e as Map<String, dynamic>))
-                  .toList(),
-            ),
-          ),
-        );
+      tableOrders.clear();
+      tableOrdersByZone.clear();
+      decoded.forEach((k, v) {
+        if (v is List) {
+          final items = v.map((e) => CartItem.fromJson(e as Map<String, dynamic>)).toList();
+          final tId = int.tryParse(k) ?? int.tryParse(k.split('_').last);
+          if (tId != null) {
+            tableOrders[tId] = items;
+          }
+          if (k.contains('_')) {
+            tableOrdersByZone[k] = items;
+          }
+        }
+      });
     }
     final rawTableNotes = prefs.getString('${pfx}tableNotes');
     if (rawTableNotes != null) {
       final decoded = jsonDecode(rawTableNotes) as Map<String, dynamic>;
-      tableNotes
-        ..clear()
-        ..addAll(decoded.map((k, v) => MapEntry(int.parse(k), v as String)));
+      tableNotes.clear();
+      tableNotesByZone.clear();
+      decoded.forEach((k, v) {
+        final str = v?.toString() ?? '';
+        final tId = int.tryParse(k) ?? int.tryParse(k.split('_').last);
+        if (tId != null) {
+          tableNotes[tId] = str;
+        }
+        if (k.contains('_')) {
+          tableNotesByZone[k] = str;
+        }
+      });
     }
   }
 
@@ -8174,7 +8246,9 @@ class _HallPillTabState extends State<HallPillTab> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOutQuad,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          constraints: const BoxConstraints(minHeight: 44),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
           decoration: ShapeDecoration(
             shape: const StadiumBorder(),
             color: isSel
@@ -8479,14 +8553,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     return '${nowT.day.toString().padLeft(2, '0')}.${nowT.month.toString().padLeft(2, '0')}.${nowT.year}';
   }
 
-  // ── Network ping state ──────────────────────────────────────────
-  static int _cachedDashboardPingMs = 22;
-  static bool _cachedDashboardIsOnline = true;
-
-  int _pingMs = _cachedDashboardPingMs;
-  bool _isOnline = _cachedDashboardIsOnline;
-  bool _isPingChecking = false;
-  Timer? _pingTimer;
+  // ── Network & Heartbeat state ──────────────────────────────────────────
+  Timer? _heartbeatTimer;
   int _lastHeartbeatMs = 0;
   int _heartbeatIntervalMs = 15000;
 
@@ -8494,13 +8562,21 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _startPingTimer();
+    ConnectivityService().init();
+    ConnectivityService().latencyNotifier.addListener(_onNetworkChanged);
+    ConnectivityService().stateNotifier.addListener(_onNetworkChanged);
+    ConnectivityService().qualityNotifier.addListener(_onNetworkChanged);
+    _startHeartbeatTimer();
+  }
+
+  void _onNetworkChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _checkPing();
+      ConnectivityService().checkNow();
       final cafeId = appState.currentCafeId;
       if (cafeId.isNotEmpty && cafeId != 'local_default' && ApiClient().isAuthenticated) {
         if (!SocketService().isConnected) {
@@ -8511,50 +8587,12 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  Color _getPingColor(int pingMs, bool isOnline) {
-    if (!isOnline) return const Color(0xFFEF4444); // Offline qizil
-    if (pingMs <= 100) return const Color(0xFF10B981); // 0-100ms yashil
-    if (pingMs <= 300) return const Color(0xFFF59E0B); // 100-300ms sariq
-    return const Color(0xFFEF4444); // 300ms+ to'q sariq/qizil
+  void _startHeartbeatTimer() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (_) => _sendHeartbeat());
   }
 
-  void _startPingTimer() {
-    _pingTimer?.cancel();
-    _checkPing();
-    // 5-10 soniya oralig'ida avtomatik yangilanish
-    _pingTimer = Timer.periodic(const Duration(seconds: 7), (_) => _checkPing());
-  }
-
-  Future<void> _checkPing() async {
-    if (_isPingChecking) return;
-    _isPingChecking = true;
-    final sw = Stopwatch()..start();
-    try {
-      await ApiClient().get('/health').timeout(const Duration(seconds: 5));
-      sw.stop();
-      final raw = sw.elapsedMilliseconds;
-      final realPing = raw > 0 ? raw : 20;
-      _cachedDashboardPingMs = realPing;
-      _cachedDashboardIsOnline = true;
-      if (mounted) {
-        setState(() {
-          _pingMs = realPing;
-          _isOnline = true;
-        });
-      }
-    } catch (_) {
-      sw.stop();
-      _cachedDashboardIsOnline = false;
-      if (mounted) {
-        setState(() {
-          _isOnline = false;
-        });
-      }
-    } finally {
-      _isPingChecking = false;
-    }
-
-    // Cafe Heartbeat: har 15-60s serverga heartbeat yuborib cafes.last_seen yangilanadi (15s -> 30s -> 60s backoff)
+  Future<void> _sendHeartbeat() async {
     final cafeId = appState.currentCafeId;
     if (cafeId.isNotEmpty && cafeId != 'local_default' && cafeId != 'zavero' && ApiClient().isAuthenticated) {
       final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -8572,7 +8610,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _pingTimer?.cancel();
+    ConnectivityService().latencyNotifier.removeListener(_onNetworkChanged);
+    ConnectivityService().stateNotifier.removeListener(_onNetworkChanged);
+    ConnectivityService().qualityNotifier.removeListener(_onNetworkChanged);
+    _heartbeatTimer?.cancel();
     super.dispose();
   }
 
@@ -9603,27 +9644,57 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               ),
                               const SizedBox(width: 8),
                             ],
+                            // Unsynced offline actions indicator
+                            ValueListenableBuilder<int>(
+                              valueListenable: OfflineSyncService().pendingCountNotifier,
+                              builder: (context, count, _) => count > 0
+                                  ? Container(
+                                      margin: const EdgeInsets.only(right: 8),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(color: const Color(0xFFF59E0B)),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.sync_rounded, size: 12, color: Color(0xFFF59E0B)),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            '$count ta yuborilmagan',
+                                            style: const TextStyle(
+                                              color: Color(0xFFD97706),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
                             // Live network status badge
                             if (showPing) ...[
                               AnimatedContainer(
                                 duration: const Duration(milliseconds: 300),
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                 decoration: BoxDecoration(
-                                  color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.12),
+                                  color: ConnectivityService().color.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
-                                    color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.35),
+                                    color: ConnectivityService().color.withValues(alpha: 0.35),
                                   ),
                                 ),
                                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
+                                  _PulsingDot(color: ConnectivityService().color),
                                   const SizedBox(width: 5),
                                   Text(
-                                    _isOnline
-                                        ? '${_pingMs > 0 ? _pingMs : _cachedDashboardPingMs}ms'
+                                    ConnectivityService().isOnline
+                                        ? '${ConnectivityService().latencyMs}ms (${ConnectivityService().qualityText})'
                                         : 'Offline',
                                     style: TextStyle(
-                                      color: _getPingColor(_pingMs, _isOnline),
+                                      color: ConnectivityService().color,
                                       fontWeight: FontWeight.w700,
                                       fontSize: 11.5,
                                     ),
@@ -9748,19 +9819,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              // 1. TELEFON (< 600 px): Dropdown tugmasi aynan shunday qoladi
-                              if (screenWidth < 600 && appState.halls.isNotEmpty)
-                                _HallDropdown(
-                                  halls: appState.halls,
-                                  selectedHall: appState.selectedHall,
-                                  onSelect: (h) => setState(() => appState.selectedHall = h),
-                                ),
                             ],
                           ),
 
-                          // 2. PLANSHET va KOMPYUTER (>= 600 px): Sarlavha tagida yonma-yon zal tablari (pill)
-                          if (screenWidth >= 600 && appState.halls.isNotEmpty) ...[
+                          // Barcha qurilmalarda (telefon, planshet, kompyuter): Sarlavha tagida yonma-yon zal tablari (pill)
+                          if (appState.halls.isNotEmpty) ...[
                             const SizedBox(height: 14),
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
@@ -9768,7 +9831,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               child: Row(
                                 children: [
                                   for (int i = 0; i < appState.halls.length; i++) ...[
-                                    if (i > 0) const SizedBox(width: 12),
+                                    if (i > 0) const SizedBox(width: 10),
                                     _HallPillTab(
                                       hall: appState.halls[i],
                                       isSelected: (appState.selectedHall?.id ?? (appState.halls.isNotEmpty ? appState.halls.first.id : null)) == appState.halls[i].id,
@@ -10124,28 +10187,58 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                   ),
                                 ],
                                 const Spacer(),
+                                // Mobile pending actions badge
+                                ValueListenableBuilder<int>(
+                                  valueListenable: OfflineSyncService().pendingCountNotifier,
+                                  builder: (context, count, _) => count > 0
+                                      ? Container(
+                                          margin: const EdgeInsets.only(right: 6),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF59E0B).withValues(alpha: 0.18),
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: const Color(0xFFF59E0B), width: 0.9),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.sync_rounded, size: 11, color: Color(0xFFF59E0B)),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                '$count',
+                                                style: const TextStyle(
+                                                  color: Color(0xFFD97706),
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
                                 // Mobile live ping badge (only if screen has enough width)
                                 if (w >= 340) ...[
                                   AnimatedContainer(
                                     duration: const Duration(milliseconds: 300),
                                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
                                     decoration: BoxDecoration(
-                                      color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.16),
+                                      color: ConnectivityService().color.withValues(alpha: 0.16),
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
-                                        color: _getPingColor(_pingMs, _isOnline).withValues(alpha: 0.45),
+                                        color: ConnectivityService().color.withValues(alpha: 0.45),
                                         width: 0.9,
                                       ),
                                     ),
                                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                      _PulsingDot(color: _getPingColor(_pingMs, _isOnline)),
+                                      _PulsingDot(color: ConnectivityService().color),
                                       const SizedBox(width: 4),
                                       Text(
-                                        _isOnline
-                                            ? '${_pingMs > 0 ? _pingMs : _cachedDashboardPingMs}ms'
+                                        ConnectivityService().isOnline
+                                            ? '${ConnectivityService().latencyMs}ms'
                                             : 'Offline',
                                         style: TextStyle(
-                                          color: _getPingColor(_pingMs, _isOnline),
+                                          color: ConnectivityService().color,
                                           fontWeight: FontWeight.w700,
                                           fontSize: 11,
                                         ),
@@ -13620,12 +13713,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
     // Stolni xotirada 100% bo'shatilishini kafolatlaymiz (Band qolib ketmasligi uchun)
     if (selTable != null) {
       appState.tableOrders.remove(selTable.id);
+      appState.tableOrdersByZone.remove(selTable.tableKey);
       appState.tableNotes.remove(selTable.id);
+      appState.tableNotesByZone.remove(selTable.tableKey);
       for (final t in appState.tables) {
         if (t.id == selTable.id || (t.number == selTable.number && t.hallId == selTable.hallId)) {
           t.status = TableStatus.free;
           appState.tableOrders.remove(t.id);
+          appState.tableOrdersByZone.remove(t.tableKey);
           appState.tableNotes.remove(t.id);
+          appState.tableNotesByZone.remove(t.tableKey);
         }
       }
       appState.notifyChanges();

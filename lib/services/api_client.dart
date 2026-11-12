@@ -528,6 +528,33 @@ class ApiClient {
     }
   }
 
+  /// ⚡ Ultra-yengil ping (HEAD / bo'sh GET, keep-alive orqali qayta ishlatiladi)
+  Future<bool> pingFast() async {
+    try {
+      final res = await _dio.get(
+        '$socketUrl/ping',
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: {'Connection': 'keep-alive'},
+        ),
+      ).timeout(const Duration(seconds: 5));
+      return res.statusCode == 200 || res.statusCode == 204;
+    } catch (_) {
+      try {
+        final res = await _dio.get(
+          '$socketUrl/health',
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: {'Connection': 'keep-alive'},
+          ),
+        ).timeout(const Duration(seconds: 5));
+        return res.statusCode == 200;
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
   /// GET /api/sync/bootstrap — Oflayn rejim uchun to'liq boshlang'ich ma'lumotlar
   Future<Map<String, dynamic>> syncBootstrap() async {
     return await get('/sync/bootstrap');

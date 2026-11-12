@@ -102,9 +102,22 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// ⚡ ULTRA-FAST HEALTH / PING ENDPOINTS (Zero overhead, instant < 1ms response)
-app.get(['/health', '/api/health'], (req, res) => {
+// ⚡ ULTRA-FAST HEAD/GET /ping & /health ENDPOINTS (Zero overhead, 1-2 bytes response, keep-alive)
+app.all(['/ping', '/api/ping'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Connection', 'keep-alive');
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
+  return res.status(200).send('ok');
+});
+
+app.all(['/health', '/api/health', '/api/v1/health'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Connection', 'keep-alive');
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
   return res.status(200).json({ status: 'ok', service: 'zavero-backend', version: '2.5.0-unblocked', time: Date.now() });
 });
 app.use(express.json({ limit: '5mb' }));
