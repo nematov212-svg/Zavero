@@ -316,7 +316,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _ordersSub;
   StreamSubscription? _productsSub;
   StreamSubscription? _tableOrdersSub;
-  StreamSubscription? _reportsSub;
+  StreamSubscription? _reportsSub; 
   StreamSubscription? _receiptsSub;
   StreamSubscription? _categoriesSub;
   StreamSubscription? _customersSub;
@@ -1598,7 +1598,7 @@ class AppState extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      final tableDeletedId = (data['tableDeleted'] as num?)?.toInt();
+      final tableDeletedId = safeNullableInt(data['tableDeleted']);
       if (tableDeletedId != null) {
         tables.removeWhere((t) => t.id == tableDeletedId);
         tableOrders.remove(tableDeletedId);
@@ -1623,9 +1623,9 @@ class AppState extends ChangeNotifier {
           notifyListeners();
         } catch (_) {}
       }
-      final tId = (data['tableId'] as num?)?.toInt();
-      final tNum = (data['tableNumber'] as num?)?.toInt();
-      final tHallId = (data['hallId'] as num?)?.toInt();
+      final tId = safeNullableInt(data['tableId']);
+      final tNum = safeNullableInt(data['tableNumber']);
+      final tHallId = safeNullableInt(data['hallId']);
       final st = data['status'] as String?;
       final isOcc = (st == 'occupied');
 
@@ -1662,9 +1662,9 @@ class AppState extends ChangeNotifier {
         }
         return;
       }
-      final tId = (data['tableId'] as num?)?.toInt();
-      final tNum = (data['tableNumber'] as num?)?.toInt();
-      final tHallId = (data['hallId'] as num?)?.toInt();
+      final tId = safeNullableInt(data['tableId']);
+      final tNum = safeNullableInt(data['tableNumber']);
+      final tHallId = safeNullableInt(data['hallId']);
       final rawItems = data['items'];
       final hasItems = rawItems is List && rawItems.isNotEmpty;
 
@@ -1707,9 +1707,9 @@ class AppState extends ChangeNotifier {
         }
         return;
       }
-      final tId = (data['tableId'] as num?)?.toInt();
-      final tNum = (data['tableNumber'] as num?)?.toInt();
-      final tHallId = (data['hallId'] as num?)?.toInt();
+      final tId = safeNullableInt(data['tableId']);
+      final tNum = safeNullableInt(data['tableNumber']);
+      final tHallId = safeNullableInt(data['hallId']);
 
       if (tId != null) {
         tableOrders.remove(tId);
@@ -1737,48 +1737,49 @@ class AppState extends ChangeNotifier {
     // Real-time receipts sync across devices and Telegram WebApp
     _socketReceiptAddedSub?.cancel();
     _socketReceiptAddedSub = SocketService().on(CafeSocketEvent.receiptAdded).listen((data) {
-      final rRaw = data['receipt'];
-      if (rRaw is Map) {
-        final r = Receipt.fromJson(Map<String, dynamic>.from(rRaw));
-        if (!receipts.any((x) => x.id == r.id)) {
-          receipts.insert(0, r);
+      try {
+        final rRaw = data['receipt'];
+        if (rRaw is Map) {
+          final r = Receipt.fromJson(Map<String, dynamic>.from(rRaw));
+          if (!receipts.any((x) => x.id == r.id)) {
+            receipts.insert(0, r);
 
-    // Optimistik hisobot yangilanishi: 0 millisekundda Jami Daromad va Jami Buyurtmalar ko'tariladi
-    final rCash = (r.method == PaymentMethod.cash)
-        ? r.total.round()
-        : (r.cashPaid.round());
-    final rCard = (r.method == PaymentMethod.card)
-        ? r.total.round()
-        : (r.cardPaid.round());
-    final currentRep = liveTodayReport;
-    if (currentRep != null) {
-      final newRev = currentRep.totalRevenue + r.total.round();
-      final newOrders = currentRep.orderCount + 1;
-      final newCash = currentRep.cashTotal + rCash;
-      final newCard = currentRep.cardTotal + rCard;
-      final newAvg = newOrders > 0 ? (newRev / newOrders).round() : 0;
-      liveTodayReport = TodayReportSummary(
-        totalRevenue: newRev,
-        orderCount: newOrders,
-        cashTotal: newCash,
-        cardTotal: newCard,
-        averageCheck: newAvg,
-        waiters: currentRep.waiters,
-        topProducts: currentRep.topProducts,
-        updatedAt: DateTime.now(),
-      );
-    } else {
-      liveTodayReport = TodayReportSummary(
-        totalRevenue: r.total.round(),
-        orderCount: 1,
-        cashTotal: rCash,
-        cardTotal: rCard,
-        averageCheck: r.total.round(),
-        waiters: const [],
-        topProducts: const [],
-        updatedAt: DateTime.now(),
-      );
-    }
+            // Optimistik hisobot yangilanishi: 0 millisekundda Jami Daromad va Jami Buyurtmalar ko'tariladi
+            final rCash = (r.method == PaymentMethod.cash)
+                ? r.total.round()
+                : (r.cashPaid.round());
+            final rCard = (r.method == PaymentMethod.card)
+                ? r.total.round()
+                : (r.cardPaid.round());
+            final currentRep = liveTodayReport;
+            if (currentRep != null) {
+              final newRev = currentRep.totalRevenue + r.total.round();
+              final newOrders = currentRep.orderCount + 1;
+              final newCash = currentRep.cashTotal + rCash;
+              final newCard = currentRep.cardTotal + rCard;
+              final newAvg = newOrders > 0 ? (newRev / newOrders).round() : 0;
+              liveTodayReport = TodayReportSummary(
+                totalRevenue: newRev,
+                orderCount: newOrders,
+                cashTotal: newCash,
+                cardTotal: newCard,
+                averageCheck: newAvg,
+                waiters: currentRep.waiters,
+                topProducts: currentRep.topProducts,
+                updatedAt: DateTime.now(),
+              );
+            } else {
+              liveTodayReport = TodayReportSummary(
+                totalRevenue: r.total.round(),
+                orderCount: 1,
+                cashTotal: rCash,
+                cardTotal: rCard,
+                averageCheck: r.total.round(),
+                waiters: const [],
+                topProducts: const [],
+                updatedAt: DateTime.now(),
+              );
+            }
 
             final placeInfo = r.tableNumber != null
                 ? (r.hallName != null && r.hallName!.isNotEmpty ? '${r.hallName}, ${r.tableNumber}-stol' : '${r.tableNumber}-stol')
@@ -1790,10 +1791,15 @@ class AppState extends ChangeNotifier {
               time: DateTime.now(),
               type: 'receipt',
             ));
-          unawaited(fetchLiveTodayReport());
-          notifyListeners();
+            unawaited(fetchLiveTodayReport());
+            notifyListeners();
+          }
         }
+      } catch (e) {
+        debugPrint('⚠️ [Socket receiptAdded] parse error: $e');
       }
+    }, onError: (err) {
+      debugPrint('⚠️ [Socket receiptAdded] stream error: $err');
     });
 
     // Real-time financial reports sync across devices and Telegram WebApp
@@ -1865,9 +1871,9 @@ class AppState extends ChangeNotifier {
     // QR menyudan zakaz kelsa (stol skaner qilinganda) stol darhol band bo'ladi
     _socketNewCustomerOrderSub?.cancel();
     _socketNewCustomerOrderSub = SocketService().on(CafeSocketEvent.newCustomerOrder).listen((data) {
-      final tNum = (data['tableNumber'] as num?)?.toInt();
-      final tHallId = (data['hallId'] as num?)?.toInt();
-      final tId = (data['tableId'] as num?)?.toInt();
+      final tNum = safeNullableInt(data['tableNumber']);
+      final tHallId = safeNullableInt(data['hallId']);
+      final tId = safeNullableInt(data['tableId']);
       if (tNum != null || tId != null) {
         final idx = tables.indexWhere((t) =>
             (tId != null && t.id == tId) ||
@@ -1915,7 +1921,7 @@ class AppState extends ChangeNotifier {
     _socketProductsSub?.cancel();
     _socketProductsSub = SocketService().on(CafeSocketEvent.productsUpdated).listen((data) async {
       try {
-        final deletedId = (data['deletedId'] as num?)?.toInt();
+        final deletedId = safeNullableInt(data['deletedId']);
         final rawDeletedIds = data['deletedIds'];
         if (deletedId != null) {
           products.removeWhere((p) => p.id == deletedId);
@@ -1923,7 +1929,7 @@ class AppState extends ChangeNotifier {
           notifyListeners();
           return;
         } else if (rawDeletedIds is List && rawDeletedIds.isNotEmpty) {
-          final idsSet = rawDeletedIds.map((e) => (e as num).toInt()).toSet();
+          final idsSet = rawDeletedIds.map((e) => safeInt(e)).toSet();
           products.removeWhere((p) => idsSet.contains(p.id));
           await saveData();
           notifyListeners();
@@ -7643,6 +7649,79 @@ class _PulsingDot extends StatelessWidget {
   }
 }
 
+class _LivePingBadge extends StatelessWidget {
+  final bool isMobile;
+  const _LivePingBadge({this.isMobile = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        ConnectivityService().latencyNotifier,
+        ConnectivityService().stateNotifier,
+        ConnectivityService().qualityNotifier,
+      ]),
+      builder: (context, _) {
+        final service = ConnectivityService();
+        final color = service.color;
+        final isOnline = service.isOnline;
+        final latency = service.latencyMs;
+        final quality = service.qualityText;
+
+        if (isMobile) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: color.withValues(alpha: 0.45)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _PulsingDot(color: color),
+                const SizedBox(width: 4),
+                Text(
+                  isOnline ? '${latency}ms' : 'Offline',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _PulsingDot(color: color),
+              const SizedBox(width: 5),
+              Text(
+                isOnline ? '${latency}ms ($quality)' : 'Offline',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11.5,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 // ============================================================
 // USER ROLE DISPLAY HELPER
 // ============================================================
@@ -8563,14 +8642,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ConnectivityService().init();
-    ConnectivityService().latencyNotifier.addListener(_onNetworkChanged);
-    ConnectivityService().stateNotifier.addListener(_onNetworkChanged);
-    ConnectivityService().qualityNotifier.addListener(_onNetworkChanged);
     _startHeartbeatTimer();
-  }
-
-  void _onNetworkChanged() {
-    if (mounted) setState(() {});
   }
 
   @override
@@ -8610,9 +8682,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    ConnectivityService().latencyNotifier.removeListener(_onNetworkChanged);
-    ConnectivityService().stateNotifier.removeListener(_onNetworkChanged);
-    ConnectivityService().qualityNotifier.removeListener(_onNetworkChanged);
     _heartbeatTimer?.cancel();
     super.dispose();
   }
@@ -9676,31 +9745,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                             ),
                             // Live network status badge
                             if (showPing) ...[
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: ConnectivityService().color.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: ConnectivityService().color.withValues(alpha: 0.35),
-                                  ),
-                                ),
-                                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  _PulsingDot(color: ConnectivityService().color),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    ConnectivityService().isOnline
-                                        ? '${ConnectivityService().latencyMs}ms (${ConnectivityService().qualityText})'
-                                        : 'Offline',
-                                    style: TextStyle(
-                                      color: ConnectivityService().color,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 11.5,
-                                    ),
-                                  ),
-                                ]),
-                              ),
+                              const _LivePingBadge(),
                               const SizedBox(width: 8),
                             ],
                             // Bell with badge
@@ -10219,32 +10264,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                 ),
                                 // Mobile live ping badge (only if screen has enough width)
                                 if (w >= 340) ...[
-                                  AnimatedContainer(
-                                    duration: const Duration(milliseconds: 300),
-                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
-                                    decoration: BoxDecoration(
-                                      color: ConnectivityService().color.withValues(alpha: 0.16),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: ConnectivityService().color.withValues(alpha: 0.45),
-                                        width: 0.9,
-                                      ),
-                                    ),
-                                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                      _PulsingDot(color: ConnectivityService().color),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        ConnectivityService().isOnline
-                                            ? '${ConnectivityService().latencyMs}ms'
-                                            : 'Offline',
-                                        style: TextStyle(
-                                          color: ConnectivityService().color,
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ]),
-                                  ),
+                                  const _LivePingBadge(isMobile: true),
                                   const SizedBox(width: 6),
                                 ],
                                 // Mobile Bell:

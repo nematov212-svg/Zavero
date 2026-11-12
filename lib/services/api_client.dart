@@ -530,12 +530,13 @@ class ApiClient {
 
   /// ⚡ Ultra-yengil ping (HEAD / bo'sh GET, keep-alive orqali qayta ishlatiladi)
   Future<bool> pingFast() async {
+    const pingHeaders = kIsWeb ? null : {'Connection': 'keep-alive'};
     try {
       final res = await _dio.get(
         '$socketUrl/ping',
         options: Options(
           responseType: ResponseType.plain,
-          headers: {'Connection': 'keep-alive'},
+          headers: pingHeaders,
         ),
       ).timeout(const Duration(seconds: 5));
       return res.statusCode == 200 || res.statusCode == 204;
@@ -545,7 +546,7 @@ class ApiClient {
           '$socketUrl/health',
           options: Options(
             responseType: ResponseType.plain,
-            headers: {'Connection': 'keep-alive'},
+            headers: pingHeaders,
           ),
         ).timeout(const Duration(seconds: 5));
         return res.statusCode == 200;
