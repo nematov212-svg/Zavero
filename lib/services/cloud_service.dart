@@ -34,7 +34,15 @@ class CloudService {
 
   List<T> _list<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
     if (raw is! List) return <T>[];
-    return raw.map((e) => fromJson(_map(e))).toList();
+    final items = <T>[];
+    for (final e in raw) {
+      try {
+        items.add(fromJson(_map(e)));
+      } catch (err) {
+        debugPrint('⚠️ [CloudService._list<$T>] parsing warning: $err');
+      }
+    }
+    return items;
   }
 
   Map<int, List<CartItem>> _tableOrdersFromJson(dynamic raw) {
@@ -44,7 +52,15 @@ class CloudService {
         final str = '$k';
         final tId = int.tryParse(str) ?? int.tryParse(str.split('_').last);
         if (tId == null || v is! List) return;
-        result[tId] = v.map((e) => CartItem.fromJson(_map(e))).toList();
+        final items = <CartItem>[];
+        for (final e in v) {
+          try {
+            items.add(CartItem.fromJson(_map(e)));
+          } catch (err) {
+            debugPrint('⚠️ [_tableOrdersFromJson] CartItem parsing warning: $err');
+          }
+        }
+        result[tId] = items;
       });
     }
     return result;

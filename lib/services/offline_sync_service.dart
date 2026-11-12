@@ -47,7 +47,7 @@ class PendingOfflineAction {
       cafeId: j['cafeId']?.toString() ?? '',
       data: j['data'] is Map ? Map<String, dynamic>.from(j['data'] as Map) : {},
       createdAt: DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      retryCount: (j['retryCount'] as num?)?.toInt() ?? 0,
+      retryCount: safeInt(j['retryCount']),
     );
   }
 }

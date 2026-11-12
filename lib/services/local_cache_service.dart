@@ -36,10 +36,17 @@ class LocalCacheService {
       if (raw == null || raw.isEmpty) return <T>[];
       final decoded = jsonDecode(raw);
       if (decoded is! List) return <T>[];
-      return decoded
-          .whereType<Map>()
-          .map((e) => fromJson(Map<String, dynamic>.from(e)))
-          .toList();
+      final items = <T>[];
+      for (final e in decoded) {
+        if (e is Map) {
+          try {
+            items.add(fromJson(Map<String, dynamic>.from(e)));
+          } catch (err) {
+            debugPrint('⚠️ [LocalCacheService getCachedList ($key)] parsing warning: $err');
+          }
+        }
+      }
+      return items;
     } catch (e) {
       debugPrint('LocalCacheService getCachedList ($key) xatoligi: $e');
       return <T>[];

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/safe_parse.dart';
 
 /// Sinxronizatsiya amallarining holatlari
 enum SyncStatus {
@@ -65,14 +66,14 @@ class SyncOperation {
     actionType: json['actionType'] as String,
     payload: (json['payload'] as Map<String, dynamic>?) ?? {},
     createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
-    retryCount: (json['retryCount'] as num?)?.toInt() ?? 0,
+    retryCount: safeInt(json['retryCount']),
     status: SyncStatus.values.firstWhere(
       (s) => s.name == json['status'],
       orElse: () => SyncStatus.pending,
     ),
     lastError: json['lastError'] as String?,
     idempotencyKey: json['idempotencyKey'] as String? ?? 'idemp_${json['id']}',
-    serverRevision: (json['serverRevision'] as num?)?.toInt() ?? 1,
+    serverRevision: safeInt(json['serverRevision'], 1),
   );
 }
 
@@ -109,8 +110,8 @@ class InventoryMovement {
   factory InventoryMovement.fromJson(Map<String, dynamic> json) => InventoryMovement(
     id: json['id'] as String,
     cafeId: (json['cafeId'] ?? '') as String,
-    productId: (json['productId'] as num).toInt(),
-    delta: (json['delta'] as num).toInt(),
+    productId: safeInt(json['productId']),
+    delta: safeInt(json['delta']),
     reason: json['reason'] as String,
     timestamp: DateTime.tryParse(json['timestamp']?.toString() ?? '') ?? DateTime.now(),
     referenceId: (json['referenceId'] ?? '') as String,

@@ -1,6 +1,9 @@
 // ignore_for_file: non_const_argument_for_const_parameter
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
+export '../utils/safe_parse.dart';
+import '../utils/safe_parse.dart';
 
 enum UserRole { director, admin, cashier, waiter, courier, customer }
 
@@ -20,6 +23,8 @@ String roleToString(UserRole r) {
       return 'Mijoz';
   }
 }
+
+
 
 UserRole stringToRole(String s) {
   switch (s.toLowerCase()) {
@@ -154,7 +159,7 @@ class AppUser {
       };
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
-        id: (j['id'] as num?)?.toInt() ?? 0,
+        id: safeInt(j['id']),
         uid: j['uid'] as String? ?? '',
         name: j['name'] as String? ?? '',
         surname: j['surname'] as String? ?? '',
@@ -165,10 +170,10 @@ class AppUser {
         role: j['role'] != null
             ? UserRole.values.firstWhere(
                 (e) => e.name == j['role'],
-                orElse: () => stringToRole(j['role']),
+                orElse: () => stringToRole(j['role'].toString()),
               )
             : UserRole.cashier,
-        salary: (j['salary'] as num?)?.toDouble() ?? 0,
+        salary: safeDouble(j['salary']),
         ownerId: j['ownerId'] as String? ?? '',
         cafeId: j['cafeId'] as String? ?? '',
         cafeName: j['cafeName'] as String? ?? '',
@@ -217,18 +222,18 @@ class DirectorMetrics {
   });
 
   factory DirectorMetrics.fromJson(Map<String, dynamic> j) => DirectorMetrics(
-        totalCafes: (j['totalCafes'] as num?)?.toInt() ?? 0,
-        activeCafes: (j['activeCafes'] as num?)?.toInt() ?? 0,
-        blockedCafes: (j['blockedCafes'] as num?)?.toInt() ?? 0,
-        expiredCafes: (j['expiredCafes'] as num?)?.toInt() ?? 0,
-        totalUsers: (j['totalUsers'] as num?)?.toInt() ?? 0,
-        totalWorkers: (j['totalWorkers'] as num?)?.toInt() ?? 0,
-        totalOwners: (j['totalOwners'] as num?)?.toInt() ?? 0,
-        activeDevices: (j['activeDevices'] as num?)?.toInt() ?? 0,
-        totalOrders: (j['totalOrders'] as num?)?.toInt() ?? 0,
-        todayOrders: (j['todayOrders'] as num?)?.toInt() ?? 0,
-        todayRevenue: (j['todayRevenue'] as num?)?.toDouble() ?? 0,
-        totalRevenue: (j['totalRevenue'] as num?)?.toDouble() ?? 0,
+        totalCafes: safeInt(j['totalCafes']),
+        activeCafes: safeInt(j['activeCafes']),
+        blockedCafes: safeInt(j['blockedCafes']),
+        expiredCafes: safeInt(j['expiredCafes']),
+        totalUsers: safeInt(j['totalUsers']),
+        totalWorkers: safeInt(j['totalWorkers']),
+        totalOwners: safeInt(j['totalOwners']),
+        activeDevices: safeInt(j['activeDevices']),
+        totalOrders: safeInt(j['totalOrders']),
+        todayOrders: safeInt(j['todayOrders']),
+        todayRevenue: safeDouble(j['todayRevenue']),
+        totalRevenue: safeDouble(j['totalRevenue']),
       );
 }
 
@@ -289,10 +294,10 @@ class CafeSaaSItem {
         endDate: j['endDate'] != null
             ? DateTime.tryParse(j['endDate'] as String)
             : null,
-        usersCount: (j['usersCount'] as num?)?.toInt() ?? 0,
-        tablesCount: (j['tablesCount'] as num?)?.toInt() ?? 0,
-        receiptsCount: (j['receiptsCount'] as num?)?.toInt() ?? 0,
-        activeDevicesCount: (j['activeDevicesCount'] as num?)?.toInt() ?? 0,
+        usersCount: safeInt(j['usersCount']),
+        tablesCount: safeInt(j['tablesCount']),
+        receiptsCount: safeInt(j['receiptsCount']),
+        activeDevicesCount: safeInt(j['activeDevicesCount']),
         createdAt: j['createdAt'] != null
             ? DateTime.tryParse(j['createdAt'] as String)
             : null,
@@ -332,8 +337,8 @@ class AuditLogItem {
   });
 
   factory AuditLogItem.fromJson(Map<String, dynamic> j) => AuditLogItem(
-        id: (j['id'] as num?)?.toInt() ?? 0,
-        actorId: (j['actor_id'] as num?)?.toInt(),
+        id: safeInt(j['id']),
+        actorId: safeNullableInt(j['actor_id'] ?? j['actorId']),
         actorName: j['actor_name'] as String? ?? '',
         actorRole: j['actor_role'] as String? ?? '',
         cafeId: j['cafe_id'] as String? ?? '',
@@ -368,7 +373,7 @@ class DeviceInfo {
   });
 
   factory DeviceInfo.fromJson(Map<String, dynamic> j) => DeviceInfo(
-        id: (j['id'] as num?)?.toInt() ?? 0,
+        id: safeInt(j['id']),
         deviceName: j['device_name'] as String? ?? '',
         deviceType: j['device_type'] as String? ?? 'desktop',
         deviceIdentifier: j['device_identifier'] as String?,
@@ -419,25 +424,25 @@ class DailyReport {
     Map<String, int> qtyMap = {};
     final rawQty = data['productQuantities'];
     if (rawQty is Map) {
-      rawQty.forEach((k, v) => qtyMap['$k'] = (v as num?)?.toInt() ?? 0);
+      rawQty.forEach((k, v) => qtyMap['$k'] = safeInt(v));
     }
 
     Map<String, double> revMap = {};
     final rawRev = data['productRevenue'];
     if (rawRev is Map) {
-      rawRev.forEach((k, v) => revMap['$k'] = (v as num?)?.toDouble() ?? 0);
+      rawRev.forEach((k, v) => revMap['$k'] = safeDouble(v));
     }
 
     Map<String, double> tableMap = {};
     final rawTable = data['tableRevenue'];
     if (rawTable is Map) {
-      rawTable.forEach((k, v) => tableMap['$k'] = (v as num?)?.toDouble() ?? 0);
+      rawTable.forEach((k, v) => tableMap['$k'] = safeDouble(v));
     }
 
     return DailyReport(
       dateId: data['dateId'] as String? ?? '',
-      totalRevenue: (data['totalRevenue'] as num?)?.toDouble() ?? 0,
-      orderCount: (data['orderCount'] as num?)?.toInt() ?? 0,
+      totalRevenue: safeDouble(data['totalRevenue']),
+      orderCount: safeInt(data['orderCount']),
       productQuantities: qtyMap,
       productRevenue: revMap,
       topProduct: data['topProduct'] as String? ?? '',
@@ -521,10 +526,10 @@ class Category {
       };
 
   factory Category.fromJson(Map<String, dynamic> j) => Category(
-        id: (j['id'] as num?)?.toInt() ?? 0,
+        id: safeInt(j['id']),
         name: j['name'] as String? ?? '',
         icon: resolveIconData(
-          (j['iconCodePoint'] ?? j['icon_code_point'] as num?)?.toInt(),
+          safeNullableInt(j['iconCodePoint'] ?? j['icon_code_point']),
           fallback: Icons.fastfood,
         ),
       );
@@ -562,13 +567,13 @@ class Product {
       };
 
   factory Product.fromJson(Map<String, dynamic> j) => Product(
-        id: (j['id'] as num?)?.toInt() ?? 0,
+        id: safeInt(j['id']),
         name: j['name'] as String? ?? '',
-        price: (j['price'] as num?)?.toDouble() ?? 0,
-        categoryId: (j['categoryId'] ?? j['category_id'] as num?)?.toInt() ?? 0,
-        stock: (j['stock'] as num?)?.toInt() ?? 0,
+        price: safeDouble(j['price']),
+        categoryId: safeInt(j['categoryId'] ?? j['category_id']),
+        stock: safeInt(j['stock']),
         icon: resolveIconData(
-          (j['iconCodePoint'] ?? j['icon_code_point'] as num?)?.toInt(),
+          safeNullableInt(j['iconCodePoint'] ?? j['icon_code_point']),
           fallback: Icons.fastfood,
         ),
         imageUrl: (j['imageUrl'] ?? j['image_url']) as String?,
@@ -598,10 +603,10 @@ class Hall {
       };
 
   factory Hall.fromJson(Map<String, dynamic> j) => Hall(
-        id: (j['id'] as num?)?.toInt() ?? 0,
+        id: safeInt(j['id']),
         name: j['name'] as String? ?? '',
         icon: resolveIconData(
-          (j['iconCodePoint'] as num?)?.toInt(),
+          safeNullableInt(j['iconCodePoint'] ?? j['icon_code_point']),
           fallback: Icons.home_work,
         ),
         imageAsset: j['imageAsset'] as String?,
@@ -637,10 +642,10 @@ class TableModel {
       };
 
   factory TableModel.fromJson(Map<String, dynamic> j) => TableModel(
-        id: (j['id'] as num?)?.toInt() ?? 0,
-        hallId: (j['hallId'] as num?)?.toInt() ?? (j['hall_id'] as num?)?.toInt() ?? 0,
-        number: (j['number'] as num?)?.toInt() ?? 0,
-        seats: (j['seats'] as num?)?.toInt() ?? 4,
+        id: safeInt(j['id']),
+        hallId: safeInt(j['hallId'] ?? j['hall_id']),
+        number: safeInt(j['number']),
+        seats: safeInt(j['seats'], 4),
         status: TableStatus.values.firstWhere(
           (e) => e.name == j['status'],
           orElse: () => TableStatus.free,
@@ -675,17 +680,17 @@ class CartItem {
       prod = Product.fromJson(Map<String, dynamic>.from(j['product'] as Map));
     } else {
       prod = Product(
-        id: (j['productId'] ?? j['id'] as num?)?.toInt() ?? 0,
+        id: safeInt(j['productId'] ?? j['id']),
         name: (j['name'] ?? j['productName'] ?? 'Taom').toString(),
-        price: (j['price'] as num?)?.toDouble() ?? double.tryParse('${j['price']}') ?? 0.0,
-        categoryId: (j['categoryId'] ?? j['category_id'] as num?)?.toInt() ?? 1,
-        stock: (j['stock'] as num?)?.toInt() ?? 999,
-        icon: resolveIconData((j['iconCodePoint'] as num?)?.toInt(), fallback: Icons.fastfood_rounded),
+        price: safeDouble(j['price']),
+        categoryId: safeInt(j['categoryId'] ?? j['category_id'], 1),
+        stock: safeInt(j['stock'], 999),
+        icon: resolveIconData(safeNullableInt(j['iconCodePoint'] ?? j['icon_code_point']), fallback: Icons.fastfood_rounded),
         imageUrl: (j['imageUrl'] ?? j['image'])?.toString(),
       );
     }
     final rawQty = j['qty'] ?? j['quantity'] ?? j['count'];
-    final qty = (rawQty as num?)?.toInt() ?? int.tryParse('$rawQty') ?? 1;
+    final qty = safeInt(rawQty, 1);
     final note = (j['note'] ?? j['notes'] ?? '').toString();
     return CartItem(
       product: prod,
@@ -721,11 +726,11 @@ class Customer {
       };
 
   factory Customer.fromJson(Map<String, dynamic> j) => Customer(
-        id: (j['id'] as num?)?.toInt() ?? 0,
+        id: safeInt(j['id']),
         name: j['name'] as String? ?? '',
         phone: j['phone'] as String? ?? '',
         email: j['email'] as String? ?? '',
-        loyaltyPoints: (j['loyaltyPoints'] as num?)?.toInt() ?? 0,
+        loyaltyPoints: safeInt(j['loyaltyPoints']),
       );
 
 }
@@ -793,35 +798,66 @@ class Receipt {
         'telegramSentAt': telegramSentAt?.toUtc().toIso8601String(),
       };
 
-  factory Receipt.fromJson(Map<String, dynamic> j) => Receipt(
-        id: (j['id'] as num?)?.toInt() ?? 0,
-        date: DateTime.parse(j['date'] as String),
-        items: (j['items'] as List)
-            .map((e) => CartItem.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        total: (j['total'] as num).toDouble(),
-        method: PaymentMethod.values.firstWhere(
-          (e) => e.name == j['method'],
-          orElse: () => PaymentMethod.cash,
-        ),
-        cashierName: j['cashierName'] as String? ?? '',
-        tableId: (j['tableId'] as num?)?.toInt(),
-        tableNumber: (j['tableNumber'] as num?)?.toInt(),
-        hallId: (j['hallId'] as num?)?.toInt(),
-        hallName: j['hallName'] as String?,
-        waiterId: (j['waiterId'] as num?)?.toInt() ?? (j['waiter_id'] as num?)?.toInt(),
-        waiterName: j['waiterName'] as String? ?? j['waiter_name'] as String?,
-        cashPaid: (j['cashPaid'] as num?)?.toDouble() ?? 0,
-        cardPaid: (j['cardPaid'] as num?)?.toDouble() ?? 0,
-        printStatus: j['printStatus'] as String? ?? 'unprinted',
-        printedAt: j['printedAt'] != null
-            ? DateTime.tryParse(j['printedAt'].toString())
-            : null,
-        telegramStatus: j['telegramStatus'] as String? ?? 'unsent',
-        telegramSentAt: j['telegramSentAt'] != null
-            ? DateTime.tryParse(j['telegramSentAt'].toString())
-            : null,
-      );
+  factory Receipt.fromJson(Map<String, dynamic> j) {
+    final List<CartItem> parsedItems = [];
+    final rawItems = j['items'];
+    if (rawItems is List) {
+      for (final item in rawItems) {
+        if (item is Map) {
+          try {
+            parsedItems.add(CartItem.fromJson(Map<String, dynamic>.from(item)));
+          } catch (e) {
+            debugPrint('⚠️ [Receipt.fromJson] CartItem parsing xatosi: $e');
+          }
+        }
+      }
+    } else if (rawItems is String && rawItems.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawItems);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              parsedItems.add(CartItem.fromJson(Map<String, dynamic>.from(item)));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    final rawDate = j['date'] ?? j['created_at'] ?? j['createdAt'];
+    DateTime parsedDate = DateTime.now();
+    if (rawDate != null) {
+      parsedDate = DateTime.tryParse(rawDate.toString()) ?? DateTime.now();
+    }
+
+    return Receipt(
+      id: safeInt(j['id']),
+      date: parsedDate,
+      items: parsedItems,
+      total: safeDouble(j['total']),
+      method: PaymentMethod.values.firstWhere(
+        (e) => e.name.toLowerCase() == (j['method'] ?? 'cash').toString().toLowerCase(),
+        orElse: () => PaymentMethod.cash,
+      ),
+      cashierName: j['cashierName'] as String? ?? j['cashier_name'] as String? ?? '',
+      tableId: safeNullableInt(j['tableId'] ?? j['table_id']),
+      tableNumber: safeNullableInt(j['tableNumber'] ?? j['table_number']),
+      hallId: safeNullableInt(j['hallId'] ?? j['hall_id']),
+      hallName: (j['hallName'] ?? j['hall_name'])?.toString(),
+      waiterId: safeNullableInt(j['waiterId'] ?? j['waiter_id']),
+      waiterName: (j['waiterName'] ?? j['waiter_name'])?.toString(),
+      cashPaid: safeDouble(j['cashPaid'] ?? j['cash_paid']),
+      cardPaid: safeDouble(j['cardPaid'] ?? j['card_paid']),
+      printStatus: (j['printStatus'] ?? j['print_status'] ?? 'unprinted').toString(),
+      printedAt: j['printedAt'] != null
+          ? DateTime.tryParse(j['printedAt'].toString())
+          : (j['printed_at'] != null ? DateTime.tryParse(j['printed_at'].toString()) : null),
+      telegramStatus: (j['telegramStatus'] ?? j['telegram_status'] ?? 'unsent').toString(),
+      telegramSentAt: j['telegramSentAt'] != null
+          ? DateTime.tryParse(j['telegramSentAt'].toString())
+          : (j['telegram_sent_at'] != null ? DateTime.tryParse(j['telegram_sent_at'].toString()) : null),
+    );
+  }
 
 }
 
@@ -906,7 +942,7 @@ class CustomerOrder {
     }
 
     return CustomerOrder(
-      id: (j['id'] as num?)?.toInt() ?? int.tryParse('${j['id']}') ?? 0,
+      id: safeInt(j['id']),
       cafeId: (j['cafeId'] ?? j['cafe_id'])?.toString(),
       date: parsedDate,
       items: parsedItems,
@@ -916,8 +952,8 @@ class CustomerOrder {
         (e) => e.name.toLowerCase() == (j['type'] ?? 'dineIn').toString().toLowerCase(),
         orElse: () => OrderType.dineIn,
       ),
-      tableNumber: (j['tableNumber'] ?? j['table_number'] as num?)?.toInt() ?? int.tryParse('${j['tableNumber'] ?? j['table_number']}'),
-      hallId: (j['hallId'] ?? j['hall_id'] as num?)?.toInt() ?? int.tryParse('${j['hallId'] ?? j['hall_id']}'),
+      tableNumber: safeNullableInt(j['tableNumber'] ?? j['table_number']),
+      hallId: safeNullableInt(j['hallId'] ?? j['hall_id']),
       deliveryAddress: (j['deliveryAddress'] ?? j['delivery_address'])?.toString(),
       status: parsedStatus,
       notes: (j['notes'] ?? j['comment'])?.toString(),
@@ -993,8 +1029,8 @@ class TodayWaiterMetric {
 
   factory TodayWaiterMetric.fromJson(Map<String, dynamic> j) => TodayWaiterMetric(
         name: j['name'] as String? ?? 'Kassa',
-        orderCount: (j['orderCount'] as num?)?.toInt() ?? 0,
-        totalRevenue: (j['totalRevenue'] as num?)?.toInt() ?? 0,
+        orderCount: safeInt(j['orderCount']),
+        totalRevenue: safeInt(j['totalRevenue']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -1017,8 +1053,8 @@ class TodayProductMetric {
 
   factory TodayProductMetric.fromJson(Map<String, dynamic> j) => TodayProductMetric(
         name: j['name'] as String? ?? '',
-        quantity: (j['quantity'] as num?)?.toInt() ?? 0,
-        totalRevenue: (j['totalRevenue'] as num?)?.toInt() ?? 0,
+        quantity: safeInt(j['quantity']),
+        totalRevenue: safeInt(j['totalRevenue']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -1051,11 +1087,11 @@ class TodayReportSummary {
 
   factory TodayReportSummary.fromJson(Map<String, dynamic> j) {
     return TodayReportSummary(
-      totalRevenue: (j['totalRevenue'] as num?)?.toInt() ?? 0,
-      orderCount: (j['orderCount'] as num?)?.toInt() ?? 0,
-      cashTotal: (j['cashTotal'] as num?)?.toInt() ?? 0,
-      cardTotal: (j['cardTotal'] as num?)?.toInt() ?? 0,
-      averageCheck: (j['averageCheck'] as num?)?.toInt() ?? 0,
+      totalRevenue: safeInt(j['totalRevenue']),
+      orderCount: safeInt(j['orderCount']),
+      cashTotal: safeInt(j['cashTotal']),
+      cardTotal: safeInt(j['cardTotal']),
+      averageCheck: safeInt(j['averageCheck']),
       waiters: (j['waiters'] as List?)
               ?.map((e) => TodayWaiterMetric.fromJson(Map<String, dynamic>.from(e as Map)))
               .toList() ??
