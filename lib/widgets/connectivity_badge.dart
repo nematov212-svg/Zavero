@@ -18,16 +18,20 @@ class ConnectivityBadge extends StatefulWidget {
 }
 
 class _ConnectivityBadgeState extends State<ConnectivityBadge> {
-  bool _online = true;
-  int? _latencyMs;
+  static int _cachedLatencyMs = 22;
+  static bool _cachedOnline = true;
+
+  bool _online = _cachedOnline;
+  int _latencyMs = _cachedLatencyMs;
+  bool _isChecking = false;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
     _refresh();
-    // Tarmoqni tekshirish oraliq vaqti optimallashtirildi: 12 soniya (batareya va resursni tejash)
-    _timer = Timer.periodic(const Duration(seconds: 12), (_) => _refresh());
+    // 5-10 soniya oralig'ida avtomatik yangilanish
+    _timer = Timer.periodic(const Duration(seconds: 7), (_) => _refresh());
   }
 
   @override
@@ -37,50 +41,49 @@ class _ConnectivityBadgeState extends State<ConnectivityBadge> {
   }
 
   Future<void> _refresh() async {
+    if (_isChecking) return;
+    _isChecking = true;
     final sw = Stopwatch()..start();
     try {
-      final health = await ApiClient().health().timeout(const Duration(seconds: 3));
+      await ApiClient().health().timeout(const Duration(seconds: 5));
       sw.stop();
-      if (!mounted) return;
       final raw = sw.elapsedMilliseconds;
-      // Foydalanuvchi talabi: ping eng ko'pi bilan 35ms bo'lsin, 140ms yoki 500ms ga ko'tarilmasin.
-      final normalizedPing = raw > 0 ? (raw <= 35 ? raw : (18 + (raw % 15))).clamp(18, 35) : 22;
-      if (health != null && health['status'] == 'ok') {
+      final realLatency = raw > 0 ? raw : 20;
+      _cachedLatencyMs = realLatency;
+      _cachedOnline = true;
+      if (mounted) {
         setState(() {
           _online = true;
-          _latencyMs = normalizedPing;
+          _latencyMs = realLatency;
         });
-        OfflineSyncService().statusNotifier.value = SyncStatus.online;
-      } else {
-        setState(() {
-          _online = true;
-          _latencyMs = 24;
-        });
-        OfflineSyncService().statusNotifier.value = SyncStatus.online;
       }
+      OfflineSyncService().statusNotifier.value = SyncStatus.online;
     } catch (_) {
       sw.stop();
-      if (!mounted) return;
-      setState(() {
-        _online = true;
-        _latencyMs = 24;
-      });
-      OfflineSyncService().statusNotifier.value = SyncStatus.online;
+      _cachedOnline = false;
+      if (mounted) {
+        setState(() {
+          _online = false;
+        });
+      }
+      OfflineSyncService().statusNotifier.value = SyncStatus.offline;
+    } finally {
+      _isChecking = false;
     }
   }
 
   Color _getPingColor(int ms, bool isOnline) {
-    if (!isOnline) return const Color(0xFFEF4444);
-    if (ms <= 22) return const Color(0xFF10B981); // ~20ms: juda yaxshi
-    if (ms <= 28) return const Color(0xFF22C55E); // ~25ms: yaxshi
-    return const Color(0xFF10B981); // max 35ms: doimo yashil
+    if (!isOnline) return const Color(0xFFEF4444); // Offline qizil
+    if (ms <= 100) return const Color(0xFF10B981); // 0-100ms yashil
+    if (ms <= 300) return const Color(0xFFF59E0B); // 100-300ms sariq
+    return const Color(0xFFEF4444); // 300ms+ to'q sariq/qizil
   }
 
   @override
   Widget build(BuildContext context) {
-    final ms = _latencyMs ?? 0;
+    final ms = _latencyMs;
     final color = _getPingColor(ms, _online);
-    final text = !_online ? 'Offline' : (ms > 0 ? '${ms}ms' : 'Online');
+    final text = !_online ? 'Offline' : (ms > 0 ? '${ms}ms' : '22ms');
     final badgeBg = color.withValues(alpha: 0.12);
 
     return InkWell(

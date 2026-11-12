@@ -625,6 +625,9 @@ class TableModel {
     this.status = TableStatus.free,
   });
 
+  String get tableKey => '${hallId}_$id';
+  String get zoneNumberKey => '${hallId}_$number';
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'hallId': hallId,
@@ -635,7 +638,7 @@ class TableModel {
 
   factory TableModel.fromJson(Map<String, dynamic> j) => TableModel(
         id: (j['id'] as num?)?.toInt() ?? 0,
-        hallId: (j['hallId'] as num?)?.toInt() ?? 0,
+        hallId: (j['hallId'] as num?)?.toInt() ?? (j['hall_id'] as num?)?.toInt() ?? 0,
         number: (j['number'] as num?)?.toInt() ?? 0,
         seats: (j['seats'] as num?)?.toInt() ?? 4,
         status: TableStatus.values.firstWhere(

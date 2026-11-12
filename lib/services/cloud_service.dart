@@ -41,7 +41,8 @@ class CloudService {
     final result = <int, List<CartItem>>{};
     if (raw is Map) {
       raw.forEach((k, v) {
-        final tId = int.tryParse('$k');
+        final str = '$k';
+        final tId = int.tryParse(str) ?? int.tryParse(str.split('_').last);
         if (tId == null || v is! List) return;
         result[tId] = v.map((e) => CartItem.fromJson(_map(e))).toList();
       });
@@ -53,7 +54,8 @@ class CloudService {
     final result = <int, String>{};
     if (raw is Map) {
       raw.forEach((k, v) {
-        final tId = int.tryParse('$k');
+        final str = '$k';
+        final tId = int.tryParse(str) ?? int.tryParse(str.split('_').last);
         if (tId == null) return;
         final note = v?.toString() ?? '';
         if (note.isNotEmpty) result[tId] = note;

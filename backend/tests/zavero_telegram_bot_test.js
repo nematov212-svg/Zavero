@@ -370,7 +370,7 @@ async function runTestSuite() {
     // TEST 11: 24 soatgacha kutmasdan hisobotlarni olish
     // ----------------------------------------------------
     console.log('\n[Test 11] On-demand hisobotlar: Bugungi, Cheklar, Jami, Oxirgi kunlar');
-    
+
     // Seed receipts for Alpha Cafe today
     const nowTk = getTashkentNow();
     await db.query(

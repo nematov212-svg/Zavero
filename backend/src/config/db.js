@@ -48,7 +48,32 @@ const initDb = async () => {
     console.log('✅ [PostgreSQL] Connected successfully to database');
     try {
       await client.query('ALTER TABLE telegram_sessions ADD COLUMN IF NOT EXISTS phone VARCHAR(40);');
-    } catch (_) {}
+      await client.query(`
+        ALTER TABLE table_orders ADD COLUMN IF NOT EXISTS hall_id INTEGER;
+        UPDATE table_orders o
+        SET hall_id = t.hall_id
+        FROM restaurant_tables t
+        WHERE o.table_id = t.id AND o.hall_id IS NULL;
+
+        UPDATE receipts r
+        SET hall_id = t.hall_id,
+            hall_name = COALESCE(r.hall_name, h.name)
+        FROM restaurant_tables t
+        LEFT JOIN halls h ON h.id = t.hall_id
+        WHERE r.table_id = t.id AND (r.hall_id IS NULL OR r.hall_name IS NULL);
+
+        UPDATE receipts r
+        SET hall_id = (SELECT id FROM halls WHERE cafe_id = r.cafe_id ORDER BY id ASC LIMIT 1),
+            hall_name = COALESCE(r.hall_name, 'Zal')
+        WHERE r.hall_id IS NULL OR r.hall_name IS NULL;
+
+        UPDATE customer_orders o
+        SET hall_id = (SELECT id FROM halls WHERE cafe_id = o.cafe_id ORDER BY id ASC LIMIT 1)
+        WHERE o.hall_id IS NULL;
+      `);
+    } catch (migErr) {
+      console.warn('⚠️ [Migration Notice]:', migErr.message);
+    }
     client.release();
     return true;
   } catch (err) {

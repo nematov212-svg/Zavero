@@ -70,6 +70,22 @@ const getTodayReportData = async (cafeId) => {
     queryParams
   );
 
+  const hallRes = await db.query(
+    `SELECT 
+       COALESCE(NULLIF(TRIM(hall_name), ''), 'Zal') as hall_name,
+       COUNT(*)::int as order_count,
+       COALESCE(SUM(total), 0)::bigint as total_revenue
+     FROM receipts
+     WHERE cafe_id = $1 
+       AND (
+         (date AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+         OR (created_at AT TIME ZONE 'Asia/Tashkent')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tashkent')::date
+       )${resetCondition}
+     GROUP BY COALESCE(NULLIF(TRIM(hall_name), ''), 'Zal')
+     ORDER BY total_revenue DESC`,
+    queryParams
+  );
+
   return {
     totalRevenue: parseInt(summary.total_revenue, 10) || 0,
     orderCount: parseInt(summary.order_count, 10) || 0,
@@ -85,6 +101,11 @@ const getTodayReportData = async (cafeId) => {
       name: i.name,
       quantity: parseInt(i.qty, 10) || 0,
       totalRevenue: parseInt(i.total_revenue, 10) || 0,
+    })),
+    halls: hallRes.rows.map(h => ({
+      name: h.hall_name,
+      orderCount: parseInt(h.order_count, 10) || 0,
+      totalRevenue: parseInt(h.total_revenue, 10) || 0,
     })),
     updatedAt: new Date().toISOString(),
   };

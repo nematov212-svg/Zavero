@@ -15,8 +15,17 @@ const list = async (req, res) => {
     const tableOrders = {};
     const tableNotes = {};
     for (const row of tableOrdR.rows) {
-      tableOrders[row.table_id] = mapCartItems(row.items);
-      if (row.note) tableNotes[row.table_id] = row.note;
+      const items = mapCartItems(row.items);
+      tableOrders[row.table_id] = items;
+      if (row.hall_id) {
+        tableOrders[`${row.hall_id}_${row.table_id}`] = items;
+      }
+      if (row.note) {
+        tableNotes[row.table_id] = row.note;
+        if (row.hall_id) {
+          tableNotes[`${row.hall_id}_${row.table_id}`] = row.note;
+        }
+      }
     }
 
     res.json({
@@ -94,6 +103,7 @@ const saveOrder = async (req, res) => {
       tableId,
       tableNumber: result.number,
       hallId: result.hall_id,
+      tableKey: `${result.hall_id}_${tableId}`,
       table: mapTable(result),
       items: mapCartItems(items),
       note: note || '',
@@ -102,6 +112,7 @@ const saveOrder = async (req, res) => {
       tableId,
       tableNumber: result.number,
       hallId: result.hall_id,
+      tableKey: `${result.hall_id}_${tableId}`,
       status: 'occupied',
     });
 
@@ -148,9 +159,9 @@ const release = async (req, res) => {
       );
     });
 
-    notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId });
-    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId, status: 'free' });
-    notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId, items: [], note: '' });
+    notifyCafe(cafeId, 'TABLE_RELEASED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId, tableKey: `${releasedHallId}_${tableId}` });
+    notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId, tableKey: `${releasedHallId}_${tableId}`, status: 'free' });
+    notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId, tableNumber: releasedTableNumber, hallId: releasedHallId, tableKey: `${releasedHallId}_${tableId}`, items: [], note: '' });
     return res.json({ success: true });
   } catch (error) {
     console.error('release error:', error);
@@ -177,6 +188,7 @@ const updateStatus = async (req, res) => {
       tableId,
       tableNumber: row.number,
       hallId: row.hall_id,
+      tableKey: `${row.hall_id}_${tableId}`,
       status: row.status,
       table: mapped,
     });

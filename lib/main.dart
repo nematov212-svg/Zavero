@@ -1139,10 +1139,12 @@ class AppState extends ChangeNotifier {
           ..clear()
           ..addAll(cloudTables);
         if (selectedTable != null) {
+          final curId = selectedTable!.id;
+          final curHallId = selectedTable!.hallId;
           final curNum = selectedTable!.number;
           try {
             selectedTable = tables.firstWhere(
-              (t) => t.id == selectedTable!.id || t.number == curNum,
+              (t) => t.id == curId || (t.hallId == curHallId && t.number == curNum),
             );
           } catch (_) {
             selectedTable = tables.isNotEmpty ? tables.first : null;
@@ -1847,8 +1849,12 @@ class AppState extends ChangeNotifier {
     _socketNewCustomerOrderSub?.cancel();
     _socketNewCustomerOrderSub = SocketService().on(CafeSocketEvent.newCustomerOrder).listen((data) {
       final tNum = (data['tableNumber'] as num?)?.toInt();
-      if (tNum != null) {
-        final idx = tables.indexWhere((t) => t.number == tNum);
+      final tHallId = (data['hallId'] as num?)?.toInt();
+      final tId = (data['tableId'] as num?)?.toInt();
+      if (tNum != null || tId != null) {
+        final idx = tables.indexWhere((t) =>
+            (tId != null && t.id == tId) ||
+            (tNum != null && t.number == tNum && (tHallId == null || t.hallId == tHallId)));
         if (idx != -1) {
           tables[idx].status = TableStatus.occupied;
           notifyListeners();
@@ -2216,6 +2222,12 @@ class AppState extends ChangeNotifier {
   /// Stol tanlanganda uning joriy buyurtmasi cartga yuklanadi.
   void selectTable(TableModel t) {
     selectedTable = t;
+    if (selectedHall?.id != t.hallId) {
+      final hIdx = halls.indexWhere((h) => h.id == t.hallId);
+      if (hIdx != -1) {
+        selectedHall = halls[hIdx];
+      }
+    }
     final items = tableOrders[t.id];
     cart
       ..clear()
@@ -2744,7 +2756,7 @@ class AppState extends ChangeNotifier {
     }
 
     final rPlace = r.tableNumber != null
-        ? (r.hallName != null && r.hallName!.isNotEmpty ? '${r.hallName}, ${r.tableNumber}-stol' : '${r.tableNumber}-stol')
+        ? (r.hallName != null && r.hallName!.isNotEmpty ? '${r.hallName} - Stol ${r.tableNumber}' : 'Stol ${r.tableNumber}')
         : (r.hallName ?? 'Kassa');
     addAppNotification(AppNotificationItem(
       id: 'receipt_${r.id}',
@@ -2799,7 +2811,6 @@ class AppState extends ChangeNotifier {
       selectedTable!.status = TableStatus.free;
     }
     selectedTable = null;
-    selectedHall = null;
     cart.clear();
     try {
       notifyListeners();
@@ -8469,8 +8480,12 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   // ── Network ping state ──────────────────────────────────────────
-  int _pingMs = 0;
-  bool _isOnline = true;
+  static int _cachedDashboardPingMs = 22;
+  static bool _cachedDashboardIsOnline = true;
+
+  int _pingMs = _cachedDashboardPingMs;
+  bool _isOnline = _cachedDashboardIsOnline;
+  bool _isPingChecking = false;
   Timer? _pingTimer;
   int _lastHeartbeatMs = 0;
   int _heartbeatIntervalMs = 15000;
@@ -8497,31 +8512,46 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   Color _getPingColor(int pingMs, bool isOnline) {
-    if (!isOnline) return const Color(0xFFEF4444);
-    if (!SocketService().isConnected) return const Color(0xFFF59E0B); // Qayta ulanmoqda (sariq nuqta)
-    if (pingMs <= 22) return const Color(0xFF10B981); // ~20ms: juda yaxshi (yashil)
-    if (pingMs <= 28) return const Color(0xFF22C55E); // ~25ms: yaxshi (och yashil)
-    return const Color(0xFF10B981); // doimo yashil
+    if (!isOnline) return const Color(0xFFEF4444); // Offline qizil
+    if (pingMs <= 100) return const Color(0xFF10B981); // 0-100ms yashil
+    if (pingMs <= 300) return const Color(0xFFF59E0B); // 100-300ms sariq
+    return const Color(0xFFEF4444); // 300ms+ to'q sariq/qizil
   }
 
   void _startPingTimer() {
     _pingTimer?.cancel();
     _checkPing();
-    _pingTimer = Timer.periodic(const Duration(seconds: 10), (_) => _checkPing());
+    // 5-10 soniya oralig'ida avtomatik yangilanish
+    _pingTimer = Timer.periodic(const Duration(seconds: 7), (_) => _checkPing());
   }
 
   Future<void> _checkPing() async {
+    if (_isPingChecking) return;
+    _isPingChecking = true;
     final sw = Stopwatch()..start();
     try {
-      await ApiClient().get('/health').timeout(const Duration(seconds: 3));
+      await ApiClient().get('/health').timeout(const Duration(seconds: 5));
       sw.stop();
       final raw = sw.elapsedMilliseconds;
-      // Foydalanuvchi talabi: ping eng ko'pi bilan 35ms bo'lsin, 140ms yoki 500ms ga ko'tarilmasin.
-      final normalizedPing = raw > 0 ? (raw <= 35 ? raw : (18 + (raw % 15))).clamp(18, 35) : 22;
-      if (mounted) setState(() { _pingMs = normalizedPing; _isOnline = true; });
+      final realPing = raw > 0 ? raw : 20;
+      _cachedDashboardPingMs = realPing;
+      _cachedDashboardIsOnline = true;
+      if (mounted) {
+        setState(() {
+          _pingMs = realPing;
+          _isOnline = true;
+        });
+      }
     } catch (_) {
       sw.stop();
-      if (mounted) setState(() { _pingMs = 24; _isOnline = true; });
+      _cachedDashboardIsOnline = false;
+      if (mounted) {
+        setState(() {
+          _isOnline = false;
+        });
+      }
+    } finally {
+      _isPingChecking = false;
     }
 
     // Cafe Heartbeat: har 15-60s serverga heartbeat yuborib cafes.last_seen yangilanadi (15s -> 30s -> 60s backoff)
@@ -9590,7 +9620,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                   const SizedBox(width: 5),
                                   Text(
                                     _isOnline
-                                        ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
+                                        ? '${_pingMs > 0 ? _pingMs : _cachedDashboardPingMs}ms'
                                         : 'Offline',
                                     style: TextStyle(
                                       color: _getPingColor(_pingMs, _isOnline),
@@ -10112,7 +10142,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                       const SizedBox(width: 4),
                                       Text(
                                         _isOnline
-                                            ? (SocketService().isConnected ? '${_pingMs > 0 ? _pingMs : 18}ms' : 'Ulanmoqda...')
+                                            ? '${_pingMs > 0 ? _pingMs : _cachedDashboardPingMs}ms'
                                             : 'Offline',
                                         style: TextStyle(
                                           color: _getPingColor(_pingMs, _isOnline),
@@ -13226,11 +13256,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
         'qty': it.qty,
       }).toList();
 
+      final effectiveHall = hall ?? (table != null ? appState.halls.firstWhere((h) => h.id == table.hallId, orElse: () => Hall(id: -1, name: '', icon: Icons.home)) : null);
+      final effectiveHallName = (effectiveHall != null && effectiveHall.name.trim().isNotEmpty) ? effectiveHall.name.trim() : null;
+      final effectiveTableName = table != null
+          ? ((effectiveHallName != null) ? '$effectiveHallName - Stol ${table.number}' : 'Stol ${table.number}')
+          : (effectiveHallName ?? 'Zal');
+
       await ApiClient().post('/receipts', body: {
         'orderId': checkId,
-        'tableName': table != null ? 'Stol ${table.number}' : (hall?.name ?? 'Zal'),
+        'tableName': effectiveTableName,
+        'tableId': table?.id,
+        'hallId': table?.hallId ?? effectiveHall?.id,
         'tableNumber': table?.number,
-        'hallName': hall?.name,
+        'hallName': effectiveHallName,
         'items': itemsPayload,
         'total': _grandTotal,
         'paymentMethod': method,

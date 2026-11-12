@@ -361,12 +361,22 @@ const createPublicOrder = async (req, res) => {
 
     // 2. Stolni avtomatik BAND (occupied) qilish va jonli table_orders ga kiritish
     const num = parseInt(tableNumber, 10);
+    const reqHallId = req.body.hallId ? parseInt(req.body.hallId, 10) : null;
+    const reqHallName = req.body.hallName ? req.body.hallName.trim() : null;
     if (!isNaN(num)) {
       try {
-        const tableCheck = await db.query(
-          'SELECT * FROM restaurant_tables WHERE cafe_id = $1 AND number = $2 LIMIT 1',
-          [realCafeId, num]
-        );
+        let tableQuery = 'SELECT * FROM restaurant_tables WHERE cafe_id = $1 AND number = $2';
+        const qParams = [realCafeId, num];
+        if (reqHallId) {
+          tableQuery += ' AND hall_id = $3';
+          qParams.push(reqHallId);
+        } else if (reqHallName) {
+          tableQuery += ' AND hall_id IN (SELECT id FROM halls WHERE cafe_id = $1 AND LOWER(TRIM(name)) = LOWER(TRIM($3)))';
+          qParams.push(reqHallName);
+        }
+        tableQuery += ' ORDER BY id ASC LIMIT 1';
+
+        const tableCheck = await db.query(tableQuery, qParams);
         if (tableCheck.rows.length > 0) {
           const tableRow = tableCheck.rows[0];
           const totalAmount = normalizedItems.reduce((s, i) => s + (i.price * i.qty), 0);
@@ -377,19 +387,25 @@ const createPublicOrder = async (req, res) => {
           );
 
           await db.query(
-            `INSERT INTO table_orders (table_id, cafe_id, items, note, started_by, updated_at)
-             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-             ON CONFLICT (table_id) DO UPDATE SET items=$3, note=$4, started_by=$5, updated_at=CURRENT_TIMESTAMP`,
-            [tableRow.id, realCafeId, JSON.stringify(normalizedItems), notes || `QR Buyurtma: ${cleanCustName || ''}`, cleanCustName || 'QR Mijoz']
+            `INSERT INTO table_orders (table_id, cafe_id, hall_id, items, note, started_by, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+             ON CONFLICT (table_id) DO UPDATE SET hall_id=$3, items=$4, note=$5, started_by=$6, updated_at=CURRENT_TIMESTAMP`,
+            [tableRow.id, realCafeId, tableRow.hall_id, JSON.stringify(normalizedItems), notes || `QR Buyurtma: ${cleanCustName || ''}`, cleanCustName || 'QR Mijoz']
           );
 
           notifyCafe(realCafeId, 'TABLE_STATUS_UPDATED', {
             tableId: tableRow.id,
+            tableNumber: tableRow.number,
+            hallId: tableRow.hall_id,
+            tableKey: `${tableRow.hall_id}_${tableRow.id}`,
             status: 'occupied',
             table: mapTable({ ...tableRow, status: 'occupied', total: totalAmount })
           });
           notifyCafe(realCafeId, 'TABLE_ORDER_UPDATED', {
             tableId: tableRow.id,
+            tableNumber: tableRow.number,
+            hallId: tableRow.hall_id,
+            tableKey: `${tableRow.hall_id}_${tableRow.id}`,
             table: mapTable({ ...tableRow, status: 'occupied', total: totalAmount }),
             items: mapCartItems(normalizedItems),
             note: notes || '',
@@ -404,6 +420,7 @@ const createPublicOrder = async (req, res) => {
     notifyCafe(realCafeId, 'NEW_CUSTOMER_ORDER', {
       order: createdOrder,
       tableNumber,
+      hallId: reqHallId || createdOrder.hallId,
       tableName: tableName || `${tableNumber}-stol`,
       message: `${tableName || `Stol #${tableNumber}`} dan yangi buyurtma keldi!`,
     });
