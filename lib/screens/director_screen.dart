@@ -18,14 +18,11 @@ class DirectorScreen extends StatefulWidget {
   State<DirectorScreen> createState() => _DirectorScreenState();
 }
 
-class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProviderStateMixin {
+class _DirectorScreenState extends State<DirectorScreen> {
   final DirectorService _ds = DirectorService();
-  late TabController _tabController;
-  int _currentTabIndex = 0;
 
   DirectorMetrics _metrics = DirectorMetrics();
   List<CafeSaaSItem> _cafes = [];
-  List<DeviceInfo> _devices = [];
   List<Map<String, dynamic>> _supportTickets = [];
   StreamSubscription? _supportSub;
   StreamSubscription? _presenceSub;
@@ -43,12 +40,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.indexIsChanging || _tabController.index != _currentTabIndex) {
-        setState(() => _currentTabIndex = _tabController.index);
-      }
-    });
     _supportSub = SocketService().on(CafeSocketEvent.supportIssueReported).listen((_) {
       _loadSupportTickets();
     });
@@ -71,7 +62,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
   void dispose() {
     _supportSub?.cancel();
     _presenceSub?.cancel();
-    _tabController.dispose();
     super.dispose();
   }
 
@@ -90,13 +80,11 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     try {
       final metricsFuture = _ds.getMetrics();
       final cafesFuture = _ds.getCafes(q: _searchQuery, status: _statusFilter);
-      final devicesFuture = _ds.getDevices();
       final ticketsFuture = _ds.getSupportTickets();
 
       final results = await Future.wait([
         metricsFuture,
         cafesFuture,
-        devicesFuture,
         ticketsFuture,
       ]).timeout(const Duration(seconds: 15));
 
@@ -104,8 +92,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       setState(() {
         _metrics = results[0] as DirectorMetrics;
         _cafes = results[1] as List<CafeSaaSItem>;
-        _devices = results[2] as List<DeviceInfo>;
-        _supportTickets = results[3] as List<Map<String, dynamic>>;
+        _supportTickets = results[2] as List<Map<String, dynamic>>;
         for (final c in _cafes) {
           if (c.isOnline) _presenceMap[c.cafeId] = true;
         }
@@ -2044,7 +2031,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
 
           final data = snapshot.data ?? {};
           final users = (data['users'] as List? ?? []);
-          final devices = (data['devices'] as List? ?? []);
           final events = (data['events'] as List? ?? []);
 
           return AlertDialog(
@@ -2066,13 +2052,12 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
               width: 580,
               height: 520,
               child: DefaultTabController(
-                length: 3,
+                length: 2,
                 child: Column(
                   children: [
                     const TabBar(
                       tabs: [
                         Tab(text: 'Xodimlar'),
-                        Tab(text: 'Qurilmalar'),
                         Tab(text: 'Obuna tarixi'),
                       ],
                       labelColor: Color(0xFFFFC107),
@@ -2108,26 +2093,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                             },
                           ),
 
-                          // 2. Devices
-                          ListView.builder(
-                            itemCount: devices.length,
-                            itemBuilder: (context, i) {
-                              final d = devices[i] as Map;
-                              return ListTile(
-                                leading: const Icon(Icons.devices, color: Colors.blueAccent),
-                                title: Text(
-                                  '${d['device_name']}',
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                                subtitle: Text(
-                                  'Turi: ${d['device_type']} · Oxirgi faollik: ${d['last_seen']?.toString().substring(0, 16) ?? ""}',
-                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                                ),
-                              );
-                            },
-                          ),
-
-                          // 3. Subscription History
+                          // 2. Subscription History
                           ListView.builder(
                             itemCount: events.length,
                             itemBuilder: (context, i) {
@@ -2619,17 +2585,10 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                           ),
                         ),
                       )
-                    : TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildCafesAndMetricsTab(isMobile: isMobile, isTablet: isTablet),
-                          _buildDevicesTab(),
-                        ],
-                      ),
+                    : _buildCafesAndMetricsTab(isMobile: isMobile, isTablet: isTablet),
           ),
         ],
       ),
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
@@ -2996,8 +2955,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             onTap: () {
               setState(() {
                 _activeNav = 'home';
-                _currentTabIndex = 0;
-                _tabController.animateTo(0);
               });
             },
           ),
@@ -3008,8 +2965,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             onTap: () {
               setState(() {
                 _activeNav = 'cafes';
-                _currentTabIndex = 0;
-                _tabController.animateTo(0);
               });
             },
           ),
@@ -3178,7 +3133,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                       Navigator.pop(context);
                       setState(() {
                         _activeNav = 'home';
-                        _tabController.animateTo(0);
                       });
                     },
                   ),
@@ -3189,7 +3143,6 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                       Navigator.pop(context);
                       setState(() {
                         _activeNav = 'cafes';
-                        _tabController.animateTo(0);
                       });
                     },
                   ),
@@ -3252,67 +3205,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     );
   }
 
-  // BOTTOM TAB NAVIGATION
-  Widget _buildBottomNav() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: NavigationBarTheme(
-          data: NavigationBarThemeData(
-            backgroundColor: Colors.white,
-            indicatorColor: const Color(0xFFFEF3C7),
-            labelTextStyle: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.selected)) {
-                return const TextStyle(
-                  color: Color(0xFFD97706),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                );
-              }
-              return TextStyle(color: Colors.grey.shade600, fontSize: 12);
-            }),
-            iconTheme: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.selected)) {
-                return const IconThemeData(color: Color(0xFFD97706), size: 24);
-              }
-              return IconThemeData(color: Colors.grey.shade600, size: 24);
-            }),
-          ),
-          child: NavigationBar(
-            selectedIndex: _currentTabIndex,
-            onDestinationSelected: (idx) {
-              setState(() => _currentTabIndex = idx);
-              _tabController.animateTo(idx);
-            },
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.storefront_outlined),
-                selectedIcon: Icon(Icons.storefront_rounded),
-                label: 'Cafelar va Metrikalar',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.devices_outlined),
-                selectedIcon: Icon(Icons.devices_rounded),
-                label: 'Qurilmalar',
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // TAB 1: CAFES & METRICS
+  // TAB: CAFES & METRICS
   Widget _buildCafesAndMetricsTab({required bool isMobile, required bool isTablet}) {
     return RefreshIndicator(
       color: const Color(0xFFF59E0B),
@@ -4290,72 +4183,4 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       ),
     );
   }
-
-  // TAB 2: DEVICES
-  Widget _buildDevicesTab() {
-    if (_devices.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.devices_outlined, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            Text('Ulangan qurilmalar topilmadi', style: TextStyle(color: Colors.grey.shade600, fontSize: 15)),
-          ],
-        ),
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: _devices.length,
-      itemBuilder: (context, i) {
-        final d = _devices[i];
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.02),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: BorderSide(color: Colors.grey.shade200),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: const Color(0xFFFEF3C7),
-              child: Icon(
-                d.deviceType == 'phone'
-                    ? Icons.phone_android_rounded
-                    : (d.deviceType == 'tablet' ? Icons.tablet_mac_rounded : Icons.desktop_windows_rounded),
-                color: const Color(0xFFD97706),
-              ),
-            ),
-            title: Text(d.deviceName, style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold)),
-            subtitle: Text(
-              'Turi: ${d.deviceType} · Oxirgi faollik: ${d.lastSeen?.toString().substring(0, 16) ?? "Noma'lum"} · User: ${d.userName ?? "Noma'lum"}',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-              tooltip: 'Qurilmani uzish',
-              onPressed: () async {
-                await _ds.revokeDevice(d.id);
-                _loadAllData();
-              },
-            ),
-          ),
-        ),
-      );
-      },
-    );
-  }
 }
-

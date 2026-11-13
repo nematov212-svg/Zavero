@@ -5,9 +5,7 @@
  */
 function getTenantCafeId(req) {
   if (!req || !req.user) return null;
-  if (req.user.role === 'director') {
-    return req.headers['x-cafe-id'] || req.query?.cafeId || req.body?.cafeId || req.user.cafeId || null;
-  }
+  // Cafe operatsion so'rovlari faqat foydalanuvchining o'z kafesiga bog'liq bo'lishi shart
   return req.user.cafeId || null;
 }
 

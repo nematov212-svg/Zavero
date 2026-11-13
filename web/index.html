@@ -146,16 +146,35 @@
           };
 
           if (canCall('7.7') && tg.disableVerticalSwipes) {
-            try { tg.disableVerticalSwipes(); } catch (_) {}
+            try { tg.disableVerticalSwipes(); } catch (_) { }
           }
           if (canCall('6.2') && tg.enableClosingConfirmation) {
-            try { tg.enableClosingConfirmation(); } catch (_) {}
+            try { tg.enableClosingConfirmation(); } catch (_) { }
           }
           if (canCall('6.1') && tg.setHeaderColor) {
-            try { tg.setHeaderColor('#0F172A'); } catch (_) {}
+            try { tg.setHeaderColor('#0F172A'); } catch (_) { }
           }
           if (canCall('6.1') && tg.setBackgroundColor) {
-            try { tg.setBackgroundColor('#0F172A'); } catch (_) {}
+            try { tg.setBackgroundColor('#0F172A'); } catch (_) { }
+          }
+
+          // Telegram WebApp Sessiya tekshiruvi: Avval panelga kiring tekshiruvi
+          if (tg.initData) {
+            fetch('/api/auth/telegram-verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ initData: tg.initData })
+            }).then(function (res) {
+              return res.json();
+            }).then(function (data) {
+              if (data && data.success === false && data.message === 'Avval panelga kiring') {
+                document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0F172A;color:#fff;font-family:sans-serif;text-align:center;padding:24px;">' +
+                  '<div style="font-size:48px;margin-bottom:16px;">🔒</div>' +
+                  '<h2 style="margin:0 0 8px 0;font-size:20px;">Avval panelga kiring</h2>' +
+                  '<p style="color:#94a3b8;font-size:14px;margin:0 0 24px 0;">Telegram botda login va parolingizni kiritib panelga kiring.</p>' +
+                  '</div>';
+              }
+            }).catch(function () { });
           }
 
           // Telegram BackButton support: ofitsiant yoki foydalanuvchi sahifalarida to'g'ri ishlashi
@@ -163,16 +182,16 @@
             var updateBackButton = function () {
               var h = window.location.hash || '';
               if (h && h !== '#/' && h !== '#dashboard' && h !== '') {
-                try { tg.BackButton.show(); } catch (_) {}
+                try { tg.BackButton.show(); } catch (_) { }
               } else {
-                try { tg.BackButton.hide(); } catch (_) {}
+                try { tg.BackButton.hide(); } catch (_) { }
               }
             };
             tg.BackButton.onClick(function () {
               if (window.location.hash && window.location.hash !== '#/' && window.location.hash !== '#dashboard') {
                 window.history.back();
               } else {
-                try { tg.BackButton.hide(); } catch (_) {}
+                try { tg.BackButton.hide(); } catch (_) { }
               }
             });
             window.addEventListener('hashchange', updateBackButton);
@@ -205,7 +224,7 @@
       try {
         loader.style.opacity = '0';
         loader.style.visibility = 'hidden';
-      } catch (_) {}
+      } catch (_) { }
       setTimeout(function () {
         if (_zaveroLoaderRemoved) return;
         _zaveroLoaderRemoved = true;
@@ -215,7 +234,7 @@
           } else if (loader && loader.parentNode) {
             loader.parentNode.removeChild(loader);
           }
-        } catch (_) {}
+        } catch (_) { }
       }, 400);
     }
     window.addEventListener('flutter-first-frame', hideLoader);
@@ -246,7 +265,7 @@
             try {
               if (old.remove) old.remove();
               else if (old.parentNode) old.parentNode.removeChild(old);
-            } catch (_) {}
+            } catch (_) { }
           }
           var iframe = document.createElement('iframe');
           iframe.id = 'zavero-receipt-iframe';
@@ -375,7 +394,7 @@
         try {
           if (prev.remove) prev.remove();
           else if (prev.parentNode) prev.parentNode.removeChild(prev);
-        } catch (_) {}
+        } catch (_) { }
       }
 
       var backdrop = document.createElement('div');
@@ -480,7 +499,7 @@
             if (backdrop.remove) backdrop.remove();
             else if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
           }
-        } catch (_) {}
+        } catch (_) { }
       };
 
       closeBtn.onclick = closeModal;

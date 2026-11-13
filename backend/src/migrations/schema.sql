@@ -598,10 +598,12 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
     id SERIAL PRIMARY KEY,
     announcement_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
     cafe_id VARCHAR(64) NOT NULL,
+    user_id INTEGER,
     read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    read_by VARCHAR(120),
-    UNIQUE (announcement_id, cafe_id)
+    read_by VARCHAR(120)
 );
+ALTER TABLE announcement_reads ADD COLUMN IF NOT EXISTS user_id INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(announcement_id, user_id) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_announcement_reads_cafe ON announcement_reads(cafe_id);
 

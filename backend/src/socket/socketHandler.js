@@ -14,12 +14,21 @@ const recentPrintJobs = new Map();
 
 // Active Sockets per Cafe (cafeId -> Set of socket.id) for Online/Offline presence tracking
 const activeSocketsByCafe = new Map();
+// 12 soniyali Grace Period taymerlari (aloqa uzilganda darhol offline bo'lib miltillamasligi uchun)
+const disconnectGraceTimers = new Map();
 
 const getActiveCafePresence = () => {
   const presence = {};
   let onlineCount = 0;
-  for (const [cId, sockets] of activeSocketsByCafe.entries()) {
-    if (sockets && sockets.size > 0) {
+
+  // Barcha faol soketlar va grace perioddagi kafelarni hisoblash
+  const allCafeIds = new Set([...activeSocketsByCafe.keys(), ...disconnectGraceTimers.keys()]);
+  for (const cId of allCafeIds) {
+    const sockets = activeSocketsByCafe.get(cId);
+    const hasSockets = sockets && sockets.size > 0;
+    const inGrace = disconnectGraceTimers.has(cId);
+
+    if (hasSockets || inGrace) {
       presence[cId] = true;
       onlineCount++;
     } else {
@@ -37,6 +46,13 @@ const broadcastPresenceToDirector = () => {
 const registerCafeSocket = (cId, sId) => {
   if (!cId || cId === 'zavero') return;
   const cStr = String(cId);
+
+  // Agar uzilish grace period taymeri ishlab turgan bo'lsa, uni bekor qilamiz (qayta ulandi)
+  if (disconnectGraceTimers.has(cStr)) {
+    clearTimeout(disconnectGraceTimers.get(cStr));
+    disconnectGraceTimers.delete(cStr);
+  }
+
   if (!activeSocketsByCafe.has(cStr)) activeSocketsByCafe.set(cStr, new Set());
   activeSocketsByCafe.get(cStr).add(sId);
   broadcastPresenceToDirector();
@@ -47,10 +63,26 @@ const unregisterCafeSocket = (cId, sId) => {
   const cStr = String(cId);
   if (activeSocketsByCafe.has(cStr)) {
     activeSocketsByCafe.get(cStr).delete(sId);
+
     if (activeSocketsByCafe.get(cStr).size === 0) {
-      activeSocketsByCafe.delete(cStr);
+      // Oxirgi qurilma uzilganda 12 soniya kutiladi (sahifa yangilanishi yoki qisqa internet uzilishi)
+      if (disconnectGraceTimers.has(cStr)) {
+        clearTimeout(disconnectGraceTimers.get(cStr));
+      }
+
+      const timer = setTimeout(() => {
+        disconnectGraceTimers.delete(cStr);
+        if (!activeSocketsByCafe.has(cStr) || activeSocketsByCafe.get(cStr).size === 0) {
+          activeSocketsByCafe.delete(cStr);
+          broadcastPresenceToDirector();
+          console.log(`⏱️ [GracePeriod] Cafe '${cStr}' 12s kutilgach Offline holatiga o'tkazildi`);
+        }
+      }, 12000);
+
+      disconnectGraceTimers.set(cStr, timer);
+    } else {
+      broadcastPresenceToDirector();
     }
-    broadcastPresenceToDirector();
   }
 };
 
@@ -213,7 +245,7 @@ const initSocket = (io) => {
                last_seen = CURRENT_TIMESTAMP
            WHERE cafe_id = $1`,
           [cid]
-        ).catch(() => {});
+        ).catch(() => { });
       }
     });
 

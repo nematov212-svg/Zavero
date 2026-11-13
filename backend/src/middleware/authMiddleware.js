@@ -98,20 +98,17 @@ const authMiddleware = async (req, res, next) => {
     }
 
     if (decoded.role === 'director') {
-      const targetCafe = req.headers['x-cafe-id'] || req.query?.cafeId || (req.body && req.body?.cafeId);
-      if (targetCafe) {
-        // STRICT CHECK: Does this director own or belong to this cafe?
-        const authRes = await db.query(
-          `SELECT 1 FROM user_cafes WHERE user_id = $1 AND cafe_id = $2
-           UNION
-           SELECT 1 FROM cafes WHERE cafe_id = $2 AND (director_id = $1 OR owner_email = $3)`,
-          [decoded.id, targetCafe, decoded.username || '']
-        );
-        if (authRes.rows.length === 0) {
-          // Return 404 to avoid leaking existence of other tenants
-          return res.status(404).json({ success: false, message: 'Cafe topilmadi.' });
-        }
-        req.user.cafeId = targetCafe;
+      const fullPath = (req.originalUrl || req.baseUrl || req.path || '').toLowerCase();
+      const isAllowedDirectorRoute = fullPath.includes('/director') ||
+        fullPath.includes('/auth') ||
+        fullPath.includes('/announcements') ||
+        fullPath.includes('/health');
+
+      if (!isAllowedDirectorRoute) {
+        return res.status(403).json({
+          success: false,
+          message: "Director roli cafe operatsion tizimiga (stollar, cheklar, buyurtmalar, xodimlar) to'g'ridan-to'g'ri kira olmaydi. Faqat SaaS boshqaruv huquqiga ega.",
+        });
       }
       return next();
     }

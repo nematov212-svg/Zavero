@@ -21,8 +21,8 @@ const list = async (req, res) => {
         LIMIT 100
       `;
     } else {
-      // Cafe viewing announcements targeted to them
-      params = [cafeId];
+      // Cafe viewing announcements targeted to them (har bir xodim o'z o'qilganlik holatini ko'radi)
+      params = [cafeId, userId || null];
       queryText = `
         SELECT 
           a.id,
@@ -37,7 +37,7 @@ const list = async (req, res) => {
           ar.read_at
         FROM announcements a
         LEFT JOIN announcement_reads ar 
-          ON a.id = ar.announcement_id AND ar.cafe_id = $1
+          ON a.id = ar.announcement_id AND (ar.user_id = $2 OR (ar.user_id IS NULL AND ar.cafe_id = $1))
         WHERE a.target_type = 'all' 
            OR a.target_cafes::jsonb @> to_jsonb($1::text)
            OR a.target_cafes::text LIKE '%' || $1 || '%'
@@ -74,11 +74,12 @@ const list = async (req, res) => {
   }
 };
 
-// POST /api/announcements/:id/read — Mark an announcement as read by the cafe
+// POST /api/announcements/:id/read — Mark an announcement as read by this specific employee
 const markAsRead = async (req, res) => {
   try {
     const cafeId = getTenantCafeId(req);
     const announcementId = parseInt(req.params.id, 10);
+    const userId = req.user?.id || null;
     const readBy = req.user?.name || req.user?.username || 'Kafe xodimi';
 
     if (isNaN(announcementId)) {
@@ -86,10 +87,10 @@ const markAsRead = async (req, res) => {
     }
 
     await db.query(
-      `INSERT INTO announcement_reads (announcement_id, cafe_id, read_by, read_at)
-       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-       ON CONFLICT (announcement_id, cafe_id) DO NOTHING`,
-      [announcementId, cafeId, readBy]
+      `INSERT INTO announcement_reads (announcement_id, cafe_id, user_id, read_by, read_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+       ON CONFLICT DO NOTHING`,
+      [announcementId, cafeId, userId, readBy]
     );
 
     return res.json({ success: true, message: 'O‘qildi deb belgilandi.' });
@@ -99,30 +100,31 @@ const markAsRead = async (req, res) => {
   }
 };
 
-// POST /api/announcements/read-all — Mark all announcements as read for current cafe
+// POST /api/announcements/read-all — Mark all announcements as read for this employee
 const markAllAsRead = async (req, res) => {
   try {
     const cafeId = getTenantCafeId(req);
+    const userId = req.user?.id || null;
     const readBy = req.user?.name || req.user?.username || 'Kafe xodimi';
 
     const unreadRes = await db.query(
       `SELECT a.id 
        FROM announcements a
        LEFT JOIN announcement_reads ar 
-         ON a.id = ar.announcement_id AND ar.cafe_id = $1
+         ON a.id = ar.announcement_id AND (ar.user_id = $2 OR (ar.user_id IS NULL AND ar.cafe_id = $1))
        WHERE (a.target_type = 'all' 
               OR a.target_cafes::jsonb @> to_jsonb($1::text)
               OR a.target_cafes::text LIKE '%' || $1 || '%')
          AND ar.id IS NULL`,
-      [cafeId]
+      [cafeId, userId]
     );
 
     for (const row of unreadRes.rows) {
       await db.query(
-        `INSERT INTO announcement_reads (announcement_id, cafe_id, read_by, read_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         ON CONFLICT (announcement_id, cafe_id) DO NOTHING`,
-        [row.id, cafeId, readBy]
+        `INSERT INTO announcement_reads (announcement_id, cafe_id, user_id, read_by, read_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT DO NOTHING`,
+        [row.id, cafeId, userId, readBy]
       );
     }
 
