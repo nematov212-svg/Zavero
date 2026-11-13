@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../main.dart';
 import '../models/models.dart';
+import '../services/api_client.dart';
 import '../services/pin_security_service.dart';
+import '../services/token_storage.dart';
 import 'auth_screen.dart';
 import 'blocked_screen.dart';
 import 'director_screen.dart';
@@ -21,6 +23,8 @@ class PinLockScreen extends StatefulWidget {
   @override
   State<PinLockScreen> createState() => _PinLockScreenState();
 }
+
+
 
 class _PinLockScreenState extends State<PinLockScreen> with SingleTickerProviderStateMixin {
   final _pinService = PinSecurityService();
@@ -84,6 +88,14 @@ class _PinLockScreenState extends State<PinLockScreen> with SingleTickerProvider
     if (res['success'] == true) {
       final AppUser user = res['user'] as AppUser;
       await appState.saveUserSession(user);
+
+      // Planshetlarda token yo'qolishining oldini olish uchun TokenStorage va ApiClient'ga tiklaymiz
+      final isDirector = user.role == UserRole.director;
+      final recoveredToken = await TokenStorage().getToken(isDirector: isDirector);
+      if (recoveredToken != null && recoveredToken.isNotEmpty) {
+        await ApiClient().setToken(recoveredToken, isDirector: isDirector);
+      }
+
       if (!mounted) return;
 
       PinLockScreen.isShowing = false;

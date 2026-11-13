@@ -42,7 +42,9 @@ const registerSubscriptionHandlers = (bot) => {
     await approveExtension(cafeId, ctx);
   });
 
+
   // Handle button callbacks: reject_30_CAFEID
+
   bot.action(/^reject_30_(.+)$/, async (ctx) => {
     try {
       if (ctx.answerCbQuery) await ctx.answerCbQuery("So'rov rad etildi");
@@ -56,7 +58,9 @@ const registerSubscriptionHandlers = (bot) => {
 };
 
 const initSubscriptionBot = () => {
+
   // If dedicated ORDER_BOT_TOKEN is set and differs from main bot, launch a separate instance
+
   if (ORDER_BOT_TOKEN && ORDER_BOT_TOKEN !== MAIN_BOT_TOKEN) {
     if (subBot) return subBot;
     try {

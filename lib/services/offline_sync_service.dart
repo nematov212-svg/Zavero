@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
 import 'api_client.dart';
+import 'token_storage.dart';
 
 enum SyncStatus {
   online,
@@ -236,6 +237,19 @@ class OfflineSyncService {
       return;
     }
 
+    // Tokenni tekshirish va tiklashga urinish
+    if (!ApiClient().isAuthenticated) {
+      final t = await TokenStorage().getToken();
+      if (t != null && t.isNotEmpty) {
+        await ApiClient().setToken(t);
+      }
+    }
+
+    if (!ApiClient().isAuthenticated) {
+      debugPrint('ℹ️ [OfflineSync] Avtorizatsiya belgilanmagan, sinxronizatsiya kutilmoqda...');
+      return;
+    }
+
     _isSyncing = true;
     statusNotifier.value = SyncStatus.syncing;
     debugPrint('🔄 [OfflineSync] Sinxronizatsiya boshlandi (${_queue.length} ta amal)...');
@@ -249,7 +263,7 @@ class OfflineSyncService {
           final res = await ApiClient().post(
             '/receipts/checkout',
             body: action.data,
-          ).timeout(const Duration(seconds: 8));
+          ).timeout(const Duration(seconds: 12));
 
           if (res['success'] == true) {
             _queue.removeWhere((a) => a.id == action.id);

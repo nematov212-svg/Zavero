@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'token_storage.dart';
 
 /// Backend so'rovi muvaffaqiyatsiz bo'lganda tashlanadigan xatolik.
 /// [statusCode] va ixtiyoriy [code] (masalan "TABLE_BUSY") saqlanadi —
@@ -32,12 +34,7 @@ class ApiClient {
   factory ApiClient() => _instance;
 
   static const _storage = FlutterSecureStorage();
-  static const _tokenKey = 'zavero_auth_token';
-  static const _refreshTokenKey = 'zavero_refresh_token';
   static const _userKey = 'zavero_current_user';
-
-  static const _directorTokenKey = 'zavero_director_auth_token';
-  static const _directorRefreshTokenKey = 'zavero_director_refresh_token';
   static const _directorUserKey = 'zavero_director_current_user';
 
   /// Backend bulut API manzili (Railway)
@@ -75,18 +72,37 @@ class ApiClient {
 
   ApiClient._internal() {
     _dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 35),
-      receiveTimeout: const Duration(seconds: 35),
-      sendTimeout: const Duration(seconds: 35),
+      connectTimeout: const Duration(seconds: 18),
+      receiveTimeout: const Duration(seconds: 22),
+      sendTimeout: const Duration(seconds: 18),
     ));
     _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
+      onRequest: (options, handler) async {
         options.baseUrl = _baseUrl;
+        final isDirectorContext = kIsWeb &&
+            (Uri.base.fragment.contains('director') || Uri.base.path.contains('director'));
+
+        // 1. Agar _token xotirada bo'sh bo'lsa, TokenStorage'dan zudlik bilan tiklashga urinamiz
+        if (_token == null || _token!.isEmpty) {
+          _token = await TokenStorage().getToken(isDirector: isDirectorContext);
+          _refreshToken = await TokenStorage().getRefreshToken(isDirector: isDirectorContext);
+        }
+
         if (_token != null && _token!.isNotEmpty) {
           options.headers['Authorization'] = 'Bearer $_token';
         }
         if (targetCafeId != null && targetCafeId!.isNotEmpty) {
           options.headers['x-cafe-id'] = targetCafeId;
+        }
+
+        // Qurilma turini aniqlash (backend loglari va chek manbalari uchun)
+        if (!options.headers.containsKey('x-device-type')) {
+          if (kIsWeb) {
+            options.headers['x-device-type'] = 'web';
+          } else {
+            // Android tablet / mobile
+            options.headers['x-device-type'] = 'tablet';
+          }
         }
 
         // Agar so'rov avtorizatsiya talab qilsa va token bo'lmasa, tarmoqqa chiqmasdan xatolik qaytaramiz
@@ -123,29 +139,35 @@ class ApiClient {
               err.requestOptions.path.contains('/auth/refresh') ||
               err.requestOptions.path.contains('/auth/register');
 
-          if (!isAlreadyRetry && !isAuthEndpoint && _refreshToken != null && _refreshToken!.isNotEmpty) {
-            try {
-              final refreshResponse = await _dio.post(
-                '$_baseUrl/auth/refresh',
-                data: {'refreshToken': _refreshToken},
-                options: Options(extra: {'isRetry': true}),
-              );
-              final data = _asMap(refreshResponse.data);
-              final newToken = data['token'] as String?;
-              final newRefreshToken = data['refreshToken'] as String?;
-              if (newToken != null && newToken.isNotEmpty) {
-                await setToken(newToken, refreshToken: newRefreshToken);
+          if (!isAlreadyRetry && !isAuthEndpoint) {
+            final activeRefresh = _refreshToken ?? await TokenStorage().getRefreshToken();
+            if (activeRefresh != null && activeRefresh.isNotEmpty) {
+              try {
+                final refreshResponse = await _dio.post(
+                  '$_baseUrl/auth/refresh',
+                  data: {'refreshToken': activeRefresh},
+                  options: Options(extra: {'isRetry': true}),
+                );
+                final data = _asMap(refreshResponse.data);
+                final newToken = data['token'] as String?;
+                final newRefreshToken = data['refreshToken'] as String?;
+                if (newToken != null && newToken.isNotEmpty) {
+                  await setToken(newToken, refreshToken: newRefreshToken);
 
-                final retryOptions = err.requestOptions;
-                retryOptions.headers['Authorization'] = 'Bearer $newToken';
-                retryOptions.extra['isRetry'] = true;
+                  final retryOptions = err.requestOptions;
+                  retryOptions.headers['Authorization'] = 'Bearer $newToken';
+                  retryOptions.extra['isRetry'] = true;
 
-                final response = await _dio.fetch(retryOptions);
-                handler.resolve(response);
-                return;
+                  final response = await _dio.fetch(retryOptions);
+                  handler.resolve(response);
+                  return;
+                }
+              } catch (_) {
+                // Faqat refresh endpointi 401 yoki 403 bergandagina tokenni tozalaymiz (tarmoq xatosida emas)
+                if (err.response?.statusCode == 401 || err.response?.statusCode == 403) {
+                  await clearToken();
+                }
               }
-            } catch (_) {
-              await clearToken();
             }
           }
         }
@@ -156,9 +178,9 @@ class ApiClient {
 
   String get baseUrl => _baseUrl;
   String get socketUrl => _baseUrl.replaceAll(RegExp(r'/api/?$'), '');
-  String? get token => _token;
-  String? get refreshToken => _refreshToken;
-  bool get isAuthenticated => _token != null && _token!.isNotEmpty;
+  String? get token => _token ?? TokenStorage().token;
+  String? get refreshToken => _refreshToken ?? TokenStorage().refreshToken;
+  bool get isAuthenticated => (_token != null && _token!.isNotEmpty) || TokenStorage().hasToken;
 
   /// Resurs (rasm) havolasini to'liq HTTPS / Backend URL formatiga o'tkazadi.
   /// Localhost (127.0.0.1, 10.0.2.2, 192.168...) hamda nisbiy yo'llarni (/api/upload/..., /uploads/...)
@@ -224,35 +246,13 @@ class ApiClient {
         }
       } catch (_) {}
     }
+    final isDirectorContext = kIsWeb && (Uri.base.fragment.contains('director') || Uri.base.path.contains('director'));
     try {
-      final isDirectorContext = kIsWeb && (Uri.base.fragment.contains('director') || Uri.base.path.contains('director'));
-      final activeTokenKey = isDirectorContext ? _directorTokenKey : _tokenKey;
-      final activeRefreshKey = isDirectorContext ? _directorRefreshTokenKey : _refreshTokenKey;
-
-      _token = await _storage.read(key: activeTokenKey);
-      _refreshToken = await _storage.read(key: activeRefreshKey);
-      if (_token == null || _token!.isEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        _token = prefs.getString(activeTokenKey);
-        _refreshToken = prefs.getString(activeRefreshKey);
-      }
-      // Agar director kontekstida topilmasa, umumiy tokenga fallback qilamiz
-      if (isDirectorContext && (_token == null || _token!.isEmpty)) {
-        _token = await _storage.read(key: _tokenKey);
-        _refreshToken = await _storage.read(key: _refreshTokenKey);
-        if (_token == null || _token!.isEmpty) {
-          final prefs = await SharedPreferences.getInstance();
-          _token = prefs.getString(_tokenKey);
-          _refreshToken = prefs.getString(_refreshTokenKey);
-        }
-      }
+      await TokenStorage().init();
+      _token = await TokenStorage().getToken(isDirector: isDirectorContext);
+      _refreshToken = await TokenStorage().getRefreshToken(isDirector: isDirectorContext);
     } catch (e) {
-      debugPrint('ApiClient init xatoligi: $e');
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        _token = prefs.getString(_tokenKey);
-        _refreshToken = prefs.getString(_refreshTokenKey);
-      } catch (_) {}
+      debugPrint('ApiClient init TokenStorage ogohlantirish: $e');
     }
   }
 
@@ -273,63 +273,19 @@ class ApiClient {
     if (refreshToken != null && refreshToken.isNotEmpty) {
       _refreshToken = refreshToken;
     }
-    final keyToUse = isDirector ? _directorTokenKey : _tokenKey;
-    final refreshKeyToUse = isDirector ? _directorRefreshTokenKey : _refreshTokenKey;
-
-    try {
-      await _storage.write(key: keyToUse, value: token);
-      if (_refreshToken != null) {
-        await _storage.write(key: refreshKeyToUse, value: _refreshToken);
-      }
-      await _storage.write(key: _tokenKey, value: token);
-      if (_refreshToken != null) {
-        await _storage.write(key: _refreshTokenKey, value: _refreshToken);
-      }
-    } catch (e) {
-      debugPrint('ApiClient setToken xatoligi: $e');
-    }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(keyToUse, token);
-      if (_refreshToken != null) {
-        await prefs.setString(refreshKeyToUse, _refreshToken!);
-      }
-      await prefs.setString(_tokenKey, token);
-      if (_refreshToken != null) {
-        await prefs.setString(_refreshTokenKey, _refreshToken!);
-      }
-    } catch (_) {}
+    await TokenStorage().saveTokens(
+      token: token,
+      refreshToken: refreshToken,
+      isDirector: isDirector,
+      cafeId: targetCafeId,
+    );
   }
 
   Future<void> clearToken({bool isDirector = false}) async {
     _token = null;
     _refreshToken = null;
     targetCafeId = null;
-    final isDirectorContext = isDirector ||
-        (kIsWeb && (Uri.base.fragment.contains('director') || Uri.base.path.contains('director')));
-    try {
-      if (isDirectorContext) {
-        await _storage.delete(key: _directorTokenKey);
-        await _storage.delete(key: _directorRefreshTokenKey);
-        await _storage.delete(key: _directorUserKey);
-      }
-      await _storage.delete(key: _tokenKey);
-      await _storage.delete(key: _refreshTokenKey);
-      await _storage.delete(key: _userKey);
-    } catch (e) {
-      debugPrint('ApiClient clearToken xatoligi: $e');
-    }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (isDirectorContext) {
-        await prefs.remove(_directorTokenKey);
-        await prefs.remove(_directorRefreshTokenKey);
-        await prefs.remove(_directorUserKey);
-      }
-      await prefs.remove(_tokenKey);
-      await prefs.remove(_refreshTokenKey);
-      await prefs.remove(_userKey);
-    } catch (_) {}
+    await TokenStorage().clearTokens(isDirector: isDirector);
   }
 
   /// So'nggi tizimga kirgan foydalanuvchi JSON'ini mahalliy saqlash (offline fallback uchun).
@@ -339,16 +295,21 @@ class ApiClient {
     final keyToUse = isDirectorUser ? _directorUserKey : _userKey;
 
     try {
-      await _storage.write(key: keyToUse, value: encoded);
-      await _storage.write(key: _userKey, value: encoded);
-    } catch (e) {
-      debugPrint('ApiClient cacheUserJson xatoligi: $e');
-    }
-    try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(keyToUse, encoded);
       await prefs.setString(_userKey, encoded);
     } catch (_) {}
+
+    unawaited(() async {
+      try {
+        await _storage
+            .write(key: keyToUse, value: encoded)
+            .timeout(const Duration(milliseconds: 1000), onTimeout: () => null);
+        await _storage
+            .write(key: _userKey, value: encoded)
+            .timeout(const Duration(milliseconds: 1000), onTimeout: () => null);
+      } catch (_) {}
+    }());
   }
 
   Future<Map<String, dynamic>?> readCachedUserJson({bool isDirector = false}) async {
@@ -357,31 +318,31 @@ class ApiClient {
     final keyToUse = isDirectorContext ? _directorUserKey : _userKey;
 
     try {
-      String? raw = await _storage.read(key: keyToUse);
+      final prefs = await SharedPreferences.getInstance();
+      var raw = prefs.getString(keyToUse);
       if (raw == null || raw.isEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        raw = prefs.getString(keyToUse);
+        raw = prefs.getString(_userKey);
       }
+      if (raw != null && raw.isNotEmpty) {
+        return jsonDecode(raw) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+
+    try {
+      var raw = await _storage
+          .read(key: keyToUse)
+          .timeout(const Duration(milliseconds: 1000), onTimeout: () => null);
       if (raw == null || raw.isEmpty) {
-        raw = await _storage.read(key: _userKey);
-        if (raw == null || raw.isEmpty) {
-          final prefs = await SharedPreferences.getInstance();
-          raw = prefs.getString(_userKey);
-        }
+        raw = await _storage
+            .read(key: _userKey)
+            .timeout(const Duration(milliseconds: 1000), onTimeout: () => null);
       }
-      if (raw == null || raw.isEmpty) return null;
-      return jsonDecode(raw) as Map<String, dynamic>;
-    } catch (e) {
-      debugPrint('ApiClient readCachedUserJson xatoligi: $e');
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final raw = prefs.getString(keyToUse) ?? prefs.getString(_userKey);
-        if (raw != null && raw.isNotEmpty) {
-          return jsonDecode(raw) as Map<String, dynamic>;
-        }
-      } catch (_) {}
-      return null;
-    }
+      if (raw != null && raw.isNotEmpty) {
+        return jsonDecode(raw) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   Map<String, dynamic> _asMap(dynamic data) {

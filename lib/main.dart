@@ -24,6 +24,7 @@ import 'screens/customer_orders_screen.dart';
 import 'screens/ads_management_screen.dart';
 import 'services/in_app_notification_service.dart';
 import 'services/staff_tracking_service.dart';
+import 'services/token_storage.dart';
 import 'services/api_client.dart';
 import 'services/auth_service.dart';
 import 'services/cloud_service.dart';
@@ -49,7 +50,9 @@ import 'widgets/receipt_widget.dart';
 import 'widgets/cafe_executive_dashboard.dart';
 
 void main() async {
+  
   WidgetsFlutterBinding.ensureInitialized();
+
 
   // Release rejimda (APK va Web production) brauzer/terminal konsolini 100% toza saqlash
   if (!kDebugMode) {
@@ -111,6 +114,7 @@ void main() async {
   };
 
   try {
+    await TokenStorage().init();
     await LocalizationService().init();
     await LocalCacheService().init();
     await OfflineSyncService().init();
@@ -953,8 +957,13 @@ class AppState extends ChangeNotifier {
 
   Future<AppUser?> restoreUserSession() async {
     try {
+      await TokenStorage().init();
       if (!ApiClient().isAuthenticated) {
         await ApiClient().init();
+      }
+      final t = await TokenStorage().getToken();
+      if (t != null && t.isNotEmpty && (ApiClient().token == null || ApiClient().token!.isEmpty)) {
+        await ApiClient().setToken(t);
       }
       if (!ApiClient().isAuthenticated) {
         return null;
@@ -5618,6 +5627,8 @@ class _SplashScreenState extends State<SplashScreen>
       // 0.5. Agar 4-xonali PIN kod o'rnatilgan bo'lsa (Image 2), avval PIN Lock ekrani ochiladi:
       final hasPin = await PinSecurityService().hasAnyPin();
       if (hasPin) {
+        await TokenStorage().init();
+        await ApiClient().init();
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
@@ -5625,7 +5636,6 @@ class _SplashScreenState extends State<SplashScreen>
             builder: (_) => const PinLockScreen(),
           ),
         );
-        
         return;
       }
 

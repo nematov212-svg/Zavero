@@ -953,7 +953,7 @@ const sendDailyReportForCafe = async ({
         [cafeId, startDate, endDate]
       );
       cancelledCount = cancelRes.rows[0]?.cancelled_count || 0;
-    } catch (_) {}
+    } catch (_) { }
 
     const periodStartStr = formatDate(startDate);
     const periodEndStr = formatDate(endDate);
