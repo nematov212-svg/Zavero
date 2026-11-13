@@ -30,6 +30,8 @@ enum CafeSocketEvent {
   printJobCompleted,
   printJobFailed,
   userForceLogout,
+  cafePresenceUpdated,
+  newAnnouncement,
 }
 
 const Map<CafeSocketEvent, String> _eventNames = {
@@ -58,6 +60,8 @@ const Map<CafeSocketEvent, String> _eventNames = {
   CafeSocketEvent.printJobCompleted: 'PRINT_JOB_COMPLETED',
   CafeSocketEvent.printJobFailed: 'PRINT_JOB_FAILED',
   CafeSocketEvent.userForceLogout: 'USER_FORCE_LOGOUT',
+  CafeSocketEvent.cafePresenceUpdated: 'CAFE_PRESENCE_UPDATED',
+  CafeSocketEvent.newAnnouncement: 'NEW_ANNOUNCEMENT',
 };
 
 /// socket_io_client ustidan qatlam: JWT bilan ulanish, JOIN_CAFE,
@@ -224,6 +228,12 @@ class SocketService {
   void joinAdditionalRoom(String cafeId) {
     if (_socket != null) {
       _socket!.emit('JOIN_CAFE', {'cafeId': cafeId});
+    }
+  }
+
+  void joinDirectorRoom() {
+    if (_socket != null) {
+      _socket!.emit('JOIN_DIRECTOR');
     }
   }
 

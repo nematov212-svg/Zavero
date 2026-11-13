@@ -38,6 +38,7 @@ const mapTable = (r) => ({
   status: r.status,
   orderId: r.order_id,
   total: num(r.total),
+  updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
 });
 
 const mapCustomer = (r) => ({

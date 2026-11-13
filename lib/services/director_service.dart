@@ -465,4 +465,31 @@ class DirectorService {
     await unblockCafe(cafeId);
     return await extendSubscription(cafeId, days: days);
   }
+
+  /// Kafelar online presence holatini olish
+  Future<Map<String, dynamic>> getCafePresence() async {
+    try {
+      final res = await _api.get('/director/cafes-presence');
+      return res;
+    } catch (_) {
+      return {'onlineCount': 0, 'presence': {}};
+    }
+  }
+
+  /// E'lon yaratish va yuborish (barcha yoki bitta kafega)
+  Future<void> sendAnnouncement({
+    String? cafeId,
+    required String title,
+    required String message,
+    String priority = 'normal',
+    bool sendTelegram = false,
+  }) async {
+    await _api.post('/director/announcements', body: {
+      if (cafeId != null && cafeId.isNotEmpty && cafeId != 'all') 'cafeId': cafeId,
+      'title': title.trim(),
+      'message': message.trim(),
+      'priority': priority,
+      'sendTelegram': sendTelegram,
+    });
+  }
 }

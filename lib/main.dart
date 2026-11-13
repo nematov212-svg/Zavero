@@ -43,6 +43,7 @@ import 'services/receipt_printer_service.dart';
 import 'services/cloud_print_service.dart';
 import 'config/app_config.dart';
 import 'services/print_agent_service.dart';
+import 'services/announcement_service.dart';
 
 import 'widgets/connectivity_badge.dart';
 import 'widgets/optimized_image.dart';
@@ -341,7 +342,17 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _userForceLogoutSub;
   StreamSubscription? _socketProductsSub;
   StreamSubscription? _socketCategoriesSub;
+  StreamSubscription? _socketAnnouncementSub;
   final Map<String, int> _executedPrintJobs = {};
+  final Map<int, int> _tableVersions = {};
+  Timer? _tableNotifyDebounceTimer;
+
+  void _debounceNotifyTables() {
+    _tableNotifyDebounceTimer?.cancel();
+    _tableNotifyDebounceTimer = Timer(const Duration(milliseconds: 60), () {
+      notifyListeners();
+    });
+  }
 
   List<Map<String, dynamic>> promoBanners = [];
   CloudService get cloudService => _cloudService;
@@ -373,6 +384,39 @@ class AppState extends ChangeNotifier {
   void clearNotifications() {
     notifications.clear();
     notifyListeners();
+  }
+
+  List<AnnouncementItem> announcements = [];
+  int get unreadAnnouncementsCount => announcements.where((a) => !a.isRead).length;
+
+  Future<void> loadAnnouncements() async {
+    try {
+      final list = await AnnouncementService().getAnnouncements();
+      announcements = list;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> markAnnouncementAsRead(int id) async {
+    final idx = announcements.indexWhere((a) => a.id == id);
+    if (idx != -1) {
+      announcements[idx].isRead = true;
+      notifyListeners();
+    }
+    await AnnouncementService().markAsRead(id);
+  }
+
+  Future<void> markAllAnnouncementsAsRead() async {
+    for (final a in announcements) {
+      a.isRead = true;
+    }
+    for (final n in notifications) {
+      if (n.type == 'announcement') {
+        n.isRead = true;
+      }
+    }
+    notifyListeners();
+    await AnnouncementService().markAllAsRead();
   }
 
   void notifyChanges() {
@@ -1020,20 +1064,71 @@ class AppState extends ChangeNotifier {
 
 
 
-  Future<void> logout() async {
-
-    SupabaseRealtimeService().unsubscribe();
+  /// Barcha real-time (Supabase + Socket.IO) stream va obunalarni bekor qilish
+  void cancelAllSubscriptions() {
+    try {
+      SupabaseRealtimeService().unsubscribe();
+    } catch (_) {}
     _hallsSub?.cancel();
+    _hallsSub = null;
     _tablesSub?.cancel();
+    _tablesSub = null;
     _ordersSub?.cancel();
+    _ordersSub = null;
     _productsSub?.cancel();
+    _productsSub = null;
     _tableOrdersSub?.cancel();
+    _tableOrdersSub = null;
     _reportsSub?.cancel();
+    _reportsSub = null;
     _receiptsSub?.cancel();
+    _receiptsSub = null;
     _categoriesSub?.cancel();
+    _categoriesSub = null;
     _customersSub?.cancel();
+    _customersSub = null;
     _employeesSub?.cancel();
+    _employeesSub = null;
     _maintenanceSub?.cancel();
+    _maintenanceSub = null;
+    _socketTableStatusSub?.cancel();
+    _socketTableStatusSub = null;
+    _socketTableOrderSub?.cancel();
+    _socketTableOrderSub = null;
+    _socketTableReleasedSub?.cancel();
+    _socketTableReleasedSub = null;
+    _socketNewCustomerOrderSub?.cancel();
+    _socketNewCustomerOrderSub = null;
+    _socketReceiptAddedSub?.cancel();
+    _socketReceiptAddedSub = null;
+    _socketReportUpdatedSub?.cancel();
+    _socketReportUpdatedSub = null;
+    _socketReportClearedSub?.cancel();
+    _socketReportClearedSub = null;
+    _settingsSub?.cancel();
+    _settingsSub = null;
+    _subscriptionExtendedSub?.cancel();
+    _subscriptionExtendedSub = null;
+    _socketBannersSub?.cancel();
+    _socketBannersSub = null;
+    _socketPrintJobSub?.cancel();
+    _socketPrintJobSub = null;
+    _socketPrinterStationStatusSub?.cancel();
+    _socketPrinterStationStatusSub = null;
+    _userForceLogoutSub?.cancel();
+    _userForceLogoutSub = null;
+    _socketProductsSub?.cancel();
+    _socketProductsSub = null;
+    _socketCategoriesSub?.cancel();
+    _socketCategoriesSub = null;
+    _socketAnnouncementSub?.cancel();
+    _socketAnnouncementSub = null;
+    _tableNotifyDebounceTimer?.cancel();
+    _tableNotifyDebounceTimer = null;
+  }
+
+  Future<void> logout() async {
+    cancelAllSubscriptions();
     isUnderMaintenance = false;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1330,6 +1425,7 @@ class AppState extends ChangeNotifier {
       }
 
       _startRealtimeListeners(cafeId);
+      unawaited(loadAnnouncements());
 
       _cleanLegacyCategories();
       _deduplicateHallsAndTables();
@@ -1384,12 +1480,24 @@ class AppState extends ChangeNotifier {
     _tablesSub?.cancel();
     _tablesSub = _cloudService.streamTables(cafeId).listen((newTables) {
       if (newTables.isNotEmpty) {
-        tables
-          ..clear()
-          ..addAll(newTables);
+        for (final nt in newTables) {
+          final curVer = _tableVersions[nt.id] ?? 0;
+          if (nt.updatedAt > 0 && nt.updatedAt < curVer) {
+            continue; // Eskirgan / out-of-order ma'lumotni kiritmaymiz
+          }
+          final idx = tables.indexWhere((t) => t.id == nt.id);
+          if (idx != -1) {
+            tables[idx] = nt;
+          } else {
+            tables.add(nt);
+          }
+          if (nt.updatedAt > 0) {
+            _tableVersions[nt.id] = nt.updatedAt;
+          }
+        }
         _syncTableStatusesFromOrders();
         saveData();
-        notifyListeners();
+        _debounceNotifyTables();
       }
     });
 
@@ -1604,7 +1712,7 @@ class AppState extends ChangeNotifier {
         tables.clear();
         tableOrders.clear();
         tableNotes.clear();
-        notifyListeners();
+        _debounceNotifyTables();
         return;
       }
       final tableDeletedId = safeNullableInt(data['tableDeleted']);
@@ -1616,9 +1724,20 @@ class AppState extends ChangeNotifier {
           selectedTable = null;
           cart.clear();
         }
-        notifyListeners();
+        _debounceNotifyTables();
         return;
       }
+
+      final tId = safeNullableInt(data['tableId']);
+      final eventTs = safeInt(data['updatedAt']);
+      if (tId != null && eventTs > 0) {
+        final curVer = _tableVersions[tId] ?? 0;
+        if (eventTs < curVer) {
+          return; // Out-of-order xabar, e'tiborsiz qoldiriladi
+        }
+        _tableVersions[tId] = eventTs;
+      }
+
       final tableMap = data['table'];
       if (tableMap is Map) {
         try {
@@ -1629,10 +1748,8 @@ class AppState extends ChangeNotifier {
           } else {
             tables.add(updatedT);
           }
-          notifyListeners();
         } catch (_) {}
       }
-      final tId = safeNullableInt(data['tableId']);
       final tNum = safeNullableInt(data['tableNumber']);
       final tHallId = safeNullableInt(data['hallId']);
       final st = data['status'] as String?;
@@ -1660,7 +1777,7 @@ class AppState extends ChangeNotifier {
           updated = true;
         }
       }
-      if (updated) notifyListeners();
+      if (updated) _debounceNotifyTables();
     });
 
     _socketTableOrderSub?.cancel();
@@ -1672,6 +1789,15 @@ class AppState extends ChangeNotifier {
         return;
       }
       final tId = safeNullableInt(data['tableId']);
+      final eventTs = safeInt(data['updatedAt']);
+      if (tId != null && eventTs > 0) {
+        final curVer = _tableVersions[tId] ?? 0;
+        if (eventTs < curVer) {
+          return; // Out-of-order xabar, e'tiborsiz qoldiriladi
+        }
+        _tableVersions[tId] = eventTs;
+      }
+
       final tNum = safeNullableInt(data['tableNumber']);
       final tHallId = safeNullableInt(data['hallId']);
       final rawItems = data['items'];
@@ -1705,7 +1831,7 @@ class AppState extends ChangeNotifier {
           updated = true;
         }
       }
-      if (updated) notifyListeners();
+      if (updated) _debounceNotifyTables();
     });
 
     _socketTableReleasedSub?.cancel();
@@ -1719,11 +1845,21 @@ class AppState extends ChangeNotifier {
       final tId = safeNullableInt(data['tableId']);
       final tNum = safeNullableInt(data['tableNumber']);
       final tHallId = safeNullableInt(data['hallId']);
+      final eventTs = safeInt(data['updatedAt']);
+      final nowTime = DateTime.now().millisecondsSinceEpoch;
 
       if (tId != null) {
+        if (eventTs > 0) {
+          final curVer = _tableVersions[tId] ?? 0;
+          if (eventTs < curVer) return;
+          _tableVersions[tId] = eventTs;
+        } else {
+          _tableVersions[tId] = nowTime;
+        }
         tableOrders.remove(tId);
         tableNotes.remove(tId);
-        _tableOrderMutationTimes[tId] = DateTime.now().millisecondsSinceEpoch;
+        _tableOrderMutationTimes[tId] = nowTime;
+        unawaited(OfflineSyncService().removeActionsForTable(tId, cafeId: currentCafeId));
       }
 
       bool updated = false;
@@ -1736,11 +1872,11 @@ class AppState extends ChangeNotifier {
           tableOrdersByZone.remove(t.tableKey);
           tableNotes.remove(t.id);
           tableNotesByZone.remove(t.tableKey);
-          _tableOrderMutationTimes[t.id] = DateTime.now().millisecondsSinceEpoch;
+          _tableOrderMutationTimes[t.id] = nowTime;
           updated = true;
         }
       }
-      if (updated) notifyListeners();
+      if (updated) _debounceNotifyTables();
     });
 
     // Real-time receipts sync across devices and Telegram WebApp
@@ -2025,6 +2161,74 @@ class AppState extends ChangeNotifier {
       }
     });
 
+    // Real-time e'lonlar (Direktor e'lonlari)
+    _socketAnnouncementSub?.cancel();
+    _socketAnnouncementSub = SocketService().on(CafeSocketEvent.newAnnouncement).listen((data) {
+      final annData = data['announcement'];
+      if (annData is Map) {
+        final ann = AnnouncementItem.fromJson(Map<String, dynamic>.from(annData));
+        announcements.insert(0, ann);
+
+        try {
+          SoundService().playNewOrderSound();
+        } catch (_) {}
+
+        addAppNotification(AppNotificationItem(
+          id: ann.id.toString(),
+          title: "📢 E'lon: ${ann.title}",
+          body: ann.message,
+          time: ann.createdAt,
+          type: 'announcement',
+        ));
+
+        final messenger = rootMessengerKey.currentState ?? appMessengerKey.currentState;
+        if (messenger != null) {
+          final isUrgent = ann.priority == 'urgent';
+          final isImportant = ann.priority == 'important';
+          messenger.showSnackBar(
+            SnackBar(
+              duration: Duration(seconds: isUrgent ? 10 : 6),
+              backgroundColor: isUrgent
+                  ? const Color(0xFFDC2626)
+                  : (isImportant ? const Color(0xFFD97706) : const Color(0xFF1E293B)),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              content: Row(
+                children: [
+                  Icon(
+                    isUrgent ? Icons.warning_rounded : Icons.campaign_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          ann.title.isNotEmpty ? ann.title : "Direktor e'loni",
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        Text(
+                          ann.message,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        notifyListeners();
+      }
+    });
+
     if (isPrinterStation && cafeId.isNotEmpty && cafeId != 'local_default') {
       SocketService().registerPrinterStation(
         cafeId,
@@ -2207,9 +2411,8 @@ class AppState extends ChangeNotifier {
       final hasOrder = hasActiveOrder(table);
       if (hasOrder) {
         table.status = TableStatus.occupied;
-      } else {
+      } else if (table.status == TableStatus.free) {
         if (selectedTable?.id != table.id) {
-          table.status = TableStatus.free;
           tableOrders.remove(table.id);
           tableOrdersByZone.remove(table.tableKey);
           tableNotes.remove(table.id);
@@ -2377,6 +2580,9 @@ class AppState extends ChangeNotifier {
   Future<void> _saveCartRemoteOnly({int? targetTableId, List<CartItem>? targetItems, String? targetNote}) async {
     final tableId = targetTableId ?? selectedTable?.id;
     if (tableId == null) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    _tableVersions[tableId] = nowMs;
+    _tableOrderMutationTimes[tableId] = nowMs;
     final items = targetItems ?? List<CartItem>.from(cart);
     final note = targetNote ?? selectedTableNote;
     try {
@@ -2743,15 +2949,19 @@ class AppState extends ChangeNotifier {
     if (selectedTable == null) return;
     final table = selectedTable!;
     final tId = table.id;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    _tableVersions[tId] = nowMs;
+    _tableOrderMutationTimes[tId] = nowMs;
     cart.clear();
     tableOrders.remove(tId);
     tableOrdersByZone.remove(table.tableKey);
     tableNotes.remove(tId);
     tableNotesByZone.remove(table.tableKey);
     table.status = TableStatus.free;
+    unawaited(OfflineSyncService().removeActionsForTable(tId, cafeId: currentCafeId));
     await _persistTableStatus(tId, false);
     selectedTable = null;
-    notifyListeners();
+    _debounceNotifyTables();
   }
 
   Future<Receipt> checkout({
@@ -2840,8 +3050,10 @@ class AppState extends ChangeNotifier {
     // 1. Zudlik bilan xotiradagi mutatsiya vaqtini yangilaymiz (socket orqali kelishi mumkin bo'lgan eski buyurtma stolni qayta band qilmasligi uchun)
     if (tableIdToRelease != null) {
       _tableOrderMutationTimes[tableIdToRelease] = nowMs;
+      _tableVersions[tableIdToRelease] = nowMs;
       tableOrders.remove(tableIdToRelease);
       tableNotes.remove(tableIdToRelease);
+      unawaited(OfflineSyncService().removeActionsForTable(tableIdToRelease, cafeId: currentCafeId));
       if (selectedTable != null) {
         tableOrdersByZone.remove(selectedTable!.tableKey);
         tableNotesByZone.remove(selectedTable!.tableKey);
@@ -7675,11 +7887,7 @@ class _LivePingBadge extends StatelessWidget {
         final service = ConnectivityService();
         final color = service.color;
         final latency = service.latencyMs;
-        final quality = service.qualityText;
-
-        final badgeText = (quality != "Aloqa yo'q")
-            ? (isMobile ? '${latency}ms $quality' : '${latency}ms ($quality)')
-            : "Aloqa yo'q";
+        final badgeText = !service.isOnline ? 'Offline' : '$latency ms';
 
         if (isMobile) {
           return Container(
@@ -8428,7 +8636,8 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
     final statusBg = free ? freeBg : busyBg;
     final statusText = free ? "Bo'sh" : "Band";
 
-    return MouseRegion(
+    return RepaintBoundary(
+      child: MouseRegion(
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
         child: GestureDetector(
@@ -8622,7 +8831,8 @@ class _PremiumTableCardState extends State<_PremiumTableCard> {
             ),
           ),
         ),
-      );
+      ),
+    );
   }
 }
 
@@ -8766,6 +8976,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                         TextButton(
                           onPressed: () {
                             appState.markAllNotificationsAsRead();
+                            appState.markAllAnnouncementsAsRead();
                           },
                           child: const Text('O\'qilgan', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF315EFB))),
                         ),
@@ -8838,14 +9049,43 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               iconData = Icons.workspace_premium_rounded;
                               iconColor = const Color(0xFF8B5CF6);
                               bgIconColor = const Color(0xFFF3E8FF);
+                            } else if (n.type == 'announcement') {
+                              iconData = Icons.campaign_rounded;
+                              iconColor = const Color(0xFFEF4444);
+                              bgIconColor = const Color(0xFFFEE2E2);
                             }
 
                             return InkWell(
                               onTap: () {
                                 n.isRead = true;
+                                final annId = safeNullableInt(n.id);
+                                if (annId != null) {
+                                  appState.markAnnouncementAsRead(annId);
+                                }
                                 appState.notifyChanges();
                                 Navigator.pop(ctx);
-                                if (n.type == 'order') {
+                                if (n.type == 'announcement') {
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                      title: Row(
+                                        children: [
+                                          const Icon(Icons.campaign_rounded, color: Color(0xFF2563EB)),
+                                          const SizedBox(width: 8),
+                                          Expanded(child: Text(n.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                                        ],
+                                      ),
+                                      content: Text(n.body, style: const TextStyle(fontSize: 14)),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context),
+                                          child: const Text('Yopish', style: TextStyle(fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                } else if (n.type == 'order') {
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
                                 } else if (n.type == 'receipt') {
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptHistoryScreen()));

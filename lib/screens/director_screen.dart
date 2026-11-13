@@ -8,7 +8,6 @@ import '../services/auth_service.dart';
 import '../services/socket_service.dart';
 import '../services/pin_security_service.dart';
 import 'auth_screen.dart';
-import 'cafe_management_screen.dart';
 import '../config/app_config.dart';
 
 class DirectorScreen extends StatefulWidget {
@@ -29,6 +28,9 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
   List<DeviceInfo> _devices = [];
   List<Map<String, dynamic>> _supportTickets = [];
   StreamSubscription? _supportSub;
+  StreamSubscription? _presenceSub;
+  int _onlineCafeCount = 0;
+  Map<String, bool> _presenceMap = {};
 
   int get _unresolvedTicketsCount =>
       _supportTickets.where((t) => t['status'] != 'resolved').length;
@@ -50,12 +52,25 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     _supportSub = SocketService().on(CafeSocketEvent.supportIssueReported).listen((_) {
       _loadSupportTickets();
     });
+    _presenceSub = SocketService().on(CafeSocketEvent.cafePresenceUpdated).listen((data) {
+      if (mounted) {
+        setState(() {
+          _onlineCafeCount = safeInt(data['onlineCount']);
+          if (data['presence'] is Map) {
+            final rawMap = data['presence'] as Map;
+            _presenceMap = rawMap.map((k, v) => MapEntry(k.toString(), v == true));
+          }
+        });
+      }
+    });
+    SocketService().joinDirectorRoom();
     _loadAllData();
   }
 
   @override
   void dispose() {
     _supportSub?.cancel();
+    _presenceSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -91,6 +106,10 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
         _cafes = results[1] as List<CafeSaaSItem>;
         _devices = results[2] as List<DeviceInfo>;
         _supportTickets = results[3] as List<Map<String, dynamic>>;
+        for (final c in _cafes) {
+          if (c.isOnline) _presenceMap[c.cafeId] = true;
+        }
+        _onlineCafeCount = _cafes.where((c) => (_presenceMap[c.cafeId] == true) || c.isOnline).length;
       });
     } catch (e) {
       if (mounted) {
@@ -3350,7 +3369,7 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                       crossAxisCount: crossCount,
                       crossAxisSpacing: 16,
                       mainAxisSpacing: 16,
-                      mainAxisExtent: isMobile ? 385 : 340,
+                      mainAxisExtent: isMobile ? 225 : 195,
                     ),
                     itemCount: _cafes.length,
                     itemBuilder: (context, i) => _buildCafeCard(_cafes[i], isMobile: isMobile),
@@ -3396,6 +3415,19 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       ),
     );
 
+    final announcementBtn = ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF2563EB),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      onPressed: _showSendAnnouncementDialog,
+      icon: const Icon(Icons.campaign_rounded, size: 18),
+      label: const Text("E'lon yuborish", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+    );
+
     final cafeBtn = ElevatedButton.icon(
       style: ElevatedButton.styleFrom(
         backgroundColor: const Color(0xFFFBBF24),
@@ -3429,11 +3461,13 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(child: cafeBtn),
+              Expanded(child: announcementBtn),
               const SizedBox(width: 8),
-              Expanded(child: userBtn),
+              Expanded(child: cafeBtn),
             ],
           ),
+          const SizedBox(height: 8),
+          SizedBox(width: double.infinity, child: userBtn),
         ],
       );
     }
@@ -3442,6 +3476,8 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
       children: [
         Expanded(child: searchField),
         const SizedBox(width: 12),
+        announcementBtn,
+        const SizedBox(width: 8),
         cafeBtn,
         const SizedBox(width: 8),
         userBtn,
@@ -3528,14 +3564,14 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
         borderColor: const Color(0xFFBFDBFE),
       ),
       _buildMetricCard(
-        title: 'Ulangan qurilmalar',
-        value: '${_metrics.activeDevices} ta',
-        subtitle: 'Faol ulangan qurilmalar',
-        icon: Icons.people_alt_rounded,
-        bgColor: const Color(0xFFF5F3FF), // Pastel Purple
-        iconBgColor: const Color(0xFFEDE9FE),
-        iconColor: const Color(0xFF7C3AED),
-        borderColor: const Color(0xFFDDD6FE),
+        title: 'Online cafelar',
+        value: '$_onlineCafeCount ta',
+        subtitle: 'Ayni paytda faol ulangan',
+        icon: Icons.wifi_tethering_rounded,
+        bgColor: const Color(0xFFF0FDF4), // Pastel Green
+        iconBgColor: const Color(0xFFDCFCE7),
+        iconColor: const Color(0xFF16A34A),
+        borderColor: const Color(0xFFBBF7D0),
       ),
       _buildMetricCard(
         title: 'Faol Cafe',
@@ -3693,6 +3729,8 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
 
   // CAFE CARD
   Widget _buildCafeCard(CafeSaaSItem cafe, {required bool isMobile}) {
+    final bool isOnline = _presenceMap[cafe.cafeId] ?? cafe.isOnline;
+
     Color statusBg = const Color(0xFFDCFCE7);
     Color statusText = const Color(0xFF16A34A);
     String statusLabel = 'Faol';
@@ -3708,10 +3746,10 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     }
 
     return Container(
-      padding: EdgeInsets.all(isMobile ? 14 : 16),
+      padding: EdgeInsets.all(isMobile ? 12 : 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: cafe.isBlocked ? const Color(0xFFFECACA) : Colors.grey.shade200,
           width: 1.2,
@@ -3719,57 +3757,40 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top Header Row
+          // Top Header Row: Avatar, Title, Status & Online pill
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Cafe Avatar Square
+              // Cafe Avatar Square with Online Indicator
               Stack(
                 children: [
                   Container(
-                    width: 54,
-                    height: 54,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
                       color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.coffee_rounded, color: Color(0xFFFBBF24), size: 22),
-                        const SizedBox(height: 2),
-                        Text(
-                          cafe.name.isNotEmpty ? cafe.name.split(' ').first : 'Cafe',
-                          style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                    child: const Center(
+                      child: Icon(Icons.coffee_rounded, color: Color(0xFFFBBF24), size: 20),
                     ),
                   ),
                   Positioned(
-                    top: 2,
-                    right: 2,
+                    top: 1,
+                    right: 1,
                     child: Container(
                       width: 10,
                       height: 10,
                       decoration: BoxDecoration(
-                        color: cafe.isBlocked ? Colors.redAccent : const Color(0xFF10B981),
+                        color: isOnline ? const Color(0xFF10B981) : Colors.grey.shade400,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 1.5),
                       ),
@@ -3777,9 +3798,9 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                   ),
                 ],
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
 
-              // Title, Status Pill, ID & Info
+              // Title & Badges
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -3791,43 +3812,70 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                             cafe.name,
                             style: const TextStyle(
                               color: Color(0xFF0F172A),
-                              fontSize: 16,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
+                        // Online / Offline Badge
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isOnline ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: isOnline ? const Color(0xFF10B981) : Colors.grey.shade500,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                isOnline ? 'Online' : 'Offline',
+                                style: TextStyle(
+                                  color: isOnline ? const Color(0xFF16A34A) : Colors.grey.shade600,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // SaaS status pill
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: statusBg,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
                             statusLabel,
                             style: TextStyle(
                               color: statusText,
-                              fontSize: 11,
+                              fontSize: 10,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-
-                    // ID with Copy Button
+                    const SizedBox(height: 2),
+                    // ID & Chek
                     Row(
                       children: [
-                        Flexible(
-                          child: Text(
-                            'ID: ${cafe.cafeId}',
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        Text(
+                          'ID: ${cafe.cafeId}',
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
                         ),
                         const SizedBox(width: 4),
                         InkWell(
@@ -3837,97 +3885,81 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
                               const SnackBar(content: Text('ID nusxalandi!'), duration: Duration(seconds: 1)),
                             );
                           },
-                          child: Icon(Icons.copy_rounded, size: 12, color: Colors.grey.shade500),
+                          child: Icon(Icons.copy_rounded, size: 11, color: Colors.grey.shade500),
                         ),
+                        if (cafe.receiptName.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Chek: ${cafe.receiptName}',
+                              style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ],
-                    ),
-                    const SizedBox(height: 2),
-
-                    Text(
-                      'Chek: ${cafe.receiptName}',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-
-              Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade400),
             ],
           ),
 
           const SizedBox(height: 8),
 
-          // Egasi & Email
+          // Owner Name and Phone
           Row(
             children: [
               Icon(Icons.person_outline_rounded, size: 14, color: Colors.grey.shade500),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  'Egasi: ${cafe.ownerName.isNotEmpty ? cafe.ownerName : "Ko'rsatilmagan"}',
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                  cafe.ownerName.isNotEmpty ? cafe.ownerName : (cafe.ownerEmail.isNotEmpty ? cafe.ownerEmail : "Ko'rsatilmagan"),
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const SizedBox(width: 8),
-              Icon(Icons.email_outlined, size: 14, color: Colors.grey.shade500),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  cafe.ownerEmail,
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              if (cafe.ownerPhone.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Icon(Icons.phone_outlined, size: 13, color: Colors.grey.shade500),
+                const SizedBox(width: 3),
+                Text(
+                  cafe.ownerPhone,
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5),
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // Sub-Stat 4 Mini Badges Row
-          Row(
-            children: [
-              Expanded(child: _buildSubStatTile(Icons.people_outline_rounded, '${cafe.usersCount}', 'Xodimlar', const Color(0xFF3B82F6))),
-              const SizedBox(width: 8),
-              Expanded(child: _buildSubStatTile(Icons.table_restaurant_outlined, '${cafe.tablesCount}', 'Stollar', const Color(0xFF10B981))),
-              const SizedBox(width: 8),
-              Expanded(child: _buildSubStatTile(Icons.receipt_outlined, '${cafe.receiptsCount}', 'Cheklar', const Color(0xFF8B5CF6))),
-              const SizedBox(width: 8),
-              Expanded(child: _buildSubStatTile(Icons.phone_android_rounded, '${cafe.activeDevicesCount}', 'Qurilmalar', const Color(0xFFF59E0B))),
+              ],
             ],
           ),
 
           const Spacer(),
 
-          // Obuna tugash sanasi bar
+          // Obuna tugash sanasi bar (formatted)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.grey.shade200),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Obuna tugash sanasi:',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5, fontWeight: FontWeight.w500),
+                  'Obuna muddati:',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11, fontWeight: FontWeight.w500),
                 ),
                 Row(
                   children: [
-                    Icon(Icons.calendar_today_rounded, size: 13, color: Colors.grey.shade600),
-                    const SizedBox(width: 6),
+                    Icon(Icons.calendar_today_rounded, size: 12, color: Colors.grey.shade600),
+                    const SizedBox(width: 5),
                     Text(
-                      cafe.endDate != null ? cafe.endDate!.toString().substring(0, 10) : 'Noma\'lum',
+                      cafe.formattedEndDate,
                       style: TextStyle(
                         color: cafe.isExpired ? Colors.redAccent : const Color(0xFF0F172A),
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        fontSize: 11.5,
                       ),
                     ),
                   ],
@@ -3936,36 +3968,13 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
             ),
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
 
-          // Action Buttons Row (Horizontally scrollable to avoid overflow on phones)
+          // SaaS Action Buttons Row (No "KIRISH" button)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                // Primary KIRISH button
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => CafeManagementScreen(
-                        cafe: cafe,
-                        directorUser: widget.directorUser,
-                      ),
-                    ),
-                  ),
-                  icon: const Icon(Icons.login_rounded, size: 15),
-                  label: const Text('KIRISH', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(width: 6),
-
                 // Chek / Receipt settings button
                 _buildCardIconButton(
                   icon: Icons.receipt_long_rounded,
@@ -4042,41 +4051,219 @@ class _DirectorScreenState extends State<DirectorScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildSubStatTile(IconData icon, String count, String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  count,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+  void _showSendAnnouncementDialog() {
+    String? selectedCafeId = 'all';
+    final titleCtrl = TextEditingController();
+    final msgCtrl = TextEditingController();
+    String priority = 'normal';
+    bool sendTelegram = true;
+    bool isSending = false;
+    String? error;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          backgroundColor: const Color(0xFF1E293B),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 9, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                child: const Icon(Icons.campaign_rounded, color: Color(0xFF60A5FA), size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  "E'lon yuborish",
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-              ],
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 500,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (error != null)
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade900.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+                    ),
+
+                  const Text('Qaysi kafega:', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: selectedCafeId,
+                        isExpanded: true,
+                        items: [
+                          const DropdownMenuItem(
+                            value: 'all',
+                            child: Text('Barcha kafelarga (Umumiy e\'lon)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                          ),
+                          ..._cafes.map((c) => DropdownMenuItem(
+                            value: c.cafeId,
+                            child: Text('${c.name} (${c.cafeId})', style: const TextStyle(color: Colors.black87)),
+                          )),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setDlgState(() => selectedCafeId = val);
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  TextField(
+                    controller: titleCtrl,
+                    style: const TextStyle(color: Colors.black87, fontSize: 14),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      labelText: "Sarlavha (masalan: Tizim yangilanishi)",
+                      labelStyle: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextField(
+                    controller: msgCtrl,
+                    maxLines: 4,
+                    style: const TextStyle(color: Colors.black87, fontSize: 14),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      labelText: "E'lon matni *",
+                      labelStyle: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+                      alignLabelWithHint: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  const Text('Muhimlik darajasi:', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      _buildPriorityChoiceChip('normal', 'Oddiy', Colors.blue, priority, (p) => setDlgState(() => priority = p)),
+                      const SizedBox(width: 8),
+                      _buildPriorityChoiceChip('important', 'Muhim', Colors.amber, priority, (p) => setDlgState(() => priority = p)),
+                      const SizedBox(width: 8),
+                      _buildPriorityChoiceChip('urgent', 'Shoshilinch', Colors.redAccent, priority, (p) => setDlgState(() => priority = p)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  CheckboxListTile(
+                    value: sendTelegram,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Telegram orqali ham yuborish', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    activeColor: const Color(0xFF2563EB),
+                    checkColor: Colors.white,
+                    onChanged: (v) => setDlgState(() => sendTelegram = v ?? true),
+                  ),
+                ],
+              ),
             ),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Bekor qilish', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: isSending
+                  ? null
+                  : () async {
+                      final title = titleCtrl.text.trim();
+                      final msg = msgCtrl.text.trim();
+                      if (msg.isEmpty) {
+                        setDlgState(() => error = "E'lon matnini kiriting!");
+                        return;
+                      }
+
+                      setDlgState(() {
+                        isSending = true;
+                        error = null;
+                      });
+
+                      try {
+                        await _ds.sendAnnouncement(
+                          cafeId: selectedCafeId == 'all' ? null : selectedCafeId,
+                          title: title.isNotEmpty ? title : "Direktor e'loni",
+                          message: msg,
+                          priority: priority,
+                          sendTelegram: sendTelegram,
+                        );
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                        }
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("E'lon muvaffaqiyatli yuborildi!"),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDlgState(() {
+                          isSending = false;
+                          error = "Xatolik: $e";
+                        });
+                      }
+                    },
+              icon: isSending
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.send_rounded, size: 16),
+              label: Text(isSending ? 'Yuborilmoqda...' : 'Yuborish'),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildPriorityChoiceChip(String val, String label, Color color, String current, Function(String) onSelect) {
+    final isSelected = current == val;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      selectedColor: color.withValues(alpha: 0.3),
+      backgroundColor: const Color(0xFF334155),
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : Colors.white60,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        fontSize: 12,
+      ),
+      side: BorderSide(color: isSelected ? color : Colors.transparent),
+      onSelected: (_) => onSelect(val),
     );
   }
 

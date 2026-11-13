@@ -10,6 +10,8 @@ router.use(requireDirector);
 
 router.get('/metrics', c.getMetrics);
 router.get('/cafes', c.listCafes);
+router.get('/cafes-presence', c.getCafePresence);
+router.post('/announcements', c.createAnnouncement);
 router.get('/cafes/:cafeId', c.getCafeDetail);
 router.get('/cafes/:cafeId/overview', c.getCafeOverview);
 router.post('/cafes', c.createCafe);

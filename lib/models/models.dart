@@ -249,6 +249,7 @@ class CafeSaaSItem {
   final String status; // active, blocked, expired
   final bool isBlocked;
   final bool isExpired;
+  final bool isOnline;
   final DateTime? startDate;
   final DateTime? endDate;
   final int usersCount;
@@ -256,6 +257,14 @@ class CafeSaaSItem {
   final int receiptsCount;
   final int activeDevicesCount;
   final DateTime? createdAt;
+
+  String get formattedEndDate {
+    if (endDate == null) return "Ko'rsatilmagan";
+    if (endDate!.year > DateTime.now().year + 5) {
+      return "Doimiy (Cheksiz)";
+    }
+    return endDate!.toString().substring(0, 10);
+  }
 
   CafeSaaSItem({
     required this.id,
@@ -268,6 +277,7 @@ class CafeSaaSItem {
     this.status = 'active',
     this.isBlocked = false,
     this.isExpired = false,
+    this.isOnline = false,
     this.startDate,
     this.endDate,
     this.usersCount = 0,
@@ -288,6 +298,7 @@ class CafeSaaSItem {
         status: j['status'] as String? ?? 'active',
         isBlocked: j['isBlocked'] == true,
         isExpired: j['isExpired'] == true,
+        isOnline: j['isOnline'] == true,
         startDate: j['startDate'] != null
             ? DateTime.tryParse(j['startDate'] as String)
             : null,
@@ -621,6 +632,7 @@ class TableModel {
   int number;
   int seats;
   TableStatus status;
+  int updatedAt;
 
   TableModel({
     required this.id,
@@ -628,6 +640,7 @@ class TableModel {
     required this.number,
     required this.seats,
     this.status = TableStatus.free,
+    this.updatedAt = 0,
   });
 
   String get tableKey => '${hallId}_$id';
@@ -639,6 +652,7 @@ class TableModel {
         'number': number,
         'seats': seats,
         'status': status.name,
+        'updatedAt': updatedAt,
       };
 
   factory TableModel.fromJson(Map<String, dynamic> j) => TableModel(
@@ -650,6 +664,7 @@ class TableModel {
           (e) => e.name == j['status'],
           orElse: () => TableStatus.free,
         ),
+        updatedAt: safeInt(j['updatedAt'] ?? j['updated_at']),
       );
 
 }
@@ -1117,4 +1132,53 @@ class TodayReportSummary {
         'updatedAt': updatedAt.toIso8601String(),
       };
 }
+
+class AnnouncementItem {
+  final int id;
+  final String? cafeId;
+  final String title;
+  final String message;
+  final String priority; // 'normal', 'important', 'urgent'
+  final bool sendTelegram;
+  final DateTime createdAt;
+  bool isRead;
+
+  AnnouncementItem({
+    required this.id,
+    this.cafeId,
+    required this.title,
+    required this.message,
+    this.priority = 'normal',
+    this.sendTelegram = false,
+    required this.createdAt,
+    this.isRead = false,
+  });
+
+  factory AnnouncementItem.fromJson(Map<String, dynamic> j) {
+    return AnnouncementItem(
+      id: safeInt(j['id']),
+      cafeId: j['cafe_id']?.toString() ?? j['cafeId']?.toString(),
+      title: j['title']?.toString() ?? '',
+      message: j['message']?.toString() ?? '',
+      priority: j['priority']?.toString() ?? 'normal',
+      sendTelegram: j['send_telegram'] == true || j['sendTelegram'] == true,
+      createdAt: j['created_at'] != null
+          ? (DateTime.tryParse(j['created_at'].toString()) ?? DateTime.now())
+          : (j['createdAt'] != null ? (DateTime.tryParse(j['createdAt'].toString()) ?? DateTime.now()) : DateTime.now()),
+      isRead: j['is_read'] == true || j['isRead'] == true,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'cafeId': cafeId,
+        'title': title,
+        'message': message,
+        'priority': priority,
+        'sendTelegram': sendTelegram,
+        'createdAt': createdAt.toIso8601String(),
+        'isRead': isRead,
+      };
+}
+
 

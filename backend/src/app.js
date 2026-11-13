@@ -24,6 +24,7 @@ const appRoutes = require('./routes/appRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const syncRoutes = require('./routes/syncRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
 const { getBotInstance } = require('./bot/telegramBot');
 const { generalApiLimiter } = require('./middleware/rateLimitMiddleware');
 
@@ -283,6 +284,7 @@ app.get(['/health', '/api/health', '/api/v1/health'], (req, res) => {
   app.use(`${prefix}/payments`, paymentRoutes);
   app.use(`${prefix}/sync`, syncRoutes);
   app.use(`${prefix}/subscription`, subscriptionRoutes);
+  app.use(`${prefix}/announcements`, announcementRoutes);
 });
 
 // 404 for unhandled API routes

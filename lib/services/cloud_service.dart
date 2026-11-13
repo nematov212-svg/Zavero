@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import '../models/models.dart';
 import 'api_client.dart';
@@ -193,12 +194,13 @@ class CloudService {
     final subs = <StreamSubscription>[];
     bool isPermissionDenied = false;
 
-    void instantRefresh() async {
+    void instantRefresh({bool emitCached = false}) async {
       if (isPermissionDenied) return;
 
       dynamic cachedObj;
-      // 1. Keshdagi ma'lumotni DARHOL emit qilamiz (0-ms)
-      if (cacheRestore != null) {
+      // 1. Keshdagi ma'lumotni FAQAT dastlabki ochilishda (emitCached = true) emit qilamiz (0-ms).
+      // Keyingi socket/realtime hodisalarida eski keshni yangi holat ustiga yozmaymiz!
+      if (emitCached && cacheRestore != null) {
         try {
           cachedObj = await cacheRestore();
           if (cachedObj != null && !controller.isClosed) {
@@ -244,7 +246,9 @@ class CloudService {
             subs.clear();
             return;
           }
-          debugPrint('CloudService stream yangilash xatoligi: $e');
+          if (kDebugMode) {
+            debugPrint('CloudService stream yangilash xatoligi: $e');
+          }
         }
       }
     }
@@ -252,14 +256,14 @@ class CloudService {
 
     controller = StreamController<T>.broadcast(
       onListen: () {
-        instantRefresh();
+        instantRefresh(emitCached: true);
         if (triggers != null) {
           for (final t in triggers) {
-            subs.add(_socket.on(t).listen((_) => instantRefresh()));
+            subs.add(_socket.on(t).listen((_) => instantRefresh(emitCached: false)));
           }
         }
         if (realtimeType != null) {
-          subs.add(_supabase.on(realtimeType).listen((_) => instantRefresh()));
+          subs.add(_supabase.on(realtimeType).listen((_) => instantRefresh(emitCached: false)));
         }
       },
       onCancel: () {
@@ -278,7 +282,7 @@ class CloudService {
 
   Stream<List<TableModel>> streamTables(String cafeId) =>
       _watch<List<TableModel>>(
-        realtimeType: RealtimeEventType.tables,
+        realtimeType: null, // Faqat Socket.IO orqali boshqariladi (Supabase o'chirildi - ziddiyat yo'q)
         cacheRestore: () => LocalCacheService().getCachedList('cache_tables_$cafeId', TableModel.fromJson),
         cacheSave: (data) => LocalCacheService().setCachedList('cache_tables_$cafeId', data, (t) => t.toJson()),
         fetch: () async {
@@ -362,7 +366,7 @@ class CloudService {
 
   Stream<Map<int, List<CartItem>>> streamTableOrders(String cafeId) =>
       _watch<Map<int, List<CartItem>>>(
-        realtimeType: RealtimeEventType.tableOrders,
+        realtimeType: null, // Faqat Socket.IO orqali boshqariladi
         cacheRestore: () async {
           final cached = await LocalCacheService().getCachedMap('cache_table_orders_$cafeId');
           if (cached == null) return null;
@@ -384,7 +388,7 @@ class CloudService {
 
   Stream<Map<int, String>> streamTableNotes(String cafeId) =>
       _watch<Map<int, String>>(
-        realtimeType: RealtimeEventType.tableOrders,
+        realtimeType: null, // Faqat Socket.IO orqali boshqariladi
         fetch: () async {
           final res = await _api.get('/tables');
           return _tableNotesFromJson(res['tableOrders'] ?? res['tables']);

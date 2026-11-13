@@ -581,5 +581,30 @@ CREATE INDEX IF NOT EXISTS idx_tg_sessions_user ON telegram_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_tg_sessions_role ON telegram_sessions(role);
 CREATE INDEX IF NOT EXISTS idx_tg_sessions_phone ON telegram_sessions(phone);
 
+-- 33. ANNOUNCEMENTS (Director -> Cafes broadcasting)
+CREATE TABLE IF NOT EXISTS announcements (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    priority VARCHAR(20) NOT NULL DEFAULT 'normal', -- 'normal', 'important', 'urgent'
+    target_type VARCHAR(20) NOT NULL DEFAULT 'all', -- 'all', 'selected'
+    target_cafes JSONB DEFAULT '[]',
+    send_telegram BOOLEAN DEFAULT false,
+    created_by VARCHAR(120) DEFAULT 'Director',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS announcement_reads (
+    id SERIAL PRIMARY KEY,
+    announcement_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    cafe_id VARCHAR(64) NOT NULL,
+    read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    read_by VARCHAR(120),
+    UNIQUE (announcement_id, cafe_id)
+);
+CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_announcement_reads_cafe ON announcement_reads(cafe_id);
+
+
 
 

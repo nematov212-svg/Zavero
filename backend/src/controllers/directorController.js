@@ -120,6 +120,8 @@ const listCafes = async (req, res) => {
     `, params);
 
     const now = new Date();
+    const { getActiveCafePresence } = require('../socket/socketHandler');
+    const { presence, onlineCount } = getActiveCafePresence();
 
     let cafes = result.rows.map((row) => {
       const isBlocked = row.status === 'blocked';
@@ -140,6 +142,7 @@ const listCafes = async (req, res) => {
         rawStatus: row.status,
         isBlocked,
         isExpired,
+        isOnline: presence[row.cafe_id] === true,
         startDate: row.start_date,
         endDate: row.end_date,
         usersCount: parseInt(row.users_count || 0),
@@ -165,7 +168,7 @@ const listCafes = async (req, res) => {
       cafes = cafes.filter((c) => c.status === status);
     }
 
-    return res.json({ success: true, cafes });
+    return res.json({ success: true, cafes, onlineCount });
   } catch (error) {
     console.error('listCafes error:', error);
     return res.status(500).json({ success: false, message: 'Serverda xatolik: ' + error.message });
@@ -807,8 +810,8 @@ const deleteCafe = async (req, res) => {
     // Cafe o'chirish sinxroni: bot sessiyalarini tozalash va foydalanuvchilarga xabar berish
     try {
       const { notifySessionsCafeDeleted } = require('../bot/telegramBot');
-      notifySessionsCafeDeleted(cafeId, cafeName).catch(() => {});
-    } catch (_) {}
+      notifySessionsCafeDeleted(cafeId, cafeName).catch(() => { });
+    } catch (_) { }
 
     const { notifyCafe } = require('../socket/socketHandler');
     notifyCafe(cafeId, 'CAFE_DELETED', { cafeId });
@@ -1047,6 +1050,89 @@ const updateCafeReceiptSettings = async (req, res) => {
   }
 };
 
+// GET /api/director/cafes/presence
+const getCafePresence = async (req, res) => {
+  try {
+    const { getActiveCafePresence } = require('../socket/socketHandler');
+    const data = getActiveCafePresence();
+    return res.json({ success: true, ...data });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/director/announcements
+const createAnnouncement = async (req, res) => {
+  try {
+    const { title, message, priority, targetType, targetCafes, sendTelegram } = req.body;
+    if (!title || !message) {
+      return res.status(400).json({ success: false, message: 'Sarlavha va matn kiritilishi shart.' });
+    }
+
+    const effPriority = ['normal', 'important', 'urgent'].includes(priority) ? priority : 'normal';
+    const effTargetType = targetType === 'selected' ? 'selected' : 'all';
+    const effTargetCafes = Array.isArray(targetCafes) ? targetCafes : [];
+    const createdBy = req.user?.name || req.user?.username || 'ZAVERO Director';
+
+    const insertRes = await db.query(
+      `INSERT INTO announcements (title, message, priority, target_type, target_cafes, send_telegram, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [title.trim(), message.trim(), effPriority, effTargetType, JSON.stringify(effTargetCafes), !!sendTelegram, createdBy]
+    );
+
+    const announcement = insertRes.rows[0];
+
+    // Socket.IO orqali real-time kafelarga yetkazish
+    const { notifyCafe } = require('../socket/socketHandler');
+    const announcementPayload = {
+      id: announcement.id,
+      title: announcement.title,
+      message: announcement.message,
+      priority: announcement.priority,
+      targetType: announcement.target_type,
+      targetCafes: effTargetCafes,
+      createdBy: announcement.created_by,
+      createdAt: announcement.created_at,
+    };
+
+    if (effTargetType === 'all') {
+      const allCafes = await db.query("SELECT cafe_id FROM cafes WHERE cafe_id != 'zavero' AND status = 'active'");
+      for (const row of allCafes.rows) {
+        notifyCafe(row.cafe_id, 'NEW_ANNOUNCEMENT', announcementPayload);
+      }
+    } else {
+      for (const cId of effTargetCafes) {
+        notifyCafe(cId, 'NEW_ANNOUNCEMENT', announcementPayload);
+      }
+    }
+
+    // Ixtiyoriy: Telegram bot orqali yuborish
+    if (sendTelegram) {
+      try {
+        const { sendGeneralTelegramNotification } = require('../bot/telegramBot');
+        const prioEmoji = effPriority === 'urgent' ? '🚨' : (effPriority === 'important' ? '⚠️' : '📢');
+        const prioText = effPriority === 'urgent' ? 'SHOSHILINCH E’LON' : (effPriority === 'important' ? 'MUHIM E’LON' : 'E’LON');
+        const tgMsg = `${prioEmoji} <b>${prioText}: ${title}</b>\n\n${message}\n\n<i>ZAVERO Rahbariyati</i>`;
+
+        const targetList = effTargetType === 'all'
+          ? (await db.query("SELECT cafe_id FROM cafes WHERE cafe_id != 'zavero' AND status = 'active'")).rows.map(r => r.cafe_id)
+          : effTargetCafes;
+
+        for (const cid of targetList) {
+          sendGeneralTelegramNotification(cid, tgMsg).catch(() => {});
+        }
+      } catch (tgErr) {
+        console.warn('⚠️ [Telegram Announcement] error:', tgErr.message);
+      }
+    }
+
+    return res.status(201).json({ success: true, announcement });
+  } catch (error) {
+    console.error('createAnnouncement error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getMetrics,
   listCafes,
@@ -1067,4 +1153,6 @@ module.exports = {
   toggleMaintenance,
   getCafeReceiptSettings,
   updateCafeReceiptSettings,
+  getCafePresence,
+  createAnnouncement,
 };

@@ -9,9 +9,9 @@ const createPool = () => {
     return new Pool({
       connectionString,
       ssl: isSsl ? { rejectUnauthorized: false } : false,
-      max: process.env.NODE_ENV === 'production' ? 3 : 10,
+      max: 10,
       idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 15000,
+      connectionTimeoutMillis: 10000,
     });
   }
 
@@ -70,6 +70,29 @@ const initDb = async () => {
         UPDATE customer_orders o
         SET hall_id = (SELECT id FROM halls WHERE cafe_id = o.cafe_id ORDER BY id ASC LIMIT 1)
         WHERE o.hall_id IS NULL;
+
+        CREATE TABLE IF NOT EXISTS announcements (
+          id SERIAL PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          priority VARCHAR(20) NOT NULL DEFAULT 'normal',
+          target_type VARCHAR(20) NOT NULL DEFAULT 'all',
+          target_cafes JSONB DEFAULT '[]',
+          send_telegram BOOLEAN DEFAULT false,
+          created_by VARCHAR(120) DEFAULT 'Director',
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS announcement_reads (
+          id SERIAL PRIMARY KEY,
+          announcement_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+          cafe_id VARCHAR(64) NOT NULL,
+          read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          read_by VARCHAR(120),
+          UNIQUE (announcement_id, cafe_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_announcement_reads_cafe ON announcement_reads(cafe_id);
       `);
     } catch (migErr) {
       console.warn('⚠️ [Migration Notice]:', migErr.message);

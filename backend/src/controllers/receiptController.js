@@ -95,9 +95,10 @@ const checkout = async (req, res) => {
         }
         if (effectiveTableId || effectiveTableNumber) {
           const tKey = effectiveHallId && effectiveTableId ? `${effectiveHallId}_${effectiveTableId}` : null;
-          notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey });
-          notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, status: 'free' });
-          notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, items: [], note: '' });
+          const checkoutTs = Date.now();
+          notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, updatedAt: checkoutTs });
+          notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, status: 'free', updatedAt: checkoutTs });
+          notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, items: [], note: '', updatedAt: checkoutTs });
         }
         return res.json({
           success: true,
@@ -129,9 +130,10 @@ const checkout = async (req, res) => {
           await db.query(`DELETE FROM table_orders WHERE table_id=$1 AND cafe_id=$2`, [effectiveTableId, cafeId]).catch(() => { });
         }
         const tKey = effectiveHallId && effectiveTableId ? `${effectiveHallId}_${effectiveTableId}` : null;
-        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey });
-        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, status: 'free' });
-        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, items: [], note: '' });
+        const dupTs = Date.now();
+        notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, updatedAt: dupTs });
+        notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, status: 'free', updatedAt: dupTs });
+        notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, items: [], note: '', updatedAt: dupTs });
         return res.json({
           success: true,
           message: 'To‘lov allaqachon qayd etilgan (takroriy bosish oldi olindi)',
@@ -264,9 +266,10 @@ const checkout = async (req, res) => {
 
     if (effectiveTableId || effectiveTableNumber) {
       const tKey = effectiveHallId && effectiveTableId ? `${effectiveHallId}_${effectiveTableId}` : null;
-      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey });
-      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, status: 'free' });
-      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, items: [], note: '' });
+      const releaseNowTs = Date.now();
+      notifyCafe(cafeId, 'TABLE_RELEASED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, updatedAt: releaseNowTs });
+      notifyCafe(cafeId, 'TABLE_STATUS_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, status: 'free', updatedAt: releaseNowTs });
+      notifyCafe(cafeId, 'TABLE_ORDER_UPDATED', { tableId: effectiveTableId, tableNumber: effectiveTableNumber, hallId: effectiveHallId, tableKey: tKey, items: [], note: '', updatedAt: releaseNowTs });
     }
 
     return res.json({ success: true, receipt: mapReceipt(receiptRow), report: mapReport(reportRow), todayReport });

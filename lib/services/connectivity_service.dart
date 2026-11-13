@@ -13,11 +13,12 @@ enum ConnectivityState {
 }
 
 /// Tarmoq va Server aloqasini ishonchli kuzatuvchi servis.
-/// Ping chegaralari (qatiy talab):
-/// 0–4 ms: Yashil, matn: "Zo'r"
-/// 5–9 ms: Sariq, matn: "Biroz sekin"
-/// 10+ ms yoki xatolik/aloqa yo'q: Qizil, matn: "Aloqa yo'q"
-/// (DIQQAT: "Sekin" degan so'z umuman ishlatilmaydi!)
+/// Yangi qat'iy standart ko'rsatkich qoidalari:
+/// - 0 - 150 ms: Yashil nuqta + ms (● 87 ms) (Juda yaxshi)
+/// - 151 - 400 ms: Sariq nuqta + ms (O'rtacha)
+/// - 400+ ms: Qizil nuqta + ms (Sekin)
+/// - Aloqa yo'q: Qizil nuqta + "Offline"
+/// Barcha so'zlar ("Zo'r", "Biroz sekin", "Aloqa yo'q", "O'rtacha") butunlay olib tashlangan.
 class ConnectivityService with WidgetsBindingObserver {
   static final ConnectivityService _instance = ConnectivityService._internal();
   factory ConnectivityService() => _instance;
@@ -25,14 +26,13 @@ class ConnectivityService with WidgetsBindingObserver {
 
   final ValueNotifier<ConnectivityState> stateNotifier =
       ValueNotifier<ConnectivityState>(ConnectivityState.online);
-  final ValueNotifier<int> latencyNotifier = ValueNotifier<int>(3);
-  final ValueNotifier<String> qualityNotifier = ValueNotifier<String>("Zo'r");
+  final ValueNotifier<int> latencyNotifier = ValueNotifier<int>(20);
+  final ValueNotifier<String> qualityNotifier = ValueNotifier<String>("20 ms");
 
   Timer? _timer;
   bool _isChecking = false;
   int _consecutiveFailures = 0;
   final List<int> _recentLatencies = [];
-  bool _isWarm = false;
   bool _isObserverRegistered = false;
 
   HttpClient? _nativeHttpClient;
@@ -40,21 +40,14 @@ class ConnectivityService with WidgetsBindingObserver {
   ConnectivityState get currentState => stateNotifier.value;
   bool get isOnline => stateNotifier.value == ConnectivityState.online;
   int get latencyMs => latencyNotifier.value;
-  String get qualityText => qualityNotifier.value;
+  String get qualityText => isOnline ? '$latencyMs ms' : 'Offline';
   int get consecutiveFailures => _consecutiveFailures;
 
-  static String qualityFor(int ms, bool online) {
-    if (!online) return "Aloqa yo'q";
-    if (ms <= 4) return "Zo'r";
-    if (ms <= 9) return "Biroz sekin";
-    return "Aloqa yo'q";
-  }
-
   static Color colorFor(int ms, bool online) {
-    if (!online) return const Color(0xFFEF4444); // Qizil
-    if (ms <= 4) return const Color(0xFF10B981); // 0-4 ms Yashil (Zo'r)
-    if (ms <= 9) return const Color(0xFFF59E0B); // 5-9 ms Sariq (Biroz sekin)
-    return const Color(0xFFEF4444); // 10+ ms Qizil (Aloqa yo'q)
+    if (!online) return const Color(0xFFEF4444); // Qizil (Offline)
+    if (ms <= 150) return const Color(0xFF10B981); // 0-150 ms Yashil (Juda yaxshi)
+    if (ms <= 400) return const Color(0xFFF59E0B); // 151-400 ms Sariq (O'rtacha)
+    return const Color(0xFFEF4444); // 400+ ms Qizil (Sekin)
   }
 
   Color get color => colorFor(latencyNotifier.value, isOnline);
@@ -64,7 +57,6 @@ class ConnectivityService with WidgetsBindingObserver {
       WidgetsBinding.instance.addObserver(this);
       _isObserverRegistered = true;
     }
-    // 1. Keshdan/xotiradan oxirgi ma'lumotni darhol ko'rsatish ("Ulanmoqda..." deb qotib qolmasligi uchun)
     _loadCachedLatency();
 
     if (!kIsWeb) {
@@ -72,24 +64,21 @@ class ConnectivityService with WidgetsBindingObserver {
         ..idleTimeout = const Duration(seconds: 25)
         ..connectionTimeout = const Duration(seconds: 3);
     }
-    // 2. Orqa fonda tezda o'lchash (1-2 soniyada birinchi natija)
     unawaited(_check());
 
-    // 3. Har 6 soniyada yangilab turish (5-10 soniya talabiga mos)
+    // Har 5 soniyada yangilab turish
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 6), (_) => _check());
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _check());
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // Ilova fonda bo'lsa to'xtasin
       _timer?.cancel();
       _timer = null;
     } else if (state == AppLifecycleState.resumed) {
-      // Ilova ochilganda qayta ishga tushsin
       if (_timer == null) {
-        _timer = Timer.periodic(const Duration(seconds: 6), (_) => _check());
+        _timer = Timer.periodic(const Duration(seconds: 5), (_) => _check());
         unawaited(_check());
       }
     }
@@ -116,29 +105,18 @@ class ConnectivityService with WidgetsBindingObserver {
       final cachedMs = prefs.getInt('last_known_ping_ms');
       if (cachedMs != null && cachedMs >= 0) {
         latencyNotifier.value = cachedMs;
-        final online = cachedMs < 10;
-        qualityNotifier.value = qualityFor(cachedMs, online);
-        stateNotifier.value = online ? ConnectivityState.online : ConnectivityState.serverUnavailable;
+        qualityNotifier.value = '$cachedMs ms';
+        stateNotifier.value = ConnectivityState.online;
       }
     } catch (_) {}
   }
 
-  int _calculateMedian(List<int> list) {
-    if (list.isEmpty) return 3;
-    final sorted = List<int>.from(list)..sort();
-    final mid = sorted.length ~/ 2;
-    if (sorted.length.isOdd) {
-      return sorted[mid];
-    }
-    return ((sorted[mid - 1] + sorted[mid]) / 2).round();
-  }
-
-  /// Yengil ping so'rovi (3 soniya qat'iy timeout bilan)
+  /// Yengil ping so'rovi (backend /api/health)
   Future<int?> _singlePing(Uri targetUri) async {
     final sw = Stopwatch()..start();
     try {
       if (!kIsWeb && _nativeHttpClient != null) {
-        final req = await _nativeHttpClient!.openUrl('HEAD', targetUri).timeout(const Duration(seconds: 3));
+        final req = await _nativeHttpClient!.getUrl(targetUri).timeout(const Duration(seconds: 3));
         req.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store, must-revalidate');
         req.headers.set(HttpHeaders.connectionHeader, 'keep-alive');
         final res = await req.close().timeout(const Duration(seconds: 3));
@@ -148,7 +126,6 @@ class ConnectivityService with WidgetsBindingObserver {
           return sw.elapsedMilliseconds;
         }
       } else {
-        // Web platforma uchun ApiClient orqali yengil ping
         final ok = await ApiClient().pingFast().timeout(const Duration(seconds: 3));
         sw.stop();
         if (ok) {
@@ -167,73 +144,39 @@ class ConnectivityService with WidgetsBindingObserver {
     _isChecking = true;
 
     try {
-      final primaryUri = Uri.parse(
-        kIsWeb
-            ? 'https://www.gstatic.com/generate_204'
-            : 'http://connectivitycheck.gstatic.com/generate_204',
-      );
-      final backendUri = Uri.parse('${ApiClient().socketUrl}/ping');
+      final targetUri = Uri.parse('${ApiClient().baseUrl}/health');
+      final ms = await _singlePing(targetUri);
 
-      // 1. Isitish (Warm-up) so'rovi
-      if (!_isWarm) {
-        await _singlePing(primaryUri);
-        _isWarm = true;
-      }
-
-      // 2. Keep-alive ulanish orqali tezkor namunalar olish
-      final samples = <int>[];
-      for (var i = 0; i < 3; i++) {
-        final ms = await _singlePing(primaryUri);
-        if (ms != null && ms >= 0) {
-          samples.add(ms);
-        }
-        if (i < 2) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-      }
-
-      // Agar CDN javob bermasa, bevosita backendga fallback
-      if (samples.isEmpty) {
-        for (var i = 0; i < 2; i++) {
-          final ms = await _singlePing(backendUri);
-          if (ms != null && ms >= 0) {
-            samples.add(ms);
-          }
-        }
-      }
-
-      if (samples.isNotEmpty) {
+      if (ms != null && ms >= 0) {
         _consecutiveFailures = 0;
-        samples.sort();
-        final currentSampleMedian = _calculateMedian(samples);
-
-        _recentLatencies.add(currentSampleMedian);
-        if (_recentLatencies.length > 5) {
+        _recentLatencies.add(ms);
+        if (_recentLatencies.length > 3) {
           _recentLatencies.removeAt(0);
         }
 
-        final finalMedian = _calculateMedian(_recentLatencies);
-        latencyNotifier.value = finalMedian;
-
-        final isGood = finalMedian < 10;
-        stateNotifier.value = isGood ? ConnectivityState.online : ConnectivityState.serverUnavailable;
-        qualityNotifier.value = qualityFor(finalMedian, isGood);
+        // Oxirgi 3 ta o'lchovning o'rtachasi
+        final avgMs = (_recentLatencies.reduce((a, b) => a + b) / _recentLatencies.length).round();
+        latencyNotifier.value = avgMs;
+        stateNotifier.value = ConnectivityState.online;
+        qualityNotifier.value = '$avgMs ms';
 
         try {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setInt('last_known_ping_ms', finalMedian);
+          await prefs.setInt('last_known_ping_ms', avgMs);
         } catch (_) {}
       } else {
         _consecutiveFailures++;
-        _isWarm = false;
-        stateNotifier.value = ConnectivityState.offline;
-        qualityNotifier.value = "Aloqa yo'q";
+        if (_consecutiveFailures >= 2) {
+          stateNotifier.value = ConnectivityState.offline;
+          qualityNotifier.value = 'Offline';
+        }
       }
     } catch (_) {
       _consecutiveFailures++;
-      _isWarm = false;
-      stateNotifier.value = ConnectivityState.offline;
-      qualityNotifier.value = "Aloqa yo'q";
+      if (_consecutiveFailures >= 2) {
+        stateNotifier.value = ConnectivityState.offline;
+        qualityNotifier.value = 'Offline';
+      }
     } finally {
       _isChecking = false;
     }

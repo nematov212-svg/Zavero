@@ -229,6 +229,19 @@ class OfflineSyncService {
     await _saveQueueToStorage();
   }
 
+  /// Stol bo'shatilganda ushbu stolga tegishli barcha eski/qolib ketgan navbatdagi amallarni tozalash (tombstone)
+  Future<void> removeActionsForTable(int tableId, {String? cafeId}) async {
+    _queue.removeWhere((a) {
+      if (cafeId != null && a.cafeId != cafeId) return false;
+      final rawTableId = a.data['tableId'];
+      if (rawTableId != null && (rawTableId == tableId || rawTableId.toString() == '$tableId')) {
+        return true;
+      }
+      return false;
+    });
+    await _saveQueueToStorage();
+  }
+
   /// Barcha navbatdagi amallarni serverga sinxronlash
   Future<void> syncAllPending({bool force = false}) async {
     if (_isSyncing) return;

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/connectivity_service.dart';
 
-/// Tarmoq va Oflayn-Sinxronizatsiya holati ko'rsatkichi.
+/// Tarmoq va Server aloqasi ko'rsatkichi (● 87 ms yoki ● Offline).
 class ConnectivityBadge extends StatefulWidget {
   final String? cafeId;
 
@@ -27,14 +27,12 @@ class _ConnectivityBadgeState extends State<ConnectivityBadge> {
       animation: Listenable.merge([
         _service.stateNotifier,
         _service.latencyNotifier,
-        _service.qualityNotifier,
       ]),
       builder: (context, _) {
         final isOnline = _service.isOnline;
         final ms = _service.latencyMs;
-        final quality = _service.qualityText;
         final color = _service.color;
-        final text = !isOnline ? 'Offline' : '${ms}ms ($quality)';
+        final text = !isOnline ? 'Offline' : '$ms ms';
         final badgeBg = color.withValues(alpha: 0.12);
 
         return InkWell(
@@ -51,14 +49,18 @@ class _ConnectivityBadgeState extends State<ConnectivityBadge> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 6,
-                  height: 6,
+                  width: 7,
+                  height: 7,
                   decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 ),
                 const SizedBox(width: 5),
                 Text(
                   text,
-                  style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),

@@ -12,6 +12,48 @@ const printerStationDetailsByCafe = new Map();
 // Deduplication cache: `${cafeId}_${jobId}` -> timestamp (5 second debounce)
 const recentPrintJobs = new Map();
 
+// Active Sockets per Cafe (cafeId -> Set of socket.id) for Online/Offline presence tracking
+const activeSocketsByCafe = new Map();
+
+const getActiveCafePresence = () => {
+  const presence = {};
+  let onlineCount = 0;
+  for (const [cId, sockets] of activeSocketsByCafe.entries()) {
+    if (sockets && sockets.size > 0) {
+      presence[cId] = true;
+      onlineCount++;
+    } else {
+      presence[cId] = false;
+    }
+  }
+  return { presence, onlineCount };
+};
+
+const broadcastPresenceToDirector = () => {
+  const { presence, onlineCount } = getActiveCafePresence();
+  notifyDirector('CAFE_PRESENCE_UPDATED', { presence, onlineCount });
+};
+
+const registerCafeSocket = (cId, sId) => {
+  if (!cId || cId === 'zavero') return;
+  const cStr = String(cId);
+  if (!activeSocketsByCafe.has(cStr)) activeSocketsByCafe.set(cStr, new Set());
+  activeSocketsByCafe.get(cStr).add(sId);
+  broadcastPresenceToDirector();
+};
+
+const unregisterCafeSocket = (cId, sId) => {
+  if (!cId) return;
+  const cStr = String(cId);
+  if (activeSocketsByCafe.has(cStr)) {
+    activeSocketsByCafe.get(cStr).delete(sId);
+    if (activeSocketsByCafe.get(cStr).size === 0) {
+      activeSocketsByCafe.delete(cStr);
+    }
+    broadcastPresenceToDirector();
+  }
+};
+
 const getActiveStationInfo = (cafeId) => {
   if (!cafeId) return { hasStation: false, stationCount: 0, stationName: null, isPrinterReady: false };
   const cafeStr = String(cafeId);
@@ -84,13 +126,18 @@ const initSocket = (io) => {
 
     if (socket.user?.role === 'director') {
       socket.join('director_room');
-      console.log(`👑 [Socket.IO] Joined director_room`);
+      const currentPresence = getActiveCafePresence();
+      socket.emit('CAFE_PRESENCE_UPDATED', currentPresence);
+      console.log(`👑 [Socket.IO] Joined director_room (Online cafelar: ${currentPresence.onlineCount})`);
     }
 
     if (socket.user?.cafeId) {
-      socket.join(cafeRoom(socket.user.cafeId));
-      socket.emit('AUTHENTICATED', { success: true, cafeId: socket.user.cafeId });
-      console.log(`👤 [Socket.IO] Auto-joined room ${cafeRoom(socket.user.cafeId)}`);
+      const uCid = socket.user.cafeId;
+      socket.join(cafeRoom(uCid));
+      socket.joinedCafeId = uCid;
+      registerCafeSocket(uCid, socket.id);
+      socket.emit('AUTHENTICATED', { success: true, cafeId: uCid });
+      console.log(`👤 [Socket.IO] Auto-joined room ${cafeRoom(uCid)}`);
     }
 
     socket.on('JOIN_CAFE', (data) => {
@@ -128,6 +175,8 @@ const initSocket = (io) => {
           return socket.emit('ERROR', { success: false, message: 'Unauthorized cafe room access' });
         }
         socket.join(cafeRoom(userCafeId));
+        socket.joinedCafeId = userCafeId;
+        registerCafeSocket(userCafeId, socket.id);
         socket.emit('JOINED_CAFE', { cafeId: userCafeId, success: true });
         console.log(`👤 [Socket.IO] Joined room ${cafeRoom(userCafeId)}`);
       } else if (joinCafeId) {
@@ -144,6 +193,8 @@ const initSocket = (io) => {
     socket.on('LEAVE_CAFE', ({ cafeId }) => {
       if (cafeId) {
         socket.leave(cafeRoom(cafeId));
+        unregisterCafeSocket(cafeId, socket.id);
+        if (socket.joinedCafeId === cafeId) socket.joinedCafeId = null;
         console.log(`👤 [Socket.IO] Left room ${cafeRoom(cafeId)}`);
       }
     });
@@ -310,6 +361,10 @@ const initSocket = (io) => {
     });
 
     socket.on('disconnect', (reason) => {
+      if (socket.joinedCafeId) {
+        unregisterCafeSocket(socket.joinedCafeId, socket.id);
+        socket.joinedCafeId = null;
+      }
       if (socket.printerCafeId && printerStationDetailsByCafe.has(socket.printerCafeId)) {
         printerStationDetailsByCafe.get(socket.printerCafeId).delete(socket.id);
         const info = getActiveStationInfo(socket.printerCafeId);
@@ -372,6 +427,7 @@ module.exports = {
   getIo,
   getPrinterStationCount,
   getActiveStationInfo,
+  getActiveCafePresence,
   isJobDuplicate,
   printerRoom,
 };
