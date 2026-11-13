@@ -120,7 +120,7 @@ const listCafes = async (req, res) => {
     `, params);
 
     const now = new Date();
-    const { getActiveCafePresence } = require('../socket/socketHandler');
+    const { getActiveCafePresence, cafeLastSeenAt } = require('../socket/socketHandler');
     const { presence, onlineCount } = getActiveCafePresence();
 
     let cafes = result.rows.map((row) => {
@@ -129,6 +129,11 @@ const listCafes = async (req, res) => {
       let computedStatus = 'active';
       if (isBlocked) computedStatus = 'blocked';
       else if (isExpired) computedStatus = 'expired';
+
+      // last_seen_at: xotiradan oling, yo'q bo'lsa DB dagi last_seen_at yoki last_seen dan
+      const memLastSeen = cafeLastSeenAt ? cafeLastSeenAt.get(row.cafe_id) : null;
+      const dbLastSeen = row.last_seen_at || row.last_seen || null;
+      const lastSeenAt = memLastSeen ? memLastSeen.toISOString() : (dbLastSeen ? new Date(dbLastSeen).toISOString() : null);
 
       return {
         id: row.cafe_id,
@@ -143,6 +148,7 @@ const listCafes = async (req, res) => {
         isBlocked,
         isExpired,
         isOnline: presence[row.cafe_id] === true,
+        lastSeenAt,
         startDate: row.start_date,
         endDate: row.end_date,
         usersCount: parseInt(row.users_count || 0),
@@ -1053,9 +1059,16 @@ const updateCafeReceiptSettings = async (req, res) => {
 // GET /api/director/cafes/presence
 const getCafePresence = async (req, res) => {
   try {
-    const { getActiveCafePresence } = require('../socket/socketHandler');
+    const { getActiveCafePresence, cafeLastSeenAt } = require('../socket/socketHandler');
     const data = getActiveCafePresence();
-    return res.json({ success: true, ...data });
+    // last_seen_at xaritasini ISO string formatida qaytarish
+    const lastSeenMap = {};
+    if (cafeLastSeenAt) {
+      for (const [cId, date] of cafeLastSeenAt.entries()) {
+        lastSeenMap[cId] = date.toISOString();
+      }
+    }
+    return res.json({ success: true, ...data, lastSeenMap });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

@@ -16,6 +16,8 @@ const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: process.env.CORS_ORIGIN || '*' },
+  pingInterval: 10000,  // 10s — tez yo'q bo'lgan ulanishlarni aniqlash
+  pingTimeout: 10000,   // 10s — javob kelmasa uzilgan hisoblanadi
 });
 initSocket(io);
 

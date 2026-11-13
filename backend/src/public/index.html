@@ -146,16 +146,16 @@
           };
 
           if (canCall('7.7') && tg.disableVerticalSwipes) {
-            try { tg.disableVerticalSwipes(); } catch (_) {}
+            try { tg.disableVerticalSwipes(); } catch (_) { }
           }
           if (canCall('6.2') && tg.enableClosingConfirmation) {
-            try { tg.enableClosingConfirmation(); } catch (_) {}
+            try { tg.enableClosingConfirmation(); } catch (_) { }
           }
           if (canCall('6.1') && tg.setHeaderColor) {
-            try { tg.setHeaderColor('#0F172A'); } catch (_) {}
+            try { tg.setHeaderColor('#0F172A'); } catch (_) { }
           }
           if (canCall('6.1') && tg.setBackgroundColor) {
-            try { tg.setBackgroundColor('#0F172A'); } catch (_) {}
+            try { tg.setBackgroundColor('#0F172A'); } catch (_) { }
           }
 
           // Telegram WebApp Sessiya tekshiruvi: Avval panelga kiring tekshiruvi
@@ -174,7 +174,7 @@
                   '<p style="color:#94a3b8;font-size:14px;margin:0 0 24px 0;">Telegram botda login va parolingizni kiritib panelga kiring.</p>' +
                   '</div>';
               }
-            }).catch(function () {});
+            }).catch(function () { });
           }
 
           // Telegram BackButton support: ofitsiant yoki foydalanuvchi sahifalarida to'g'ri ishlashi
@@ -182,16 +182,16 @@
             var updateBackButton = function () {
               var h = window.location.hash || '';
               if (h && h !== '#/' && h !== '#dashboard' && h !== '') {
-                try { tg.BackButton.show(); } catch (_) {}
+                try { tg.BackButton.show(); } catch (_) { }
               } else {
-                try { tg.BackButton.hide(); } catch (_) {}
+                try { tg.BackButton.hide(); } catch (_) { }
               }
             };
             tg.BackButton.onClick(function () {
               if (window.location.hash && window.location.hash !== '#/' && window.location.hash !== '#dashboard') {
                 window.history.back();
               } else {
-                try { tg.BackButton.hide(); } catch (_) {}
+                try { tg.BackButton.hide(); } catch (_) { }
               }
             });
             window.addEventListener('hashchange', updateBackButton);
@@ -224,7 +224,7 @@
       try {
         loader.style.opacity = '0';
         loader.style.visibility = 'hidden';
-      } catch (_) {}
+      } catch (_) { }
       setTimeout(function () {
         if (_zaveroLoaderRemoved) return;
         _zaveroLoaderRemoved = true;
@@ -234,7 +234,7 @@
           } else if (loader && loader.parentNode) {
             loader.parentNode.removeChild(loader);
           }
-        } catch (_) {}
+        } catch (_) { }
       }, 400);
     }
     window.addEventListener('flutter-first-frame', hideLoader);
@@ -265,7 +265,7 @@
             try {
               if (old.remove) old.remove();
               else if (old.parentNode) old.parentNode.removeChild(old);
-            } catch (_) {}
+            } catch (_) { }
           }
           var iframe = document.createElement('iframe');
           iframe.id = 'zavero-receipt-iframe';
@@ -394,7 +394,7 @@
         try {
           if (prev.remove) prev.remove();
           else if (prev.parentNode) prev.parentNode.removeChild(prev);
-        } catch (_) {}
+        } catch (_) { }
       }
 
       var backdrop = document.createElement('div');
@@ -499,7 +499,7 @@
             if (backdrop.remove) backdrop.remove();
             else if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
           }
-        } catch (_) {}
+        } catch (_) { }
       };
 
       closeBtn.onclick = closeModal;
@@ -526,6 +526,36 @@
   <script src="mac_touch_id.js"></script>
   <script src="sound_effects.js"></script>
   <script src="flutter_bootstrap.js?v=20261030_v109" async></script>
+
+  <!-- Presence leave: tab yopilganda yoki sahifa yangilanganda socket.io ga xabar berish -->
+  <script>
+    (function () {
+      function sendPresenceLeave() {
+        // Flutter ilovasi window.__zaveroCafeId ni login paytida yozib qo'yadi
+        var cafeId = window.__zaveroCafeId;
+        if (!cafeId) return;
+        try {
+          // socket.io-client global socket orqali
+          if (window.__zaveroSocket && window.__zaveroSocket.connected) {
+            window.__zaveroSocket.emit('presence-leave', { cafeId: cafeId });
+          }
+        } catch (e) { /* silent */ }
+      }
+
+      window.addEventListener('beforeunload', sendPresenceLeave);
+      window.addEventListener('pagehide', sendPresenceLeave);
+
+      // Sahifa ko'rinmaydigan bo'lganda (tab almashtirish) ham heartbeat to'xtaydi
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+          // Flutter ilovasi appVisible = false qiladi, heartbeat to'xtaydi
+          if (window.__zaveroOnAppHidden) window.__zaveroOnAppHidden();
+        } else {
+          if (window.__zaveroOnAppVisible) window.__zaveroOnAppVisible();
+        }
+      });
+    })();
+  </script>
 </body>
 
 </html>

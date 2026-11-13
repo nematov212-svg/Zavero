@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'api_client.dart';
 
@@ -66,17 +66,21 @@ const Map<CafeSocketEvent, String> _eventNames = {
 
 /// socket_io_client ustidan qatlam: JWT bilan ulanish, JOIN_CAFE,
 /// iOS, Android, macOS, Windows va Web platformalarida barqaror real-time ishlash.
-class SocketService {
+class SocketService with WidgetsBindingObserver {
   static final SocketService _instance = SocketService._internal();
   factory SocketService() => _instance;
-  SocketService._internal();
+  SocketService._internal() {
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   io.Socket? _socket;
   String? _connectedCafeId;
   Timer? _heartbeatTimer;
+  Timer? _presenceHeartbeatTimer;
   bool _isPrinterStationRegistered = false;
   String? _printerStationCafeId;
   bool _isConnecting = false;
+  bool _appVisible = true; // fon rejimi kuzatuvi
 
   final Map<String, int> _lastEventTimestamps = {};
 
@@ -219,6 +223,41 @@ class SocketService {
         });
       }
     });
+    _startPresenceHeartbeat(cafeId);
+  }
+
+  /// Ilova fon/ön holat o'zgarganda heartbeat'ni to'xtat/qayta boshlash
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _appVisible = false;
+      _presenceHeartbeatTimer?.cancel();
+    } else if (state == AppLifecycleState.resumed) {
+      _appVisible = true;
+      if (_connectedCafeId != null) {
+        _startPresenceHeartbeat(_connectedCafeId!);
+      }
+    }
+  }
+
+  /// Har 10 soniyada presence-heartbeat yuborish (cafe ilovalari uchun)
+  void _startPresenceHeartbeat(String cafeId) {
+    _presenceHeartbeatTimer?.cancel();
+    _presenceHeartbeatTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (_socket != null && _socket!.connected && _appVisible) {
+        _socket!.emit('presence-heartbeat', {
+          'cafeId': cafeId,
+          'appVisible': _appVisible,
+        });
+      }
+    });
+    // Darhol birinchi heartbeat
+    if (_socket != null && _socket!.connected) {
+      _socket!.emit('presence-heartbeat', {
+        'cafeId': cafeId,
+        'appVisible': _appVisible,
+      });
+    }
   }
 
   void joinCafe(String cafeId) {
@@ -293,9 +332,15 @@ class SocketService {
   void disconnect() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _presenceHeartbeatTimer?.cancel();
+    _presenceHeartbeatTimer = null;
     _isConnecting = false;
     if (_socket != null) {
       try {
+        // Ketishdan oldin presence-leave yuborish (web tab yopilganda)
+        if (_connectedCafeId != null) {
+          _socket!.emit('presence-leave', {'cafeId': _connectedCafeId});
+        }
         _socket!.clearListeners();
         _socket!.disconnect();
         _socket!.dispose();

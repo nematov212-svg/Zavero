@@ -563,7 +563,9 @@ CREATE INDEX IF NOT EXISTS idx_failed_logins_ident ON failed_logins(identifier, 
 -- 31. CAFE HEARTBEAT COLUMNS (Online / Offline tracking for Director bot)
 ALTER TABLE cafes ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP WITH TIME ZONE;
 ALTER TABLE cafes ADD COLUMN IF NOT EXISTS online_since TIMESTAMP WITH TIME ZONE;
+ALTER TABLE cafes ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE;
 CREATE INDEX IF NOT EXISTS idx_cafes_last_seen ON cafes(last_seen);
+CREATE INDEX IF NOT EXISTS idx_cafes_last_seen_at ON cafes(last_seen_at);
 
 -- 32. TELEGRAM SESSIONS (Zero-copy single source of truth for Cafe & Director bot auth)
 CREATE TABLE IF NOT EXISTS telegram_sessions (

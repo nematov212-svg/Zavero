@@ -257,6 +257,7 @@ class CafeSaaSItem {
   final int receiptsCount;
   final int activeDevicesCount;
   final DateTime? createdAt;
+  final DateTime? lastSeenAt;
 
   String get formattedEndDate {
     if (endDate == null) return "Ko'rsatilmagan";
@@ -264,6 +265,15 @@ class CafeSaaSItem {
       return "Doimiy (Cheksiz)";
     }
     return endDate!.toString().substring(0, 10);
+  }
+
+  String get lastSeenFormatted {
+    if (lastSeenAt == null) return '';
+    final diff = DateTime.now().difference(lastSeenAt!);
+    if (diff.inSeconds < 60) return '${diff.inSeconds} soniya oldin';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} daqiqa oldin';
+    if (diff.inHours < 24) return '${diff.inHours} soat oldin';
+    return '${diff.inDays} kun oldin';
   }
 
   CafeSaaSItem({
@@ -285,6 +295,7 @@ class CafeSaaSItem {
     this.receiptsCount = 0,
     this.activeDevicesCount = 0,
     this.createdAt,
+    this.lastSeenAt,
   });
 
   factory CafeSaaSItem.fromJson(Map<String, dynamic> j) => CafeSaaSItem(
@@ -312,6 +323,11 @@ class CafeSaaSItem {
         createdAt: j['createdAt'] != null
             ? DateTime.tryParse(j['createdAt'] as String)
             : null,
+        lastSeenAt: j['lastSeenAt'] != null
+            ? DateTime.tryParse(j['lastSeenAt'] as String)
+            : (j['last_seen_at'] != null
+                ? DateTime.tryParse(j['last_seen_at'] as String)
+                : null),
       );
 
   int get daysLeft {

@@ -55,6 +55,7 @@ class _DirectorScreenState extends State<DirectorScreen> {
       }
     });
     SocketService().joinDirectorRoom();
+    _loadPresenceSnapshot();
     _loadAllData();
   }
 
@@ -63,6 +64,20 @@ class _DirectorScreenState extends State<DirectorScreen> {
     _supportSub?.cancel();
     _presenceSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadPresenceSnapshot() async {
+    try {
+      final res = await _ds.getCafePresence();
+      if (!mounted) return;
+      setState(() {
+        _onlineCafeCount = safeInt(res['onlineCount']);
+        if (res['presence'] is Map) {
+          final rawMap = res['presence'] as Map;
+          _presenceMap = rawMap.map((k, v) => MapEntry(k.toString(), v == true));
+        }
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadSupportTickets() async {
@@ -145,7 +160,13 @@ class _DirectorScreenState extends State<DirectorScreen> {
             children: [
               Icon(Icons.storefront, color: Color(0xFFFFC107)),
               SizedBox(width: 10),
-              Text('Yangi Cafe qo\'shish', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text(
+                  'Yangi Cafe qo\'shish',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           content: SizedBox(
@@ -1233,7 +1254,13 @@ class _DirectorScreenState extends State<DirectorScreen> {
             children: [
               Icon(Icons.person_add, color: Color(0xFFFFC107)),
               SizedBox(width: 10),
-              Text('Yangi foydalanuvchi yaratish', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text(
+                  'Yangi foydalanuvchi yaratish',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           content: SizedBox(
@@ -3262,7 +3289,7 @@ class _DirectorScreenState extends State<DirectorScreen> {
                       crossAxisCount: crossCount,
                       crossAxisSpacing: 16,
                       mainAxisSpacing: 16,
-                      mainAxisExtent: isMobile ? 225 : 195,
+                      mainAxisExtent: isMobile ? 245 : 205,
                     ),
                     itemCount: _cafes.length,
                     itemBuilder: (context, i) => _buildCafeCard(_cafes[i], isMobile: isMobile),
@@ -3623,6 +3650,7 @@ class _DirectorScreenState extends State<DirectorScreen> {
   // CAFE CARD
   Widget _buildCafeCard(CafeSaaSItem cafe, {required bool isMobile}) {
     final bool isOnline = _presenceMap[cafe.cafeId] ?? cafe.isOnline;
+    final String? lastSeenLabel = (!isOnline && cafe.lastSeenAt != null) ? cafe.lastSeenFormatted : null;
 
     Color statusBg = const Color(0xFFDCFCE7);
     Color statusText = const Color(0xFF16A34A);
@@ -3698,21 +3726,22 @@ class _DirectorScreenState extends State<DirectorScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    // Belgilar qatori: nom + Online/Offline + SaaS status (Wrap: overflow yo'q)
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 6,
+                      runSpacing: 4,
                       children: [
-                        Flexible(
-                          child: Text(
-                            cafe.name,
-                            style: const TextStyle(
-                              color: Color(0xFF0F172A),
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        Text(
+                          cafe.name,
+                          style: const TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(width: 6),
                         // Online / Offline Badge
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -3733,7 +3762,9 @@ class _DirectorScreenState extends State<DirectorScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                isOnline ? 'Online' : 'Offline',
+                                isOnline
+                                    ? 'Online'
+                                    : (lastSeenLabel != null ? 'Offline · $lastSeenLabel' : 'Offline'),
                                 style: TextStyle(
                                   color: isOnline ? const Color(0xFF16A34A) : Colors.grey.shade600,
                                   fontSize: 10,
@@ -3743,7 +3774,6 @@ class _DirectorScreenState extends State<DirectorScreen> {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 6),
                         // SaaS status pill
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -3763,12 +3793,24 @@ class _DirectorScreenState extends State<DirectorScreen> {
                       ],
                     ),
                     const SizedBox(height: 2),
-                    // ID & Chek
+                    // ID & Chek qatori (overflow xavfsiz)
                     Row(
                       children: [
-                        Text(
-                          'ID: ${cafe.cafeId}',
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                        Flexible(
+                          flex: 0,
+                          child: Text(
+                            'ID:',
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Flexible(
+                          child: Text(
+                            cafe.cafeId,
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         const SizedBox(width: 4),
                         InkWell(
@@ -3801,7 +3843,7 @@ class _DirectorScreenState extends State<DirectorScreen> {
 
           const SizedBox(height: 8),
 
-          // Owner Name and Phone
+          // Owner Name and Phone (overflow xavfsiz)
           Row(
             children: [
               Icon(Icons.person_outline_rounded, size: 14, color: Colors.grey.shade500),
@@ -3815,12 +3857,16 @@ class _DirectorScreenState extends State<DirectorScreen> {
                 ),
               ),
               if (cafe.ownerPhone.isNotEmpty) ...[
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Icon(Icons.phone_outlined, size: 13, color: Colors.grey.shade500),
                 const SizedBox(width: 3),
-                Text(
-                  cafe.ownerPhone,
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5),
+                Flexible(
+                  child: Text(
+                    cafe.ownerPhone,
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ],

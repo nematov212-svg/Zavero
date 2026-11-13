@@ -526,6 +526,36 @@
   <script src="mac_touch_id.js"></script>
   <script src="sound_effects.js"></script>
   <script src="flutter_bootstrap.js?v=20261030_v109" async></script>
+
+  <!-- Presence leave: tab yopilganda yoki sahifa yangilanganda socket.io ga xabar berish -->
+  <script>
+    (function () {
+      function sendPresenceLeave() {
+        // Flutter ilovasi window.__zaveroCafeId ni login paytida yozib qo'yadi
+        var cafeId = window.__zaveroCafeId;
+        if (!cafeId) return;
+        try {
+          // socket.io-client global socket orqali
+          if (window.__zaveroSocket && window.__zaveroSocket.connected) {
+            window.__zaveroSocket.emit('presence-leave', { cafeId: cafeId });
+          }
+        } catch (e) { /* silent */ }
+      }
+
+      window.addEventListener('beforeunload', sendPresenceLeave);
+      window.addEventListener('pagehide', sendPresenceLeave);
+
+      // Sahifa ko'rinmaydigan bo'lganda (tab almashtirish) ham heartbeat to'xtaydi
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+          // Flutter ilovasi appVisible = false qiladi, heartbeat to'xtaydi
+          if (window.__zaveroOnAppHidden) window.__zaveroOnAppHidden();
+        } else {
+          if (window.__zaveroOnAppVisible) window.__zaveroOnAppVisible();
+        }
+      });
+    })();
+  </script>
 </body>
 
 </html>

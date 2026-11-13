@@ -12,23 +12,35 @@ const printerStationDetailsByCafe = new Map();
 // Deduplication cache: `${cafeId}_${jobId}` -> timestamp (5 second debounce)
 const recentPrintJobs = new Map();
 
-// Active Sockets per Cafe (cafeId -> Set of socket.id) for Online/Offline presence tracking
-const activeSocketsByCafe = new Map();
-// 12 soniyali Grace Period taymerlari (aloqa uzilganda darhol offline bo'lib miltillamasligi uchun)
+// ============================================================
+// HEARTBEAT-BASED PRESENCE TRACKING
+// cafeId -> Map of deviceKey -> { socketId, lastHeartbeatAt, role }
+// deviceKey = socket.id (ulanish uzilib yangi socket ochilguncha yagona)
+// ============================================================
+const cafeHeartbeats = new Map(); // cafeId -> Map<deviceKey, { socketId, lastHeartbeatAt, userId }>
+const HEARTBEAT_TIMEOUT_MS = 30000; // 30 soniya heartbeat kelmasa Offline
+const DB_WRITE_INTERVAL_MS = 60000; // last_seen_at ni bazaga 60 soniyada bir marta yozish
+
+// In-memory last_seen_at (bazaga yuklama bermaylik, lokal xotirada saqlaymiz)
+const cafeLastSeenAt = new Map(); // cafeId -> Date
+
+// 12 soniyali grace period (socket.io reconnect uchun)
 const disconnectGraceTimers = new Map();
 
+// ---- Presence hisoblash ----
 const getActiveCafePresence = () => {
   const presence = {};
   let onlineCount = 0;
+  const now = Date.now();
 
-  // Barcha faol soketlar va grace perioddagi kafelarni hisoblash
-  const allCafeIds = new Set([...activeSocketsByCafe.keys(), ...disconnectGraceTimers.keys()]);
+  const allCafeIds = new Set([...cafeHeartbeats.keys(), ...disconnectGraceTimers.keys()]);
   for (const cId of allCafeIds) {
-    const sockets = activeSocketsByCafe.get(cId);
-    const hasSockets = sockets && sockets.size > 0;
+    const devices = cafeHeartbeats.get(cId);
+    // Kamida bitta qurilmada 30s ichida heartbeat bo'lsagina Online
+    const hasAlive = devices && [...devices.values()].some(d => now - d.lastHeartbeatAt < HEARTBEAT_TIMEOUT_MS);
     const inGrace = disconnectGraceTimers.has(cId);
 
-    if (hasSockets || inGrace) {
+    if (hasAlive || inGrace) {
       presence[cId] = true;
       onlineCount++;
     } else {
@@ -43,48 +55,103 @@ const broadcastPresenceToDirector = () => {
   notifyDirector('CAFE_PRESENCE_UPDATED', { presence, onlineCount });
 };
 
-const registerCafeSocket = (cId, sId) => {
-  if (!cId || cId === 'zavero') return;
-  const cStr = String(cId);
+// ---- Heartbeat yozuvi ----
+const registerHeartbeat = (cafeId, socketId, userId) => {
+  if (!cafeId || cafeId === 'zavero' || cafeId === 'local_default') return;
+  const cStr = String(cafeId);
 
-  // Agar uzilish grace period taymeri ishlab turgan bo'lsa, uni bekor qilamiz (qayta ulandi)
+  // Grace period taymerni bekor qilish (qayta ulandi)
   if (disconnectGraceTimers.has(cStr)) {
     clearTimeout(disconnectGraceTimers.get(cStr));
     disconnectGraceTimers.delete(cStr);
   }
 
-  if (!activeSocketsByCafe.has(cStr)) activeSocketsByCafe.set(cStr, new Set());
-  activeSocketsByCafe.get(cStr).add(sId);
-  broadcastPresenceToDirector();
+  if (!cafeHeartbeats.has(cStr)) cafeHeartbeats.set(cStr, new Map());
+  const wasOnline = [...cafeHeartbeats.get(cStr).values()].some(
+    d => Date.now() - d.lastHeartbeatAt < HEARTBEAT_TIMEOUT_MS
+  );
+
+  cafeHeartbeats.get(cStr).set(socketId, {
+    socketId,
+    lastHeartbeatAt: Date.now(),
+    userId: userId || null,
+  });
+
+  cafeLastSeenAt.set(cStr, new Date());
+
+  if (!wasOnline) {
+    // Yangi Online holat — directorga xabar
+    broadcastPresenceToDirector();
+  }
 };
 
-const unregisterCafeSocket = (cId, sId) => {
-  if (!cId) return;
-  const cStr = String(cId);
-  if (activeSocketsByCafe.has(cStr)) {
-    activeSocketsByCafe.get(cStr).delete(sId);
+// ---- Socket uzilib ketganda ----
+const unregisterSocket = (cafeId, socketId) => {
+  if (!cafeId) return;
+  const cStr = String(cafeId);
 
-    if (activeSocketsByCafe.get(cStr).size === 0) {
-      // Oxirgi qurilma uzilganda 12 soniya kutiladi (sahifa yangilanishi yoki qisqa internet uzilishi)
+  if (cafeHeartbeats.has(cStr)) {
+    cafeHeartbeats.get(cStr).delete(socketId);
+    const stillAlive = [...cafeHeartbeats.get(cStr).values()].some(
+      d => Date.now() - d.lastHeartbeatAt < HEARTBEAT_TIMEOUT_MS
+    );
+
+    if (!stillAlive) {
+      // Oxirgi qurilma: 12s grace period
       if (disconnectGraceTimers.has(cStr)) {
         clearTimeout(disconnectGraceTimers.get(cStr));
       }
-
       const timer = setTimeout(() => {
         disconnectGraceTimers.delete(cStr);
-        if (!activeSocketsByCafe.has(cStr) || activeSocketsByCafe.get(cStr).size === 0) {
-          activeSocketsByCafe.delete(cStr);
+        const devicesNow = cafeHeartbeats.get(cStr);
+        const aliveNow = devicesNow && [...devicesNow.values()].some(
+          d => Date.now() - d.lastHeartbeatAt < HEARTBEAT_TIMEOUT_MS
+        );
+        if (!aliveNow) {
+          if (devicesNow) devicesNow.clear();
           broadcastPresenceToDirector();
-          console.log(`⏱️ [GracePeriod] Cafe '${cStr}' 12s kutilgach Offline holatiga o'tkazildi`);
+          console.log(`⏱️ [Presence] Cafe '${cStr}' 12s grace period tugadi → Offline`);
         }
       }, 12000);
-
       disconnectGraceTimers.set(cStr, timer);
     } else {
       broadcastPresenceToDirector();
     }
   }
 };
+
+// ---- Fon taymeri: 10s da bir marta eskirgan heartbeat yozuvlarini tozalash ----
+setInterval(() => {
+  const now = Date.now();
+  for (const [cId, devices] of cafeHeartbeats.entries()) {
+    for (const [sId, info] of devices.entries()) {
+      if (now - info.lastHeartbeatAt > HEARTBEAT_TIMEOUT_MS) {
+        devices.delete(sId);
+      }
+    }
+    // Agar hamma qurilma eskirgan bo'lsa va grace period ham yo'q bo'lsa
+    if (devices.size === 0 && !disconnectGraceTimers.has(cId)) {
+      cafeHeartbeats.delete(cId);
+      broadcastPresenceToDirector();
+    }
+  }
+}, 10000);
+
+// ---- last_seen_at ni bazaga 60s da bir marta yozish ----
+setInterval(async () => {
+  if (cafeLastSeenAt.size === 0) return;
+  for (const [cId, seenAt] of cafeLastSeenAt.entries()) {
+    db.query(
+      `UPDATE cafes SET last_seen_at = $1, last_seen = $1 WHERE cafe_id = $2`,
+      [seenAt, cId]
+    ).catch(() => {});
+  }
+}, DB_WRITE_INTERVAL_MS);
+
+// ---- Mavjud activeSocketsByCafe bilan moslik (eski kod uchun) ----
+// Eski registerCafeSocket/unregisterCafeSocket ni yangi tizimga yo'naltirish
+const registerCafeSocket = (cId, sId, userId) => registerHeartbeat(cId, sId, userId);
+const unregisterCafeSocket = (cId, sId) => unregisterSocket(cId, sId);
 
 const getActiveStationInfo = (cafeId) => {
   if (!cafeId) return { hasStation: false, stationCount: 0, stationName: null, isPrinterReady: false };
@@ -167,7 +234,7 @@ const initSocket = (io) => {
       const uCid = socket.user.cafeId;
       socket.join(cafeRoom(uCid));
       socket.joinedCafeId = uCid;
-      registerCafeSocket(uCid, socket.id);
+      registerCafeSocket(uCid, socket.id, socket.user?.id);
       socket.emit('AUTHENTICATED', { success: true, cafeId: uCid });
       console.log(`👤 [Socket.IO] Auto-joined room ${cafeRoom(uCid)}`);
     }
@@ -208,7 +275,7 @@ const initSocket = (io) => {
         }
         socket.join(cafeRoom(userCafeId));
         socket.joinedCafeId = userCafeId;
-        registerCafeSocket(userCafeId, socket.id);
+        registerCafeSocket(userCafeId, socket.id, socket.user?.id);
         socket.emit('JOINED_CAFE', { cafeId: userCafeId, success: true });
         console.log(`👤 [Socket.IO] Joined room ${cafeRoom(userCafeId)}`);
       } else if (joinCafeId) {
@@ -235,6 +302,8 @@ const initSocket = (io) => {
       socket.emit('PONG', { time: new Date().toISOString() });
       const cid = socket.user?.cafeId;
       if (cid && cid !== 'zavero' && cid !== 'local_default') {
+        // Heartbeat yangila (xotirada)
+        registerHeartbeat(cid, socket.id, socket.user?.id);
         db.query(
           `UPDATE cafes 
            SET online_since = CASE 
@@ -246,6 +315,22 @@ const initSocket = (io) => {
            WHERE cafe_id = $1`,
           [cid]
         ).catch(() => { });
+      }
+    });
+
+    // ---- PRESENCE HEARTBEAT (mobil/web ilovadan har 10s da keladi) ----
+    socket.on('presence-heartbeat', (data = {}) => {
+      const role = socket.user?.role;
+      // Director va misafir socketlar presence ga kiritilmaydi
+      if (!socket.user || role === 'director' || !socket.user.cafeId) return;
+      const cid = socket.user.cafeId;
+      registerHeartbeat(cid, socket.id, socket.user?.id);
+    });
+
+    // ---- PRESENCE LEAVE (web tab yopilganda keladi) ----
+    socket.on('presence-leave', () => {
+      if (socket.joinedCafeId) {
+        unregisterSocket(socket.joinedCafeId, socket.id);
       }
     });
 
@@ -462,4 +547,6 @@ module.exports = {
   getActiveCafePresence,
   isJobDuplicate,
   printerRoom,
+  cafeLastSeenAt,
+  registerHeartbeat,
 };
