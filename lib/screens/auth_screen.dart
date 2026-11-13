@@ -400,80 +400,36 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   }
 
   // ============================================================
-  // CHARACTER ARCH (Desktop Right Half)
+  // CHARACTER VIEW (Desktop & Tablet Right Half - Clean Transparent Character)
   // ============================================================
   Widget _buildCharacterArch() {
-    return Container(
-      decoration: const BoxDecoration(
-        color: _peachLight,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(180),
-          topRight: Radius.circular(180),
-          bottomLeft: Radius.circular(28),
-          bottomRight: Radius.circular(28),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        child: Image.asset(
+          'assets/images/login_character.png',
+          fit: BoxFit.contain,
+          errorBuilder: (ctx, err, stack) => const Center(
+            child: Icon(Icons.person_rounded, size: 100, color: _peachDark),
+          ),
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          // Subtle soft inner glow
-          Positioned(
-            top: 40,
-            child: Container(
-              width: 220,
-              height: 220,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _peachPrimary.withValues(alpha: 0.35),
-              ),
-            ),
-          ),
-
-          // 3D Character Illustration
-          Padding(
-            padding: const EdgeInsets.only(top: 36, bottom: 12, left: 16, right: 16),
-            child: Image.asset(
-              'assets/images/login_character.png',
-              fit: BoxFit.contain,
-              errorBuilder: (ctx, err, stack) => const Center(
-                child: Icon(Icons.person_rounded, size: 100, color: _peachDark),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
 
   // ============================================================
-  // MOBILE CHARACTER CIRCLE BADGE
+  // MOBILE CHARACTER BADGE (Clean Transparent Character)
   // ============================================================
   Widget _buildMobileCharacterBadge() {
     return Center(
-      child: Container(
+      child: SizedBox(
         width: 140,
         height: 140,
-        decoration: BoxDecoration(
-          color: _peachLight,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: _peachDark.withValues(alpha: 0.22),
-              blurRadius: 20,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.all(10.0),
-          child: Image.asset(
-            'assets/images/login_character.png',
-            fit: BoxFit.contain,
-            errorBuilder: (ctx, err, stack) => const Center(
-              child: Icon(Icons.person_rounded, size: 64, color: _peachDark),
-            ),
+        child: Image.asset(
+          'assets/images/login_character.png',
+          fit: BoxFit.contain,
+          errorBuilder: (ctx, err, stack) => const Center(
+            child: Icon(Icons.person_rounded, size: 64, color: _peachDark),
           ),
         ),
       ),
@@ -618,7 +574,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               ),
               onPressed: _showForgotPasswordDialog,
               child: const Text(
-                'Forgot Password?',
+                'Parolni unutdingizmi?',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(

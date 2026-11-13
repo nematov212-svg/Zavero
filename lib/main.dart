@@ -82,23 +82,23 @@ void main() async {
   };
 
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    return Material(
-      color: const Color(0xFF0F172A),
+    return const Material(
+      color: Color(0xFF0F172A),
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: EdgeInsets.all(24.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.info_outline, color: Colors.amber, size: 48),
-              const SizedBox(height: 16),
-              const Text(
+              Icon(Icons.info_outline, color: Colors.amber, size: 48),
+              SizedBox(height: 16),
+              Text(
                 'Kechirasiz, kutilmagan xatolik yuz berdi.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 8),
-              const Text(
+              SizedBox(height: 8),
+              Text(
                 'Ma\'lumotlaringiz xavfsiz saqlangan. Iltimos, sahifani yangilang.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70, fontSize: 13),
@@ -5091,14 +5091,14 @@ ThemeData buildLightTheme() {
       backgroundColor: Color(0xFF0F172A),
       foregroundColor: Colors.white,
     ),
-    snackBarTheme: SnackBarThemeData(
-      backgroundColor: const Color(0xFF1E293B),
-      contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-      actionTextColor: const Color(0xFF60A5FA),
+    snackBarTheme: const SnackBarThemeData(
+      backgroundColor: Color(0xFF1E293B),
+      contentTextStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+      actionTextColor: Color(0xFF60A5FA),
       showCloseIcon: true,
       closeIconColor: Colors.white,
       behavior: SnackBarBehavior.fixed,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
       dismissDirection: DismissDirection.down,
     ),
   );
@@ -5266,14 +5266,14 @@ ThemeData buildDarkTheme() {
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
     ),
-    snackBarTheme: SnackBarThemeData(
+    snackBarTheme: const SnackBarThemeData(
       backgroundColor: kDarkSurface3,
-      contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+      contentTextStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
       actionTextColor: kDarkAccent,
       showCloseIcon: true,
       closeIconColor: Colors.white,
       behavior: SnackBarBehavior.fixed,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
       dismissDirection: DismissDirection.down,
     ),
     tabBarTheme: const TabBarThemeData(
@@ -7664,9 +7664,12 @@ class _LivePingBadge extends StatelessWidget {
       builder: (context, _) {
         final service = ConnectivityService();
         final color = service.color;
-        final isOnline = service.isOnline;
         final latency = service.latencyMs;
         final quality = service.qualityText;
+
+        final badgeText = (quality != "Aloqa yo'q")
+            ? (isMobile ? '${latency}ms $quality' : '${latency}ms ($quality)')
+            : "Aloqa yo'q";
 
         if (isMobile) {
           return Container(
@@ -7682,7 +7685,7 @@ class _LivePingBadge extends StatelessWidget {
                 _PulsingDot(color: color),
                 const SizedBox(width: 4),
                 Text(
-                  isOnline ? '${latency}ms' : 'Offline',
+                  badgeText,
                   style: TextStyle(
                     color: color,
                     fontWeight: FontWeight.w700,
@@ -7707,7 +7710,7 @@ class _LivePingBadge extends StatelessWidget {
               _PulsingDot(color: color),
               const SizedBox(width: 5),
               Text(
-                isOnline ? '${latency}ms ($quality)' : 'Offline',
+                badgeText,
                 style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.w700,
@@ -7847,11 +7850,11 @@ class _UserDropdownButton extends StatelessWidget {
           ),
         ),
         const PopupMenuDivider(),
-        PopupMenuItem<String>(
+        const PopupMenuItem<String>(
           
           value: 'profile',
           child: Row(
-            children: const [
+            children: [
               Icon(Icons.person_outline_rounded, color: Color(0xFF315EFB), size: 20),
               SizedBox(width: 12),
               Text(
@@ -7862,10 +7865,10 @@ class _UserDropdownButton extends StatelessWidget {
           ),
         ),
         if (user?.role == UserRole.admin || user?.role == UserRole.director)
-          PopupMenuItem<String>(
+          const PopupMenuItem<String>(
             value: 'settings',
             child: Row(
-              children: const [
+              children: [
                 Icon(Icons.settings_outlined, color: Color(0xFF64748B), size: 20),
                 SizedBox(width: 12),
                 Text(
@@ -7875,10 +7878,10 @@ class _UserDropdownButton extends StatelessWidget {
               ],
             ),
           ),
-        PopupMenuItem<String>(
+        const PopupMenuItem<String>(
           value: 'lock',
           child: Row(
-            children: const [
+            children: [
               Icon(Icons.lock_outline_rounded, color: Color(0xFFF59E0B), size: 20),
               SizedBox(width: 12),
               Text(
@@ -7889,10 +7892,10 @@ class _UserDropdownButton extends StatelessWidget {
           ),
         ),
         const PopupMenuDivider(),
-        PopupMenuItem<String>(
+        const PopupMenuItem<String>(
           value: 'logout',
           child: Row(
-            children: const [
+            children: [
               Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 20),
               SizedBox(width: 12),
               Text(
@@ -8133,10 +8136,10 @@ class _HallDropdownState extends State<_HallDropdown> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(14, 12, 14, 8),
                           child: Row(
-                            children: const [
+                            children: [
                               Icon(Icons.meeting_room_outlined, size: 14, color: Color(0xFF8994A7)),
                               SizedBox(width: 6),
                               Text(
@@ -9233,10 +9236,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                   child: const _AnimatedHeaderLogoBadge(size: 40),
                                 ),
                                 const SizedBox(width: 10),
-                                Expanded(
+                                const Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: const [
+                                    children: [
                                       Text('ZAVERO', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1.2), maxLines: 1, overflow: TextOverflow.ellipsis),
                                       Text('POS', style: TextStyle(color: Color(0xFFFFB300), fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 1.0), maxLines: 1, overflow: TextOverflow.ellipsis),
                                     ],
@@ -9748,28 +9751,29 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                               const _LivePingBadge(),
                               const SizedBox(width: 8),
                             ],
-                            // Bell with badge
+                            // Bell with real-time badge
                             Stack(children: [
                               IconButton(
                                 icon: Icon(Icons.notifications_outlined, color: appState.darkMode ? const Color(0xFF94A3B8) : const Color(0xFF334155), size: 22),
                                 tooltip: 'Bildirishnomalar',
                                 onPressed: () => _showNotificationsModal(context),
                               ),
-                              Positioned(
-                                right: 8,
-                                top: 8,
-                                child: Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
-                                  child: const Center(
-                                    child: Text(
-                                      '3',
-                                      style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                              if (appState.unreadNotificationsCount > 0 || appState.pendingOrdersCount > 0)
+                                Positioned(
+                                  right: 8,
+                                  top: 8,
+                                  child: Container(
+                                    width: 16,
+                                    height: 16,
+                                    decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
+                                    child: Center(
+                                      child: Text(
+                                        '${appState.unreadNotificationsCount > 0 ? appState.unreadNotificationsCount : appState.pendingOrdersCount}',
+                                        style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
                             ]),
                             const SizedBox(width: 8),
                             // Dark Mode switch
@@ -9835,11 +9839,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                 child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF315EFB), size: 20),
                               ),
                               const SizedBox(width: 12),
-                              Expanded(
+                              const Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
-                                  children: const [
+                                  children: [
                                     Text(
                                       'Stollar',
                                       style: TextStyle(
@@ -12823,9 +12827,9 @@ class CartPanel extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
+                const Expanded(
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.shopping_cart_outlined, color: Color(0xFF0F172A), size: 22),
                       SizedBox(width: 8),
                       Expanded(
@@ -14275,8 +14279,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
           const SizedBox(height: 16),
           if (isDesktop) ...[
             // Desktop Header Row
-            Row(
-              children: const [
+            const Row(
+              children: [
                 Expanded(
                   flex: 4,
                   child: Text(
@@ -14434,11 +14438,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
             child: InkWell(
               onTap: _addMoreItems,
               borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
+                  children: [
                     Icon(Icons.add, size: 18, color: Color(0xFFE25C1D)),
                     SizedBox(width: 6),
                     Text(
@@ -19992,9 +19996,9 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                             ),
                                           ],
                                         ),
-                                        Row(
+                                        const Row(
                                           mainAxisSize: MainAxisSize.min,
-                                          children: const [
+                                          children: [
                                             Icon(Icons.key_rounded, size: 14, color: Colors.grey),
                                             SizedBox(width: 4),
                                             Text(
@@ -20994,15 +20998,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(children: const [
+          title: const Row(children: [
             Icon(Icons.workspace_premium_rounded, color: Color(0xFF315EFB)),
             SizedBox(width: 10),
             Text('Obunani uzaytirish', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
           ]),
-          content: Column(
+          content: const Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
                 'Litsenziyani uzaytirish yoki to\'lov qilish uchun adminga 30 kunlik so\'rov yuboring yoki ZAVERO qo\'llab-quvvatlash boti bilan bog\'laning.',
                 style: TextStyle(fontSize: 13.5, height: 1.5, color: Color(0xFF475569)),
@@ -21071,8 +21075,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: const [
+        title: const Row(
+          children: [
             Icon(Icons.password_rounded, color: Color(0xFFF59E0B)),
             SizedBox(width: 10),
             Text('4 xonali PIN kod', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
@@ -21147,7 +21151,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (dialogCtx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(children: const [
+          title: const Row(children: [
             Icon(Icons.lock_reset_rounded, color: Color(0xFF0F1E30)),
             SizedBox(width: 10),
             Text('Parolni o\'zgartirish', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
@@ -21479,10 +21483,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFFB300), size: 22),
                           ),
                           const SizedBox(width: 12),
-                          Expanded(
+                          const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
+                              children: [
                                 Text(
                                   'Litsenziya va Tarif',
                                   style: TextStyle(
@@ -21547,8 +21551,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: const [
+                            const Row(
+                              children: [
                                 Icon(Icons.calendar_month_rounded, color: Color(0xFF94A3B8), size: 16),
                                 SizedBox(width: 8),
                                 Text(
@@ -24806,9 +24810,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: const Color(0xFFE2E8F0)),
                           ),
-                          child: Column(
+                          child: const Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
+                            children: [
                               Row(
                                 children: [
                                   Icon(Icons.info_outline, size: 16, color: Color(0xFF64748B)),

@@ -176,19 +176,23 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
   }
 
   String _calcGrowthString(double current, double prev) {
-    if (current == 0 && prev == 0) return '—';
-    if (prev <= 0) return current > 0 ? 'Yangi' : '—';
+    if (current <= 0 && prev <= 0) return '—';
+    if (current <= 0) return '0%'; // Yangi kun yoki ma'lumot bo'lmaganda -100% o'rniga 0%
+    if (prev <= 0) return 'Yangi';
     final diff = ((current - prev) / prev) * 100;
     if (diff > 150) return 'Yangi';
+    if (diff <= -100) return '0%';
     if (diff >= 0) return '+${diff.round()}%';
     return '${diff.round()}%';
   }
 
   String _calcOrdersGrowthString(int current, int prev) {
-    if (current == 0 && prev == 0) return '—';
-    if (prev <= 0) return current > 0 ? 'Yangi' : '—';
+    if (current <= 0 && prev <= 0) return '—';
+    if (current <= 0) return '0%'; // Yangi kun yoki ma'lumot bo'lmaganda -100% o'rniga 0%
+    if (prev <= 0) return 'Yangi';
     final diff = ((current - prev) / prev) * 100;
     if (diff > 150) return 'Yangi';
+    if (diff <= -100) return '0%';
     if (diff >= 0) return '+${diff.round()}%';
     return '${diff.round()}%';
   }
@@ -1520,14 +1524,15 @@ class _CafeExecutiveDashboardState extends State<CafeExecutiveDashboard> {
     final step = chartWidth / (labels.length - 1 == 0 ? 1 : labels.length - 1);
     final xPos = 48 + (safeIdx * step);
 
-    final tooltipLeft = (xPos - 80).clamp(48.0, (totalWidth - 190.0).clamp(48.0, double.infinity));
+    final maxLeft = (totalWidth - 200.0).clamp(16.0, double.infinity);
+    final tooltipLeft = (xPos - 80).clamp(16.0, maxLeft);
 
     return Positioned(
       left: tooltipLeft,
       top: 15,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: (totalWidth - 32).clamp(140.0, 300.0),
+          maxWidth: (totalWidth - 32).clamp(120.0, 240.0),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
@@ -3208,6 +3213,18 @@ class _SalesDynamicsChartPainter extends CustomPainter {
     bool drawFill = true,
   }) {
     if (values.isEmpty) return;
+
+    // Barcha qiymatlar 0 bo'lganda soxta egri chiziq chizilmaydi, to'g'ri tekis chiziq chiziladi
+    final allZeros = values.every((v) => v <= 0.0);
+    if (allZeros) {
+      final basePaint = Paint()
+        ..color = color.withValues(alpha: 0.35)
+        ..strokeWidth = 1.2
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(Offset(leftPad, chartH), Offset(leftPad + chartW, chartH), basePaint);
+      return;
+    }
+
     final stepX = chartW / (values.length - 1 == 0 ? 1 : values.length - 1);
     final path = Path();
     final fillPath = Path();
@@ -3223,10 +3240,15 @@ class _SalesDynamicsChartPainter extends CustomPainter {
       } else {
         final prevX = leftPad + ((i - 1) * stepX);
         final prevY = chartH - ((values[i - 1] / maxVal) * chartH).clamp(0.0, chartH);
-        final c1X = prevX + (x - prevX) / 2;
-        final c2X = c1X;
-        path.cubicTo(c1X, prevY, c2X, y, x, y);
-        fillPath.cubicTo(c1X, prevY, c2X, y, x, y);
+        if (values[i] == 0 && values[i - 1] == 0) {
+          path.lineTo(x, chartH);
+          fillPath.lineTo(x, chartH);
+        } else {
+          final c1X = prevX + (x - prevX) / 2;
+          final c2X = c1X;
+          path.cubicTo(c1X, prevY, c2X, y, x, y);
+          fillPath.cubicTo(c1X, prevY, c2X, y, x, y);
+        }
       }
     }
 

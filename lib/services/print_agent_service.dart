@@ -137,7 +137,7 @@ class PrintAgentService {
         );
       }
     } catch (e) {
-      return AgentConnectionResult(
+      return const AgentConnectionResult(
         ok: false,
         statusText: 'Ulanmadi',
         error: 'Print agent bilan bog‘lanib bo‘lmadi. Kompyuterda print-agent ishga tushirilganligini tekshiring.',

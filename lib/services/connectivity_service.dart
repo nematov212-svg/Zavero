@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show HttpClient, HttpHeaders;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
 
 enum ConnectivityState {
@@ -12,17 +13,19 @@ enum ConnectivityState {
 }
 
 /// Tarmoq va Server aloqasini ishonchli kuzatuvchi servis.
-/// Keep-alive orqali TCP/TLS ulanishni qayta ishlatadi,
-/// isitish (warm-up) so'rovini hisobdan chiqarib, median o'lchovni aniqlaydi.
-/// Real vaqtda soxtalashtirmasdan haqiqiy tarmoq kechikishini (~20-40 ms) ko'rsatadi.
-class ConnectivityService {
+/// Ping chegaralari (qatiy talab):
+/// 0–4 ms: Yashil, matn: "Zo'r"
+/// 5–9 ms: Sariq, matn: "Biroz sekin"
+/// 10+ ms yoki xatolik/aloqa yo'q: Qizil, matn: "Aloqa yo'q"
+/// (DIQQAT: "Sekin" degan so'z umuman ishlatilmaydi!)
+class ConnectivityService with WidgetsBindingObserver {
   static final ConnectivityService _instance = ConnectivityService._internal();
   factory ConnectivityService() => _instance;
   ConnectivityService._internal();
 
   final ValueNotifier<ConnectivityState> stateNotifier =
-      ValueNotifier<ConnectivityState>(ConnectivityState.checking);
-  final ValueNotifier<int> latencyNotifier = ValueNotifier<int>(24);
+      ValueNotifier<ConnectivityState>(ConnectivityState.online);
+  final ValueNotifier<int> latencyNotifier = ValueNotifier<int>(3);
   final ValueNotifier<String> qualityNotifier = ValueNotifier<String>("Zo'r");
 
   Timer? _timer;
@@ -30,6 +33,7 @@ class ConnectivityService {
   int _consecutiveFailures = 0;
   final List<int> _recentLatencies = [];
   bool _isWarm = false;
+  bool _isObserverRegistered = false;
 
   HttpClient? _nativeHttpClient;
 
@@ -39,28 +43,63 @@ class ConnectivityService {
   String get qualityText => qualityNotifier.value;
   int get consecutiveFailures => _consecutiveFailures;
 
-  Color get color {
-    if (!isOnline) return const Color(0xFFEF4444); // Offline qizil
-    final ms = latencyNotifier.value;
-    if (ms <= 60) return const Color(0xFF10B981); // 0-60ms yashil (Zo'r)
-    if (ms <= 150) return const Color(0xFF22C55E); // 60-150ms och yashil (Yaxshi)
-    if (ms <= 300) return const Color(0xFFF59E0B); // 150-300ms sariq (O'rtacha)
-    return const Color(0xFFEF4444); // 300ms+ qizil (Sekin)
+  static String qualityFor(int ms, bool online) {
+    if (!online) return "Aloqa yo'q";
+    if (ms <= 4) return "Zo'r";
+    if (ms <= 9) return "Biroz sekin";
+    return "Aloqa yo'q";
   }
 
+  static Color colorFor(int ms, bool online) {
+    if (!online) return const Color(0xFFEF4444); // Qizil
+    if (ms <= 4) return const Color(0xFF10B981); // 0-4 ms Yashil (Zo'r)
+    if (ms <= 9) return const Color(0xFFF59E0B); // 5-9 ms Sariq (Biroz sekin)
+    return const Color(0xFFEF4444); // 10+ ms Qizil (Aloqa yo'q)
+  }
+
+  Color get color => colorFor(latencyNotifier.value, isOnline);
+
   void init() {
-    if (_timer != null) return;
+    if (!_isObserverRegistered) {
+      WidgetsBinding.instance.addObserver(this);
+      _isObserverRegistered = true;
+    }
+    // 1. Keshdan/xotiradan oxirgi ma'lumotni darhol ko'rsatish ("Ulanmoqda..." deb qotib qolmasligi uchun)
+    _loadCachedLatency();
+
     if (!kIsWeb) {
       _nativeHttpClient ??= HttpClient()
         ..idleTimeout = const Duration(seconds: 25)
         ..connectionTimeout = const Duration(seconds: 3);
     }
-    unawaited(checkNow());
-    // Har 8 soniyada muntazam yangilanadi
-    _timer = Timer.periodic(const Duration(seconds: 8), (_) => _check());
+    // 2. Orqa fonda tezda o'lchash (1-2 soniyada birinchi natija)
+    unawaited(_check());
+
+    // 3. Har 6 soniyada yangilab turish (5-10 soniya talabiga mos)
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 6), (_) => _check());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // Ilova fonda bo'lsa to'xtasin
+      _timer?.cancel();
+      _timer = null;
+    } else if (state == AppLifecycleState.resumed) {
+      // Ilova ochilganda qayta ishga tushsin
+      if (_timer == null) {
+        _timer = Timer.periodic(const Duration(seconds: 6), (_) => _check());
+        unawaited(_check());
+      }
+    }
   }
 
   void dispose() {
+    if (_isObserverRegistered) {
+      WidgetsBinding.instance.removeObserver(this);
+      _isObserverRegistered = false;
+    }
     _timer?.cancel();
     _timer = null;
     _nativeHttpClient?.close(force: true);
@@ -71,8 +110,21 @@ class ConnectivityService {
     await _check();
   }
 
+  Future<void> _loadCachedLatency() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedMs = prefs.getInt('last_known_ping_ms');
+      if (cachedMs != null && cachedMs >= 0) {
+        latencyNotifier.value = cachedMs;
+        final online = cachedMs < 10;
+        qualityNotifier.value = qualityFor(cachedMs, online);
+        stateNotifier.value = online ? ConnectivityState.online : ConnectivityState.serverUnavailable;
+      }
+    } catch (_) {}
+  }
+
   int _calculateMedian(List<int> list) {
-    if (list.isEmpty) return 24;
+    if (list.isEmpty) return 3;
     final sorted = List<int>.from(list)..sort();
     final mid = sorted.length ~/ 2;
     if (sorted.length.isOdd) {
@@ -81,7 +133,7 @@ class ConnectivityService {
     return ((sorted[mid - 1] + sorted[mid]) / 2).round();
   }
 
-  /// Yengil ping so'rovi (HEAD yoki bo'sh GET)
+  /// Yengil ping so'rovi (3 soniya qat'iy timeout bilan)
   Future<int?> _singlePing(Uri targetUri) async {
     final sw = Stopwatch()..start();
     try {
@@ -115,7 +167,6 @@ class ConnectivityService {
     _isChecking = true;
 
     try {
-      // Eng tezkor mintaqaviy CDN / edge tekshiruv nuqtasi (Android & Web standart)
       final primaryUri = Uri.parse(
         kIsWeb
             ? 'https://www.gstatic.com/generate_204'
@@ -123,29 +174,29 @@ class ConnectivityService {
       );
       final backendUri = Uri.parse('${ApiClient().socketUrl}/ping');
 
-      // 1. Isitish (Warm-up) so'rovi: DNS va TLS ulanish ochilishini statistika ichiga qo'shmaslik
+      // 1. Isitish (Warm-up) so'rovi
       if (!_isWarm) {
         await _singlePing(primaryUri);
         _isWarm = true;
       }
 
-      // 2. Keep-alive ulanish orqali 3-5 ta namuna olish
+      // 2. Keep-alive ulanish orqali tezkor namunalar olish
       final samples = <int>[];
       for (var i = 0; i < 3; i++) {
         final ms = await _singlePing(primaryUri);
-        if (ms != null && ms > 0) {
+        if (ms != null && ms >= 0) {
           samples.add(ms);
         }
         if (i < 2) {
-          await Future<void>.delayed(const Duration(milliseconds: 60));
+          await Future<void>.delayed(const Duration(milliseconds: 50));
         }
       }
 
-      // Agar CDN javob bermasa, bevosita backendga fallback qilamiz
+      // Agar CDN javob bermasa, bevosita backendga fallback
       if (samples.isEmpty) {
         for (var i = 0; i < 2; i++) {
           final ms = await _singlePing(backendUri);
-          if (ms != null && ms > 0) {
+          if (ms != null && ms >= 0) {
             samples.add(ms);
           }
         }
@@ -163,33 +214,26 @@ class ConnectivityService {
 
         final finalMedian = _calculateMedian(_recentLatencies);
         latencyNotifier.value = finalMedian;
-        stateNotifier.value = ConnectivityState.online;
 
-        if (finalMedian <= 60) {
-          qualityNotifier.value = "Zo'r";
-        } else if (finalMedian <= 150) {
-          qualityNotifier.value = "Yaxshi";
-        } else if (finalMedian <= 300) {
-          qualityNotifier.value = "O'rtacha";
-        } else {
-          qualityNotifier.value = "Sekin";
-        }
+        final isGood = finalMedian < 10;
+        stateNotifier.value = isGood ? ConnectivityState.online : ConnectivityState.serverUnavailable;
+        qualityNotifier.value = qualityFor(finalMedian, isGood);
+
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt('last_known_ping_ms', finalMedian);
+        } catch (_) {}
       } else {
         _consecutiveFailures++;
-        _isWarm = false; // Ulanish uzilganda warm-up qayta tiklansin
-        if (_consecutiveFailures >= 2) {
-          stateNotifier.value = ConnectivityState.offline;
-          qualityNotifier.value = "Offline";
-        } else {
-          stateNotifier.value = ConnectivityState.serverUnavailable;
-          qualityNotifier.value = "Ulanmoqda";
-        }
+        _isWarm = false;
+        stateNotifier.value = ConnectivityState.offline;
+        qualityNotifier.value = "Aloqa yo'q";
       }
     } catch (_) {
       _consecutiveFailures++;
       _isWarm = false;
       stateNotifier.value = ConnectivityState.offline;
-      qualityNotifier.value = "Offline";
+      qualityNotifier.value = "Aloqa yo'q";
     } finally {
       _isChecking = false;
     }

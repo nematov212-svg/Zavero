@@ -405,42 +405,139 @@ const getTashkentNow = (date = new Date()) => {
   };
 };
 
+// ============================================================
+// 23 SOATLIK AVTOMATIK HISOBOT SOZLAMALARI (Asia/Tashkent UTC+5)
+// ============================================================
+const REPORT_INTERVAL_HOURS = 23;
+const REPORT_INTERVAL_MS = REPORT_INTERVAL_HOURS * 60 * 60 * 1000;
+
 /**
- * Kunlik hisobot xabari shabloni (HTML formatda, chiroyli va o'qilishi oson)
+ * Telegram xabarlarini qayta urinish (exponential retry backoff) bilan yuborish
+ */
+const sendMessageWithRetry = async (chatId, message, extra = { parse_mode: 'HTML' }, maxRetries = 3) => {
+  let attempt = 0;
+  let delay = 1000;
+  while (attempt < maxRetries) {
+    try {
+      return await bot.telegram.sendMessage(chatId, message, extra);
+    } catch (err) {
+      attempt++;
+      console.warn(`⚠️ [Telegram Bot] Qayta yuborish (chat: ${chatId}, urinish: ${attempt}/${maxRetries}):`, err.message);
+      if (attempt >= maxRetries) throw err;
+      await new Promise((r) => setTimeout(r, delay));
+      delay *= 2;
+    }
+  }
+};
+
+/**
+ * Kunlik / 23 soatlik hisobot xabari shabloni (O'zbek tilida, to'liq va o'qilishi qulay)
  */
 const buildDailyReportMessage = ({
   cafeName,
   closedDate,
   timestamp,
+  periodStartStr,
+  periodEndStr,
+  totalRevenue,
   dailyRevenue,
+  orderCount,
   dailyCount,
+  cashTotal,
   dailyCash,
+  cardTotal,
   dailyCard,
+  otherTotal = 0,
+  averageCheck,
+  topProducts = [],
+  cancelledCount = 0,
   allTimeRevenue,
   allTimeCount,
   isTest = false,
 }) => {
+  const finalRevenue = totalRevenue ?? dailyRevenue ?? 0;
+  const finalCount = orderCount ?? dailyCount ?? 0;
+  const finalCash = cashTotal ?? dailyCash ?? 0;
+  const finalCard = cardTotal ?? dailyCard ?? 0;
+  const finalAvg = averageCheck ?? (finalCount > 0 ? Math.round(finalRevenue / finalCount) : 0);
+
   const header = isTest
-    ? `🧪 <b>KUNLIK HISOBOT (TEST / SINOV)</b>`
-    : `🌙 <b>KUNLIK YAKUNIY HISOBOT (KUN YOPILDI)</b>`;
+    ? `🧪 <b>DAVRIY HISOBOT (${REPORT_INTERVAL_HOURS} SOATLIK TEST)</b>`
+    : `📊 <b>DAVRIY YAKUNIY HISOBOT (${REPORT_INTERVAL_HOURS} SOATLIK)</b>`;
+
+  const timeLine = (periodStartStr && periodEndStr)
+    ? `⏱ <b>Davr:</b> <code>${periodStartStr}</code> — <code>${periodEndStr}</code>\n`
+    : `📅 Yopilgan kun: <b>${closedDate || 'Bugun'}</b>\n⏱ Hisobot vaqti: <b>${timestamp || getTashkentNow().fullStr}</b>\n`;
+
+  let topProductsText = '';
+  if (topProducts && topProducts.length > 0) {
+    topProductsText = `\n🔥 <b>Top sotilgan mahsulotlar:</b>\n` +
+      topProducts.map((p, idx) => `   ${idx + 1}. ${p.name} — ${p.qty} ta (${formatSum(p.total_revenue)} so'm)`).join('\n') + `\n`;
+  }
+
+  let allTimeText = '';
+  if (allTimeRevenue !== undefined || allTimeCount !== undefined) {
+    allTimeText = `────────────────────\n` +
+      `🌐 <b>Jami daromad (umumiy):</b> <b>${formatSum(allTimeRevenue || 0)} so'm</b>\n` +
+      `📑 <b>Jami cheklar soni:</b> <b>${allTimeCount || 0} ta</b>\n`;
+  }
+
+  const revenueLine = (periodStartStr && periodEndStr)
+    ? `💰 <b>Umumiy tushum:</b> <b>${formatSum(finalRevenue)} so'm</b>\n`
+    : `💰 <b>Bugungi daromad:</b> <b>${formatSum(finalRevenue)} so'm</b>\n`;
+
+  const countLine = (periodStartStr && periodEndStr)
+    ? `🧾 <b>Buyurtmalar (cheklar) soni:</b> <b>${finalCount} ta</b>\n`
+    : `🧾 <b>Bugungi cheklar soni:</b> <b>${finalCount} ta</b>\n`;
 
   return `${header}\n` +
-    `🏪 Cafe: <b>${cafeName || 'Cafe'}</b>\n` +
-    `📅 Yopilgan kun: <b>${closedDate}</b>\n` +
-    `⏱ Hisobot vaqti: <b>${timestamp}</b>\n` +
+    `🏪 Kafe: <b>${cafeName || 'Cafe'}</b>\n` +
+    timeLine +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `💰 <b>Bugungi daromad:</b> <b>${formatSum(dailyRevenue)} so'm</b>\n` +
-    `🧾 <b>Bugungi cheklar soni:</b> <b>${dailyCount} ta</b>\n` +
-    `   ├ 💵 Naqd savdo: <b>${formatSum(dailyCash)} so'm</b>\n` +
-    `   └ 💳 Karta savdo: <b>${formatSum(dailyCard)} so'm</b>\n` +
-    `────────────────────\n` +
-    `🌐 <b>Jami daromad (umumiy):</b> <b>${formatSum(allTimeRevenue)} so'm</b>\n` +
-    `📑 <b>Jami cheklar soni:</b> <b>${allTimeCount} ta</b>\n` +
+    revenueLine +
+    countLine +
+    `💳 <b>To'lov turlari:</b>\n` +
+    `   ├ 💵 Naqd: <b>${formatSum(finalCash)} so'm</b>\n` +
+    `   ├ 💳 Karta: <b>${formatSum(finalCard)} so'm</b>\n` +
+    `   └ 🔄 Boshqa: <b>${formatSum(otherTotal)} so'm</b>\n` +
+    `📊 <b>O'rtacha chek:</b> <b>${formatSum(finalAvg)} so'm</b>\n` +
+    `❌ <b>Bekor qilinganlar:</b> <b>${cancelledCount} ta</b>\n` +
+    topProductsText +
+    allTimeText +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `<i>ZAVERO POS tizimi • Avtomatik hisobot</i>`;
+    `<i>ZAVERO POS tizimi • Avtomatik ${REPORT_INTERVAL_HOURS} soatlik hisobot</i>`;
 };
 
-// Dublikat hisobot yuborilishining oldini olish (Memory + DB bot_settings)
+// DB bot_settings jadvalida oxirgi hisobot vaqtini saqlash va tekshirish
+const getLastReportSentTime = async (cafeId) => {
+  const key = `last_report_sent_${cafeId}`;
+  try {
+    const res = await db.query('SELECT value FROM bot_settings WHERE key = $1', [key]);
+    if (res.rows.length > 0 && res.rows[0].value) {
+      const ts = new Date(res.rows[0].value).getTime();
+      if (!isNaN(ts)) return ts;
+    }
+  } catch (err) {
+    console.error(`getLastReportSentTime (${cafeId}) error:`, err.message);
+  }
+  return 0;
+};
+
+const setLastReportSentTime = async (cafeId, timestamp = Date.now()) => {
+  const key = `last_report_sent_${cafeId}`;
+  const isoStr = new Date(timestamp).toISOString();
+  try {
+    await db.query(
+      `INSERT INTO bot_settings (key, value, updated_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`,
+      [key, isoStr]
+    );
+  } catch (err) {
+    console.error(`setLastReportSentTime (${cafeId}) error:`, err.message);
+  }
+};
+
 const sentReportsMemoryCache = new Set();
 
 const isReportAlreadySent = async (cafeId, dateStr) => {
@@ -745,12 +842,14 @@ const generateDirectorSummaryMessage = async () => {
 };
 
 /**
- * Bitta cafe uchun kunlik yopilish hisobotini yuborish (Strict Multi-Tenant)
+ * Bitta cafe uchun davriy (23 soatlik yoki so'ralgan oraliqdagi) hisobotni yuborish (Strict Multi-Tenant)
  */
 const sendDailyReportForCafe = async ({
   cafeId,
   cafeName,
   closedDateStr,
+  periodStart = null,
+  periodEnd = null,
   timestampStr,
   isTest = false,
   ignoreDedupe = false,
@@ -762,11 +861,31 @@ const sendDailyReportForCafe = async ({
       return { success: false, error: 'bot_not_initialized' };
     }
 
-    // 1. Dublikat tekshiruvi (Test bo'lmasa)
-    if (!ignoreDedupe) {
-      const alreadySent = await isReportAlreadySent(cafeId, closedDateStr);
-      if (alreadySent) {
-        console.log(`ℹ️ [Daily Report] ${cafeName || cafeId} (${closedDateStr}) allaqachon yuborilgan, o‘tkazib yuborildi.`);
+    const now = new Date();
+    let startDate = periodStart;
+    let endDate = periodEnd || now;
+
+    if (!startDate) {
+      if (closedDateStr) {
+        // Ma'lum bir sana berilgan bo'lsa (masalan test yoki qo'lda chaqirilganda)
+        startDate = new Date(`${closedDateStr}T00:00:00+05:00`);
+        endDate = new Date(`${closedDateStr}T23:59:59+05:00`);
+      } else {
+        // Avtomatik 23 soatlik rejim
+        const lastSent = await getLastReportSentTime(cafeId);
+        if (lastSent && (now.getTime() - lastSent <= 48 * 3600 * 1000)) {
+          startDate = new Date(lastSent);
+        } else {
+          startDate = new Date(now.getTime() - REPORT_INTERVAL_MS);
+        }
+      }
+    }
+
+    // 1. Dublikat tekshiruvi (Test yoki ignoreDedupe bo'lmasa)
+    if (!ignoreDedupe && !isTest) {
+      const lastSent = await getLastReportSentTime(cafeId);
+      if (lastSent && (now.getTime() - lastSent < REPORT_INTERVAL_MS - 60000)) {
+        console.log(`ℹ️ [23h Report] ${cafeName || cafeId} uchun hali 23 soat to'lmagan, o'tkazib yuborildi.`);
         return { success: true, skipped: true };
       }
     }
@@ -780,55 +899,93 @@ const sendDailyReportForCafe = async ({
         `SELECT chat_id FROM telegram_sessions WHERE role = 'cafe' AND cafe_id = $1`,
         [cafeId]
       );
-      chatIds = sessions.rows.map(r => String(r.chat_id));
+      chatIds = sessions.rows.map((r) => String(r.chat_id));
     }
 
     if (chatIds.length === 0) {
-      console.log(`ℹ️ [Daily Report] ${cafeName || cafeId} uchun faol telegram sessiya topilmadi.`);
+      console.log(`ℹ️ [23h Report] ${cafeName || cafeId} uchun faol telegram sessiya topilmadi.`);
       return { success: true, noSessions: true };
     }
 
-    // 3. PostgreSQL da yopilgan kun va umumiy ko'rsatkichlarni bir so'rovda hisoblash
+    // 3. PostgreSQL da [startDate, endDate] oralig'idagi umumiy ko'rsatkichlar
     const statsRes = await db.query(
       `SELECT 
-         COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN total ELSE 0 END), 0) AS daily_revenue,
-         COALESCE(COUNT(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN 1 ELSE NULL END), 0) AS daily_count,
-         COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 AND method = 'cash' THEN total ELSE (CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN cash_paid ELSE 0 END) END), 0) AS daily_cash,
-         COALESCE(SUM(CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 AND method = 'card' THEN total ELSE (CASE WHEN to_char(date AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') = $2 THEN card_paid ELSE 0 END) END), 0) AS daily_card,
-         COALESCE(SUM(total), 0) AS all_time_revenue,
-         COUNT(*) AS all_time_count
+         COALESCE(SUM(total), 0) AS total_revenue,
+         COALESCE(COUNT(*), 0) AS order_count,
+         COALESCE(SUM(CASE WHEN method = 'cash' THEN total ELSE (CASE WHEN cash_paid > 0 THEN cash_paid ELSE 0 END) END), 0) AS cash_total,
+         COALESCE(SUM(CASE WHEN method = 'card' THEN total ELSE (CASE WHEN card_paid > 0 THEN card_paid ELSE 0 END) END), 0) AS card_total,
+         COALESCE(SUM(CASE WHEN method NOT IN ('cash', 'card') THEN total ELSE 0 END), 0) AS other_total,
+         COALESCE(ROUND(AVG(total)), 0) AS average_check
        FROM receipts
-       WHERE cafe_id = $1`,
-      [cafeId, closedDateStr]
+       WHERE cafe_id = $1 AND (date >= $2 AND date <= $3)`,
+      [cafeId, startDate, endDate]
     );
-
     const stats = statsRes.rows[0] || {};
+
+    // 4. Davr ichida eng ko'p sotilgan mahsulotlar (Top 5)
+    let topProducts = [];
+    try {
+      const topRes = await db.query(
+        `SELECT 
+           COALESCE(item->'product'->>'name', item->>'name', item->'product'->>'title', item->>'title', 'Noma''lum') as name,
+           SUM(COALESCE((item->>'qty')::numeric, (item->>'quantity')::numeric, 1))::int as qty,
+           SUM(COALESCE((item->'product'->>'price')::numeric, (item->>'price')::numeric, 0) * COALESCE((item->>'qty')::numeric, (item->>'quantity')::numeric, 1))::bigint as total_revenue
+         FROM receipts r,
+         LATERAL jsonb_array_elements(r.items) as item
+         WHERE r.cafe_id = $1 AND (r.date >= $2 AND r.date <= $3)
+         GROUP BY COALESCE(item->'product'->>'name', item->>'name', item->'product'->>'title', item->>'title', 'Noma''lum')
+         ORDER BY qty DESC
+         LIMIT 5`,
+        [cafeId, startDate, endDate]
+      );
+      topProducts = topRes.rows || [];
+    } catch (topErr) {
+      console.warn(`⚠️ [23h Report] Top mahsulotlar olishda ogohlantirish (${cafeId}):`, topErr.message);
+    }
+
+    // 5. Bekor qilingan buyurtmalar soni
+    let cancelledCount = 0;
+    try {
+      const cancelRes = await db.query(
+        `SELECT COUNT(*)::int AS cancelled_count
+         FROM customer_orders
+         WHERE cafe_id = $1 AND status = 'cancelled' AND (date >= $2 AND date <= $3)`,
+        [cafeId, startDate, endDate]
+      );
+      cancelledCount = cancelRes.rows[0]?.cancelled_count || 0;
+    } catch (_) {}
+
+    const periodStartStr = formatDate(startDate);
+    const periodEndStr = formatDate(endDate);
+
     const reportMsg = buildDailyReportMessage({
       cafeName: cafeName || 'Cafe',
-      closedDate: closedDateStr,
-      timestamp: timestampStr || getTashkentNow().fullStr,
-      dailyRevenue: stats.daily_revenue,
-      dailyCount: stats.daily_count,
-      dailyCash: stats.daily_cash,
-      dailyCard: stats.daily_card,
-      allTimeRevenue: stats.all_time_revenue,
-      allTimeCount: stats.all_time_count,
+      periodStartStr,
+      periodEndStr,
+      totalRevenue: stats.total_revenue,
+      orderCount: stats.order_count,
+      cashTotal: stats.cash_total,
+      cardTotal: stats.card_total,
+      otherTotal: stats.other_total,
+      averageCheck: stats.average_check,
+      topProducts,
+      cancelledCount,
       isTest,
     });
 
     let sentCount = 0;
     for (const chatId of chatIds) {
       try {
-        await bot.telegram.sendMessage(chatId, reportMsg, { parse_mode: 'HTML' });
+        await sendMessageWithRetry(chatId, reportMsg, { parse_mode: 'HTML' });
         sentCount++;
       } catch (sendErr) {
         console.error(`⚠️ [Telegram Bot] Hisobot yuborishda xatolik (chat: ${chatId}, cafe: ${cafeId}):`, sendErr.message);
       }
     }
 
-    if (sentCount > 0 && !ignoreDedupe) {
-      await markReportAsSent(cafeId, closedDateStr);
-      console.log(`✅ [Daily Report] ${cafeName || cafeId} (${closedDateStr}) ${sentCount} ta chatga muvaffaqiyatli yuborildi.`);
+    if (sentCount > 0 && !isTest) {
+      await setLastReportSentTime(cafeId, endDate.getTime());
+      console.log(`✅ [23h Report] ${cafeName || cafeId} (${periodStartStr} — ${periodEndStr}) ${sentCount} ta chatga muvaffaqiyatli yuborildi.`);
     }
 
     return { success: true, sentCount };
@@ -839,7 +996,7 @@ const sendDailyReportForCafe = async ({
 };
 
 /**
- * Barcha faol cafelar uchun 24:00 yakuniy hisobotini yuborish
+ * Barcha faol cafelar uchun davriy hisobotni yuborish
  */
 const triggerDailyReportsForAllCafes = async ({
   closedDateStr,
@@ -855,7 +1012,7 @@ const triggerDailyReportsForAllCafes = async ({
        WHERE ts.role = 'cafe' AND ts.cafe_id IS NOT NULL`
     );
 
-    console.log(`⏰ [Telegram Bot] Kunlik hisobot yuborish boshlandi (${closedDateStr}, Cafelar soni: ${res.rows.length})`);
+    console.log(`⏰ [Telegram Bot] ${REPORT_INTERVAL_HOURS} soatlik hisobot tekshiruvi (Cafelar soni: ${res.rows.length})`);
 
     for (const row of res.rows) {
       try {
@@ -880,24 +1037,36 @@ const triggerDailyReportsForAllCafes = async ({
 let dailyReportCronInterval = null;
 
 /**
- * 24:00 (Asia/Tashkent vaqti bilan 23:59:59 dan keyin 00:00:00 da) hisobot tekshiruvi
+ * Har 23 soatda avtomatik hisobot tekshiruvi
+ * Server qayta yonsa ham oxirgi yuborilgan vaqt DB dan o'qiladi.
+ * 23 soat o'tgan bo'lsa darhol yuboradi, o'tmagan bo'lsa qolgan vaqtni kutadi.
  */
 const checkAndSendDailyReports = async () => {
   try {
-    const tk = getTashkentNow();
+    if (!bot || !bot.telegram) return;
+    const nowMs = Date.now();
 
-    // 24:00 bo'lganda (00:00 dan 00:30 gacha bo'lgan oraliqda har 30 soniyada tekshiradi)
-    if (tk.hour === 0 && tk.minute < 30) {
-      // Yopilgan kun sanasi: 5 daqiqa oldingi sana olinadi (kechagi kalendar kuni)
-      const closedDateObj = new Date(Date.now() - 5 * 60 * 1000);
-      const closedDateStr = getTashkentNow(closedDateObj).dateStr;
+    const res = await db.query(
+      `SELECT DISTINCT ts.cafe_id, COALESCE(c.receipt_name, c.cafe_name, 'Cafe') AS cafe_name 
+       FROM telegram_sessions ts
+       LEFT JOIN cafes c ON ts.cafe_id = c.cafe_id
+       WHERE ts.role = 'cafe' AND ts.cafe_id IS NOT NULL`
+    );
 
-      await triggerDailyReportsForAllCafes({
-        closedDateStr,
-        timestampStr: tk.fullStr,
-        isTest: false,
-        ignoreDedupe: false,
-      });
+    for (const row of res.rows) {
+      const cafeId = row.cafe_id;
+      const lastSent = await getLastReportSentTime(cafeId);
+
+      // Agar avval yuborilmagan bo'lsa yoki oxirgi yuborilganidan beri 23 soat o'tgan bo'lsa
+      if (!lastSent || (nowMs - lastSent >= REPORT_INTERVAL_MS)) {
+        console.log(`⏰ [23h Report] Cafe ${row.cafe_name} (${cafeId}) uchun hisobot vaqti yetdi (Oxirgi: ${lastSent ? new Date(lastSent).toISOString() : 'hech qachon'}).`);
+        await sendDailyReportForCafe({
+          cafeId,
+          cafeName: row.cafe_name,
+          isTest: false,
+          ignoreDedupe: false,
+        });
+      }
     }
   } catch (err) {
     console.error('❌ [Telegram Bot] checkAndSendDailyReports xatosi:', err.message);
@@ -905,19 +1074,19 @@ const checkAndSendDailyReports = async () => {
 };
 
 /**
- * Kunlik hisobot rejalashtiruvchisini ishga tushirish
+ * 23 soatlik avtomatik hisobot rejalashtiruvchisini ishga tushirish
  */
 const startDailyReportScheduler = () => {
   if (dailyReportCronInterval) {
     clearInterval(dailyReportCronInterval);
   }
-  // Har 30 soniyada bir marta tekshirish (aniq 00:00:00 ni ushlaydi)
-  dailyReportCronInterval = setInterval(checkAndSendDailyReports, 30 * 1000);
-  console.log('⏰ [Telegram Bot] 24:00 (Asia/Tashkent) kunlik hisobot rejalashtiruvchisi (scheduler) ishga tushdi.');
+  // Har 60 soniyada bir marta oraliqni tekshiradi
+  dailyReportCronInterval = setInterval(checkAndSendDailyReports, 60 * 1000);
+  console.log(`⏰ [Telegram Bot] ${REPORT_INTERVAL_HOURS} soatlik avtomatik hisobot rejalashtiruvchisi (Asia/Tashkent) ishga tushdi.`);
 
-  // Bot qayta yuklanganda darhol tekshirish
+  // Bot qayta yuklanganda darhol tekshirish: agar 23 soat o'tgan bo'lsa zudlik bilan yuboradi
   checkAndSendDailyReports().catch((e) => {
-    console.error('❌ [Telegram Bot] Startup check error:', e.message);
+    console.error('❌ [Telegram Bot] Startup report check xatosi:', e.message);
   });
 };
 

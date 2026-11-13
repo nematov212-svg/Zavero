@@ -2501,7 +2501,7 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                                 color: kDarkYellow.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Text(
+                              child: const Text(
                                 'Katalog',
                                 style: TextStyle(
                                   fontSize: 11,
@@ -2664,7 +2664,7 @@ class _PresetImagesPickerDialogState extends State<PresetImagesPickerDialog> {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
                     children: [
-                      Icon(Icons.filter_list_rounded, size: 16, color: kDarkYellow),
+                      const Icon(Icons.filter_list_rounded, size: 16, color: kDarkYellow),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
